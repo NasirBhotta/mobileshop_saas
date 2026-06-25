@@ -10,6 +10,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/',
     redirect: (context, state) async {
       final location = state.uri.path;
+
       final prefs = await SharedPreferences.getInstance();
       final seenIntro = prefs.getBool('intro_seen') ?? false;
 
@@ -45,7 +46,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
-      GoRoute(path: '/', redirect: (_, __) => null),
+      GoRoute(path: '/', redirect: (_, _) => null),
       GoRoute(
         path: '/intro',
         builder: (context, state) => const _IntroScreen(),

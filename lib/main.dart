@@ -11,7 +11,7 @@ import 'core/constants/app_strings.dart';
 
 void main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
-
+  debugPrint("flutter native splash is running");
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   await _initializeApp();
