@@ -1,22 +1,139 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../features/auth/presentation/screens/login_screen.dart';
+final appRouterProvider = Provider<GoRouter>((ref) {
+  return GoRouter(
+    initialLocation: '/',
+    redirect: (context, state) async {
+      final location = state.uri.path;
+      final prefs = await SharedPreferences.getInstance();
+      final seenIntro = prefs.getBool('intro_seen') ?? false;
 
-class AppRouter {
-  const AppRouter._();
+      if (!seenIntro) {
+        return location == '/intro' ? null : '/intro';
+      }
 
-  static const String login = '/login';
+      if (location == '/intro') {
+        return '/';
+      }
 
-  static Route<dynamic> onGenerateRoute(RouteSettings settings) {
-    return MaterialPageRoute<void>(
-      settings: settings,
-      builder: (_) {
-        switch (settings.name) {
-          case login:
-          default:
-            return const LoginScreen();
-        }
-      },
+      final session = Supabase.instance.client.auth.currentSession;
+      final isAuthRoute = location == '/login' || location == '/signup';
+
+      if (session == null) {
+        return isAuthRoute ? null : '/login';
+      }
+
+      if (isAuthRoute) {
+        return '/';
+      }
+
+      final setupDone = await _isShopSetupDone(session.user.id);
+
+      if (!setupDone) {
+        return location == '/setup' ? null : '/setup';
+      }
+
+      if (location == '/' || location == '/setup') {
+        return '/dashboard';
+      }
+
+      return null;
+    },
+    routes: [
+      GoRoute(path: '/', redirect: (_, __) => null),
+      GoRoute(
+        path: '/intro',
+        builder: (context, state) => const _IntroScreen(),
+      ),
+      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(
+        path: '/signup',
+        builder:
+            (context, state) => const _FlowPlaceholderScreen(
+              title: 'Create account',
+              message: 'Signup screen is not implemented yet.',
+            ),
+      ),
+      GoRoute(
+        path: '/setup',
+        builder:
+            (context, state) => const _FlowPlaceholderScreen(
+              title: 'Shop setup',
+              message: 'Shop setup screen is not implemented yet.',
+            ),
+      ),
+      GoRoute(
+        path: '/dashboard',
+        builder:
+            (context, state) => const _FlowPlaceholderScreen(
+              title: 'Dashboard',
+              message: 'Dashboard screen is not implemented yet.',
+            ),
+      ),
+    ],
+  );
+});
+
+Future<bool> _isShopSetupDone(String userId) async {
+  final profile =
+      await Supabase.instance.client
+          .from('profiles')
+          .select('shop_name')
+          .eq('id', userId)
+          .maybeSingle();
+
+  final shopName = profile?['shop_name'];
+  return shopName is String && shopName.trim().isNotEmpty;
+}
+
+class _IntroScreen extends StatelessWidget {
+  const _IntroScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: FilledButton(
+          onPressed: () async {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('intro_seen', true);
+
+            if (context.mounted) {
+              context.go('/');
+            }
+          },
+          child: const Text('Get started'),
+        ),
+      ),
+    );
+  }
+}
+
+class _FlowPlaceholderScreen extends StatelessWidget {
+  const _FlowPlaceholderScreen({required this.title, required this.message});
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+        ),
+      ),
     );
   }
 }

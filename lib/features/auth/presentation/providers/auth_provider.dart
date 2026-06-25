@@ -1,30 +1,52 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/repositories/auth_repository.dart';
 import '../../domain/entities/user_entity.dart';
 
-class AuthProvider extends ChangeNotifier {
-  AuthProvider({AuthRepository? repository})
-    : _repository = repository ?? AuthRepository();
+final authProvider = NotifierProvider<AuthProvider, AuthState>(
+  AuthProvider.new,
+);
 
-  final AuthRepository _repository;
+class AuthState {
+  const AuthState({this.user, this.isLoading = false, this.errorMessage});
 
-  UserEntity? user;
-  bool isLoading = false;
-  String? errorMessage;
+  final UserEntity? user;
+  final bool isLoading;
+  final String? errorMessage;
+
+  AuthState copyWith({
+    UserEntity? user,
+    bool? isLoading,
+    String? errorMessage,
+    bool clearError = false,
+  }) {
+    return AuthState(
+      user: user ?? this.user,
+      isLoading: isLoading ?? this.isLoading,
+      errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+    );
+  }
+}
+
+class AuthProvider extends Notifier<AuthState> {
+  final AuthRepository _repository = AuthRepository();
+
+  @override
+  AuthState build() {
+    return const AuthState();
+  }
 
   Future<void> signIn({required String email, required String password}) async {
-    isLoading = true;
-    errorMessage = null;
-    notifyListeners();
+    state = state.copyWith(isLoading: true, clearError: true);
 
     try {
-      user = await _repository.signIn(email: email, password: password);
+      final user = await _repository.signIn(email: email, password: password);
+      state = state.copyWith(user: user, isLoading: false);
     } catch (_) {
-      errorMessage = 'Unable to sign in';
-    } finally {
-      isLoading = false;
-      notifyListeners();
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: 'Unable to sign in',
+      );
     }
   }
 }
