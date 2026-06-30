@@ -1,27 +1,58 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../models/user_model.dart';
-
 class AuthRepository {
-  Future<UserModel> signIn({
+  final SupabaseClient _client = Supabase.instance.client;
+
+  // ── Email/Password Login ──
+  Future<AuthResponse> signInWithPassword({
     required String email,
     required String password,
-  }) async {
-    final normalizedEmail = email.trim();
-    final response = await Supabase.instance.client.auth.signInWithPassword(
-      email: normalizedEmail,
+  }) {
+    return _client.auth.signInWithPassword(email: email, password: password);
+  }
+
+  // ── Email/Password Signup ──
+  Future<AuthResponse> signUp({
+    required String email,
+    required String password,
+    required String fullName,
+    String? phone,
+  }) {
+    return _client.auth.signUp(
+      email: email,
       password: password,
-    );
-
-    final user = response.user;
-    if (user == null) {
-      throw const AuthException('Unable to sign in');
-    }
-
-    return UserModel(
-      id: user.id,
-      email: user.email ?? normalizedEmail,
-      name: user.userMetadata?['name'] as String?,
+      data: {'full_name': fullName, if (phone != null) 'phone': phone},
     );
   }
+
+  // ── Google Sign In (Web + Mobile) ──
+  Future<bool> signInWithGoogle() {
+    return _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: 'io.supabase.mobileshop://login-callback/',
+    );
+  }
+
+  // ── OTP Send (future — Twilio setup ke baad active hoga) ──
+  Future<void> sendOtp({required String phone}) {
+    return _client.auth.signInWithOtp(phone: phone);
+  }
+
+  // ── OTP Verify ──
+  Future<AuthResponse> verifyOtp({
+    required String phone,
+    required String token,
+  }) {
+    return _client.auth.verifyOTP(
+      phone: phone,
+      token: token,
+      type: OtpType.sms,
+    );
+  }
+
+  Future<void> signOut() => _client.auth.signOut();
+
+  Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
+
+  User? get currentUser => _client.auth.currentUser;
 }

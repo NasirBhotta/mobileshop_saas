@@ -1,52 +1,70 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/repositories/auth_repository.dart';
-import '../../domain/entities/user_entity.dart';
 
-final authProvider = NotifierProvider<AuthProvider, AuthState>(
-  AuthProvider.new,
-);
+final authRepositoryProvider = Provider<AuthRepository>((ref) {
+  return AuthRepository();
+});
 
-class AuthState {
-  const AuthState({this.user, this.isLoading = false, this.errorMessage});
+final authStateProvider = StreamProvider<AuthState>((ref) {
+  return ref.watch(authRepositoryProvider).authStateChanges;
+});
 
-  final UserEntity? user;
-  final bool isLoading;
-  final String? errorMessage;
+final authControllerProvider =
+    StateNotifierProvider<AuthController, AsyncValue<void>>((ref) {
+      return AuthController(ref.watch(authRepositoryProvider));
+    });
 
-  AuthState copyWith({
-    UserEntity? user,
-    bool? isLoading,
-    String? errorMessage,
-    bool clearError = false,
-  }) {
-    return AuthState(
-      user: user ?? this.user,
-      isLoading: isLoading ?? this.isLoading,
-      errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
-    );
-  }
-}
+class AuthController extends StateNotifier<AsyncValue<void>> {
+  final AuthRepository _repository;
 
-class AuthProvider extends Notifier<AuthState> {
-  final AuthRepository _repository = AuthRepository();
+  AuthController(this._repository) : super(const AsyncData(null));
 
-  @override
-  AuthState build() {
-    return const AuthState();
-  }
-
-  Future<void> signIn({required String email, required String password}) async {
-    state = state.copyWith(isLoading: true, clearError: true);
-
+  Future<bool> login({required String email, required String password}) async {
+    state = const AsyncLoading();
     try {
-      final user = await _repository.signIn(email: email, password: password);
-      state = state.copyWith(user: user, isLoading: false);
-    } catch (_) {
-      state = state.copyWith(
-        isLoading: false,
-        errorMessage: 'Unable to sign in',
+      await _repository.signInWithPassword(email: email, password: password);
+      state = const AsyncData(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
+
+  Future<bool> signup({
+    required String email,
+    required String password,
+    required String fullName,
+    String? phone,
+  }) async {
+    state = const AsyncLoading();
+    try {
+      await _repository.signUp(
+        email: email,
+        password: password,
+        fullName: fullName,
+        phone: phone,
       );
+      state = const AsyncData(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
+
+  Future<bool> loginWithGoogle() async {
+    state = const AsyncLoading();
+    try {
+      await _repository.signInWithGoogle();
+      state = const AsyncData(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
     }
   }
 }

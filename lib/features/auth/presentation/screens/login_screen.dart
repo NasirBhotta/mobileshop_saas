@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../core/constants/app_sizes.dart';
-import '../../../../core/constants/app_strings.dart';
-import '../../../../core/utils/validators.dart';
-import '../../../../shared/widgets/app_button.dart';
-import '../../../../shared/widgets/app_text_field.dart';
+import '../../../../core/constants/app_colors.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/auth_text_field.dart';
+import '../widgets/social_login_button.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -28,84 +26,153 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final isValid = _formKey.currentState?.validate() ?? false;
-    if (!isValid) {
-      return;
-    }
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
 
-    await ref
-        .read(authProvider.notifier)
-        .signIn(
-          email: _emailController.text,
+    final success = await ref
+        .read(authControllerProvider.notifier)
+        .login(
+          email: _emailController.text.trim(),
           password: _passwordController.text,
         );
 
-    final auth = ref.read(authProvider);
-    if (!mounted || auth.errorMessage != null) {
-      return;
+    if (success && mounted) {
+      context.go('/dashboard'); // router redirect bhi handle karega
     }
-
-    context.go('/');
   }
 
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authProvider);
+    final authState = ref.watch(authControllerProvider);
+    final isLoading = authState.isLoading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text(AppStrings.appName)),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: const EdgeInsets.all(AppSizes.lg),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    AppStrings.loginTitle,
-                    style: Theme.of(context).textTheme.headlineSmall,
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Welcome Back',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
                   ),
-                  const SizedBox(height: AppSizes.lg),
-                  AppTextField(
-                    controller: _emailController,
-                    labelText: AppStrings.email,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: Validators.email,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Apni dukaan ka dashboard access karein',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
                   ),
-                  const SizedBox(height: AppSizes.md),
-                  AppTextField(
-                    controller: _passwordController,
-                    labelText: AppStrings.password,
-                    obscureText: true,
-                    validator: (value) {
-                      return Validators.required(
-                        value,
-                        fieldName: AppStrings.password,
-                      );
-                    },
+                ),
+                const SizedBox(height: 32),
+
+                AuthTextField(
+                  controller: _emailController,
+                  label: 'Email',
+                  hint: 'you@example.com',
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (value) {
+                    if (value == null || value.isEmpty)
+                      return 'Email required hai';
+                    if (!value.contains('@')) return 'Valid email likhein';
+                    return null;
+                  },
+                ),
+
+                AuthTextField(
+                  controller: _passwordController,
+                  label: 'Password',
+                  hint: '••••••••',
+                  isPassword: true,
+                  validator: (value) {
+                    if (value == null || value.length < 6) {
+                      return 'Kam az kam 6 characters chahiye';
+                    }
+                    return null;
+                  },
+                ),
+
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => context.push('/otp-login'),
+                    child: const Text('Login with OTP instead'),
                   ),
-                  const SizedBox(height: AppSizes.lg),
-                  if (auth.errorMessage != null) ...[
-                    Text(
-                      auth.errorMessage!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(height: 8),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : _handleLogin,
+                    child:
+                        isLoading
+                            ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                            : const Text('Login'),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                Row(
+                  children: const [
+                    Expanded(child: Divider(color: AppColors.border)),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        'OR',
+                        style: TextStyle(color: AppColors.textSecondary),
                       ),
                     ),
-                    const SizedBox(height: AppSizes.md),
+                    Expanded(child: Divider(color: AppColors.border)),
                   ],
-                  AppButton(
-                    label: AppStrings.loginTitle,
-                    isLoading: auth.isLoading,
-                    onPressed: _submit,
+                ),
+                const SizedBox(height: 24),
+
+                SocialLoginButton(
+                  label: 'Continue with Google',
+                  icon: Icons.g_mobiledata_rounded,
+                  onPressed: () async {
+                    await ref
+                        .read(authControllerProvider.notifier)
+                        .loginWithGoogle();
+                  },
+                ),
+                const SizedBox(height: 32),
+
+                Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text("Account nahi hai? "),
+                      GestureDetector(
+                        onTap: () => context.push('/signup'),
+                        child: const Text(
+                          'Sign Up',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.dart';
+import 'package:mobileshop_saas/features/onboarding/presentation/screens/app_intro_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -12,6 +13,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final location = state.uri.path;
 
       final prefs = await SharedPreferences.getInstance();
+
       final seenIntro = prefs.getBool('intro_seen') ?? false;
 
       if (!seenIntro) {
@@ -49,7 +51,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/', redirect: (_, _) => null),
       GoRoute(
         path: '/intro',
-        builder: (context, state) => const _IntroScreen(),
+        builder: (context, state) => const AppIntroScreen(),
       ),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
@@ -92,28 +94,28 @@ Future<bool> _isShopSetupDone(String userId) async {
   return shopName is String && shopName.trim().isNotEmpty;
 }
 
-class _IntroScreen extends StatelessWidget {
-  const _IntroScreen();
+// class _IntroScreen extends StatelessWidget {
+//   const _IntroScreen();
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: FilledButton(
-          onPressed: () async {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setBool('intro_seen', true);
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       body: Center(
+//         child: FilledButton(
+//           onPressed: () async {
+//             final prefs = await SharedPreferences.getInstance();
+//             await prefs.setBool('intro_seen', true);
 
-            if (context.mounted) {
-              context.go('/');
-            }
-          },
-          child: const Text('Get started'),
-        ),
-      ),
-    );
-  }
-}
+//             if (context.mounted) {
+//               context.go('/');
+//             }
+//           },
+//           child: const Text('Get started'),
+//         ),
+//       ),
+//     );
+//   }
+// }
 
 class _FlowPlaceholderScreen extends StatelessWidget {
   const _FlowPlaceholderScreen({required this.title, required this.message});
