@@ -17,12 +17,25 @@ class AuthRepository {
     required String password,
     required String fullName,
     String? phone,
-  }) {
-    return _client.auth.signUp(
+  }) async {
+    final response = await _client.auth.signUp(
       email: email,
       password: password,
-      data: {'full_name': fullName, if (phone != null) 'phone': phone},
+      data: {'full_name': fullName},
     );
+
+    // Signup ke turant baad users table mein basic row banao
+    if (response.user != null) {
+      await _client.from('users').insert({
+        'id': response.user!.id,
+        'full_name': fullName,
+        'email': email,
+        'phone': phone,
+        'role': 'owner',
+      });
+    }
+
+    return response;
   }
 
   // ── Google Sign In (Web + Mobile) ──

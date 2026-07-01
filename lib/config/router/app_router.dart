@@ -2,9 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.dart';
+import 'package:mobileshop_saas/features/auth/presentation/screens/signup_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/app_intro_screen.dart';
+import 'package:mobileshop_saas/features/onboarding/presentation/screens/shop_setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+final profileCompleteProvider = FutureProvider<bool>((ref) async {
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) return false;
+
+  final response =
+      await Supabase.instance.client
+          .from('users')
+          .select('tenant_id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+  return response?['tenant_id'] != null;
+});
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -56,19 +72,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
         path: '/signup',
-        builder:
-            (context, state) => const _FlowPlaceholderScreen(
-              title: 'Create account',
-              message: 'Signup screen is not implemented yet.',
-            ),
+        builder: (context, state) => const SignupScreen(),
       ),
       GoRoute(
         path: '/setup',
-        builder:
-            (context, state) => const _FlowPlaceholderScreen(
-              title: 'Shop setup',
-              message: 'Shop setup screen is not implemented yet.',
-            ),
+        builder: (context, state) => const ShopSetupScreen(),
       ),
       GoRoute(
         path: '/dashboard',

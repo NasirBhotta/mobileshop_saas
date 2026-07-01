@@ -93,4 +93,51 @@ class AppStrings {
   static const String somethingWentWrong =
       'Kuch ghalat ho gaya, dobara try karein';
   static const String retry = 'Dobara Koshish Karein';
+
+  // ═══════════════════════════════════════
+  // Shop Setup
+  // ═══════════════════════════════════════
+  static const String setupTitle = 'Apni Dukaan Set Up Karein';
+  static const String setupStepOf = 'Step %d of %d';
+
+  // Step 1: Basics
+  static const String setupStep1Title = 'Dukaan Ki Basic Maloomat';
+  static const String setupStep1Subtitle =
+      'Apni dukaan ka naam aur location batayein';
+  static const String fieldShopName = 'Dukaan Ka Naam';
+  static const String hintShopName = 'Ali Mobile Center';
+  static const String fieldCity = 'Shehar';
+  static const String hintCity = 'Lahore';
+  static const String fieldAddress = 'Pura Address';
+  static const String hintAddress = 'Dukaan ka address likhein';
+  static const String errorShopNameRequired =
+      'Dukaan ka naam likhna zaroori hai';
+  static const String errorCityRequired = 'Shehar likhna zaroori hai';
+  static const String errorAddressRequired = 'Address likhna zaroori hai';
+
+  // Step 2: Business Details
+  static const String setupStep2Title = 'Business Ki Tafseelat';
+  static const String setupStep2Subtitle =
+      'Apna business type aur branches batayein';
+  static const String fieldBusinessType = 'Business Type';
+  static const String fieldBranchCount = 'Kitni Branches Hain?';
+  static const String businessTypeMobile = 'Mobile Phone Shop';
+  static const String businessTypeElectronics = 'Electronics Shop';
+  static const String businessTypeBoth = 'Mobile + Electronics';
+  static const String errorBusinessTypeRequired = 'Business type select karein';
+
+  // Step 3: Confirmation
+  static const String setupStep3Title = 'Sab Theek Hai?';
+  static const String setupStep3Subtitle =
+      'Ek baar check kar lein, phir setup complete karein';
+  static const String confirmShopName = 'Dukaan Ka Naam';
+  static const String confirmCity = 'Shehar';
+  static const String confirmAddress = 'Address';
+  static const String confirmBusinessType = 'Business Type';
+  static const String confirmBranches = 'Branches';
+
+  // Buttons
+  static const String setupNext = 'Agla Step';
+  static const String setupBack = 'Pichla Step';
+  static const String setupFinish = 'Setup Complete Karein';
 }
