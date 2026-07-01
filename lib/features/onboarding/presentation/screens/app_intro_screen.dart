@@ -5,6 +5,7 @@ import 'package:mobileshop_saas/features/onboarding/presentation/providers/intro
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/utils/responsive.dart';
 import '../../data/models/intro_page_model.dart';
 import '../widgets/intro_page_widget.dart';
 
@@ -51,74 +52,84 @@ class _AppIntroScreenState extends ConsumerState<AppIntroScreen> {
   Widget build(BuildContext context) {
     final currentPage = ref.watch(introControllerProvider);
     final isLastPage = currentPage == IntroData.pages.length - 1;
+    final isDesktop = Responsive.isDesktop(context);
 
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Column(
-          children: [
-            // ── Skip Button ──
-            Align(
-              alignment: Alignment.topRight,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 8,
-                ),
-                child: TextButton(
-                  onPressed: _finishIntro,
-                  child: const Text(
-                    'Skip',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w600,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: isDesktop ? 560 : double.infinity,
+            ),
+            child: Column(
+              children: [
+                // ── Skip Button ──
+                Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 8,
+                    ),
+                    child: TextButton(
+                      onPressed: _finishIntro,
+                      child: const Text(
+                        'Skip',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
 
-            // ── PageView ──
-            Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                itemCount: IntroData.pages.length,
-                onPageChanged: (index) {
-                  ref.read(introControllerProvider.notifier).setPage(index);
-                },
-                itemBuilder: (context, index) {
-                  return IntroPageWidget(page: IntroData.pages[index]);
-                },
-              ),
-            ),
-
-            // ── Indicator ──
-            SmoothPageIndicator(
-              controller: _pageController,
-              count: IntroData.pages.length,
-              effect: const ExpandingDotsEffect(
-                activeDotColor: AppColors.primary,
-                dotColor: AppColors.border,
-                dotHeight: 8,
-                dotWidth: 8,
-                expansionFactor: 3,
-              ),
-            ),
-            const SizedBox(height: 32),
-
-            // ── Next / Get Started Button ──
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _nextPage,
-                  child: Text(isLastPage ? 'Get Started' : 'Next'),
+                // ── PageView ──
+                Expanded(
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: IntroData.pages.length,
+                    onPageChanged: (index) {
+                      ref.read(introControllerProvider.notifier).setPage(index);
+                    },
+                    itemBuilder: (context, index) {
+                      return IntroPageWidget(page: IntroData.pages[index]);
+                    },
+                  ),
                 ),
-              ),
+
+                // ── Indicator ──
+                SmoothPageIndicator(
+                  controller: _pageController,
+                  count: IntroData.pages.length,
+                  effect: const ExpandingDotsEffect(
+                    activeDotColor: AppColors.primary,
+                    dotColor: AppColors.border,
+                    dotHeight: 8,
+                    dotWidth: 8,
+                    expansionFactor: 3,
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // ── Next / Get Started Button ──
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 48 : 24,
+                  ),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _nextPage,
+                      child: Text(isLastPage ? 'Get Started' : 'Next'),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
             ),
-            const SizedBox(height: 24),
-          ],
+          ),
         ),
       ),
     );

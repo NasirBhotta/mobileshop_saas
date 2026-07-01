@@ -140,4 +140,32 @@ class AppStrings {
   static const String setupNext = 'Agla Step';
   static const String setupBack = 'Pichla Step';
   static const String setupFinish = 'Setup Complete Karein';
+
+  // ═══════════════════════════════════════
+  // Dashboard
+  // ═══════════════════════════════════════
+  static const String navDashboard = 'Dashboard';
+  static const String navInventory = 'Inventory';
+  static const String navPos = 'Sale';
+  static const String navRepairs = 'Repairs';
+  static const String navMore = 'More';
+  static const String navReports = 'Reports';
+  static const String navCustomers = 'Customers';
+  static const String navSettings = 'Settings';
+  static const String navSuppliers = 'Suppliers';
+  static const String navExpenses = 'Expenses';
+
+  static const String dashboardTitle = 'Dashboard';
+  static const String dashboardWelcome = 'Khush Aamdeed';
+  static const String dashboardTodaySales = 'Aaj Ki Sales';
+  static const String dashboardTotalStock = 'Total Stock';
+  static const String dashboardActiveRepairs = 'Active Repairs';
+  static const String dashboardLowStock = 'Low Stock Items';
+  static const String dashboardQuickActions = 'Quick Actions';
+  static const String dashboardRecentSales = 'Recent Sales';
+
+  static const String actionNewSale = 'Naya Sale';
+  static const String actionAddProduct = 'Product Add Karo';
+  static const String actionNewRepair = 'Naya Repair';
+  static const String actionAddExpense = 'Expense Add Karo';
 }

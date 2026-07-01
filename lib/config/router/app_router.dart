@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/signup_screen.dart';
+import 'package:mobileshop_saas/features/dashboard/presentation/screens/dashboard_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/app_intro_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/shop_setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -80,11 +80,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/dashboard',
-        builder:
-            (context, state) => const _FlowPlaceholderScreen(
-              title: 'Dashboard',
-              message: 'Dashboard screen is not implemented yet.',
-            ),
+        builder: (context, state) => const DashboardScreen(),
       ),
     ],
   );
@@ -100,51 +96,4 @@ Future<bool> _isShopSetupDone(String userId) async {
 
   final shopName = profile?['shop_name'];
   return shopName is String && shopName.trim().isNotEmpty;
-}
-
-// class _IntroScreen extends StatelessWidget {
-//   const _IntroScreen();
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       body: Center(
-//         child: FilledButton(
-//           onPressed: () async {
-//             final prefs = await SharedPreferences.getInstance();
-//             await prefs.setBool('intro_seen', true);
-
-//             if (context.mounted) {
-//               context.go('/');
-//             }
-//           },
-//           child: const Text('Get started'),
-//         ),
-//       ),
-//     );
-//   }
-// }
-
-class _FlowPlaceholderScreen extends StatelessWidget {
-  const _FlowPlaceholderScreen({required this.title, required this.message});
-
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            message,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
-        ),
-      ),
-    );
-  }
 }
