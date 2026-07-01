@@ -6,6 +6,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/auth_layout.dart';
+import '../widgets/auth_status_message.dart';
 import '../widgets/auth_text_field.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
@@ -24,13 +25,37 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   final _confirmPasswordController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    _nameController.addListener(_clearAuthError);
+    _emailController.addListener(_clearAuthError);
+    _phoneController.addListener(_clearAuthError);
+    _passwordController.addListener(_clearAuthError);
+    _confirmPasswordController.addListener(_clearAuthError);
+    Future.microtask(() {
+      ref.read(authControllerProvider.notifier).clearStatus();
+    });
+  }
+
+  @override
   void dispose() {
+    _nameController.removeListener(_clearAuthError);
+    _emailController.removeListener(_clearAuthError);
+    _phoneController.removeListener(_clearAuthError);
+    _passwordController.removeListener(_clearAuthError);
+    _confirmPasswordController.removeListener(_clearAuthError);
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  void _clearAuthError() {
+    if (ref.read(authControllerProvider).hasError) {
+      ref.read(authControllerProvider.notifier).clearStatus();
+    }
   }
 
   Future<void> _handleSignup() async {
@@ -46,9 +71,18 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         );
 
     if (success && mounted) {
-      // Router redirect khud bhi /setup pe le jayega (profile incomplete hone ki wajah se),
-      // lekin explicit navigation se UX fast lagta hai
       context.go('/setup');
+
+      // Email verification is temporarily disabled during development.
+      // Re-enable this when Supabase email confirmation is turned back on.
+      // final session = Supabase.instance.client.auth.currentSession;
+      // if (session != null) {
+      //   context.go('/setup');
+      //   return;
+      // }
+      //
+      // final email = Uri.encodeComponent(_emailController.text.trim());
+      // context.go('/verify-email?email=$email');
     }
   }
 
@@ -56,6 +90,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
     final isLoading = authState.isLoading;
+    final error = authState.hasError ? authState.error : null;
 
     return AuthLayout(
       maxWidth: 520,
@@ -91,6 +126,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
               ),
             ),
             const SizedBox(height: 32),
+            if (error != null) AuthStatusMessage(error: error),
 
             // ── Full Name ──
             AuthTextField(

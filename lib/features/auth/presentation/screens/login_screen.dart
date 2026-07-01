@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/auth_layout.dart';
+import '../widgets/auth_status_message.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
 
@@ -21,10 +22,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    _emailController.addListener(_clearAuthError);
+    _passwordController.addListener(_clearAuthError);
+    Future.microtask(() {
+      ref.read(authControllerProvider.notifier).clearStatus();
+    });
+  }
+
+  @override
   void dispose() {
+    _emailController.removeListener(_clearAuthError);
+    _passwordController.removeListener(_clearAuthError);
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  void _clearAuthError() {
+    if (ref.read(authControllerProvider).hasError) {
+      ref.read(authControllerProvider.notifier).clearStatus();
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -46,6 +65,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
     final isLoading = authState.isLoading;
+    final error = authState.hasError ? authState.error : null;
 
     return AuthLayout(
       child: Form(
@@ -67,6 +87,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 32),
+            if (error != null) AuthStatusMessage(error: error),
 
             AuthTextField(
               controller: _emailController,
@@ -96,15 +117,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 return null;
               },
             ),
-
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () => context.push('/otp-login'),
-                child: const Text('Login with OTP instead'),
-              ),
-            ),
-            const SizedBox(height: 8),
 
             SizedBox(
               width: double.infinity,
@@ -143,11 +155,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             SocialLoginButton(
               label: 'Continue with Google',
               icon: Icons.g_mobiledata_rounded,
-              onPressed: () async {
-                await ref
-                    .read(authControllerProvider.notifier)
-                    .loginWithGoogle();
-              },
+              onPressed:
+                  isLoading
+                      ? null
+                      : () async {
+                        await ref
+                            .read(authControllerProvider.notifier)
+                            .loginWithGoogle();
+                      },
             ),
             const SizedBox(height: 32),
 

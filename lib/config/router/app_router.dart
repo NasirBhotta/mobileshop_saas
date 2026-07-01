@@ -74,6 +74,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/signup',
         builder: (context, state) => const SignupScreen(),
       ),
+      // Email verification screen is temporarily disabled during development.
+      // Re-enable this route when email confirmation is turned back on.
+      // GoRoute(
+      //   path: '/verify-email',
+      //   builder:
+      //       (context, state) => EmailVerificationPendingScreen(
+      //         email: state.uri.queryParameters['email'] ?? '',
+      //       ),
+      // ),
       GoRoute(
         path: '/setup',
         builder: (context, state) => const ShopSetupScreen(),
@@ -87,13 +96,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 });
 
 Future<bool> _isShopSetupDone(String userId) async {
-  final profile =
-      await Supabase.instance.client
-          .from('profiles')
-          .select('shop_name')
-          .eq('id', userId)
-          .maybeSingle();
+  try {
+    final user =
+        await Supabase.instance.client
+            .from('users')
+            .select('tenant_id')
+            .eq('id', userId)
+            .maybeSingle();
 
-  final shopName = profile?['shop_name'];
-  return shopName is String && shopName.trim().isNotEmpty;
+    return user?['tenant_id'] != null;
+  } catch (_) {
+    return false;
+  }
 }

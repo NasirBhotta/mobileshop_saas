@@ -25,7 +25,7 @@ class AuthRepository {
     );
 
     // Signup ke turant baad users table mein basic row banao
-    if (response.user != null) {
+    if (response.user != null && response.session != null) {
       await _client.from('users').insert({
         'id': response.user!.id,
         'full_name': fullName,

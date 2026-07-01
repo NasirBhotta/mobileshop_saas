@@ -9,6 +9,7 @@ import '../providers/shop_setup_provider.dart';
 import '../widgets/setup_step_basics.dart';
 import '../widgets/setup_step_business.dart';
 import '../widgets/setup_step_confirm.dart';
+import '../widgets/setup_status_message.dart';
 
 class ShopSetupScreen extends ConsumerStatefulWidget {
   const ShopSetupScreen({super.key});
@@ -51,7 +52,12 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
     // Step 2 validation
     if (currentStep == 1) {
       final data = ref.read(shopSetupDataProvider);
-      if (data.businessType.isEmpty) return;
+      if (data.businessType.isEmpty) {
+        ref
+            .read(setupSubmitControllerProvider.notifier)
+            .setValidationError('Business type required');
+        return;
+      }
     }
 
     if (currentStep < _totalSteps - 1) {
@@ -82,6 +88,7 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
     final setupData = ref.watch(shopSetupDataProvider);
     final submitState = ref.watch(setupSubmitControllerProvider);
     final isSubmitting = submitState.isLoading;
+    final submitError = submitState.hasError ? submitState.error : null;
     final isDesktop = Responsive.isDesktop(context);
 
     return Scaffold(
@@ -157,6 +164,9 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
                             branchCount: setupData.branchCount,
                             onTypeChanged: (type) {
                               ref
+                                  .read(setupSubmitControllerProvider.notifier)
+                                  .clearStatus();
+                              ref
                                   .read(shopSetupDataProvider.notifier)
                                   .updateBusinessDetails(
                                     businessType: type,
@@ -164,6 +174,9 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
                                   );
                             },
                             onBranchCountChanged: (count) {
+                              ref
+                                  .read(setupSubmitControllerProvider.notifier)
+                                  .clearStatus();
                               ref
                                   .read(shopSetupDataProvider.notifier)
                                   .updateBusinessDetails(
@@ -179,6 +192,8 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
                   ),
 
                   // ── Navigation Buttons ──
+                  if (submitError != null)
+                    SetupStatusMessage(error: submitError),
                   Row(
                     children: [
                       if (currentStep > 0)

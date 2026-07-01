@@ -17,10 +17,45 @@ final authControllerProvider =
       return AuthController(ref.watch(authRepositoryProvider));
     });
 
+final authListenerProvider = StreamProvider<void>((ref) async* {
+  final repo = ref.watch(authRepositoryProvider);
+
+  await for (final authState in repo.authStateChanges) {
+    // Sirf pehli baar sign in pe (email verify ke baad)
+    if (authState.event == AuthChangeEvent.signedIn) {
+      final user = authState.session?.user;
+      if (user == null) continue;
+
+      // Check karo users table mein already hai ya nahi
+      final existing =
+          await Supabase.instance.client
+              .from('users')
+              .select('id')
+              .eq('id', user.id)
+              .maybeSingle();
+
+      // Nahi hai toh insert karo
+      if (existing == null) {
+        await Supabase.instance.client.from('users').insert({
+          'id': user.id,
+          'full_name': user.userMetadata?['full_name'] ?? '',
+          'email': user.email ?? '',
+          'phone': user.userMetadata?['phone'] ?? '',
+          'role': 'owner',
+        });
+      }
+    }
+  }
+});
+
 class AuthController extends StateNotifier<AsyncValue<void>> {
   final AuthRepository _repository;
 
   AuthController(this._repository) : super(const AsyncData(null));
+
+  void clearStatus() {
+    state = const AsyncData(null);
+  }
 
   Future<bool> login({required String email, required String password}) async {
     state = const AsyncLoading();

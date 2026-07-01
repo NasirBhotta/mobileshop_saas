@@ -1,6 +1,8 @@
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../data/models/shop_setup_model.dart';
 
@@ -46,6 +48,14 @@ class SetupSubmitController extends StateNotifier<AsyncValue<void>> {
 
   SetupSubmitController(this._ref) : super(const AsyncData(null));
 
+  void clearStatus() {
+    state = const AsyncData(null);
+  }
+
+  void setValidationError(String message) {
+    state = AsyncError(Exception(message), StackTrace.current);
+  }
+
   Future<bool> submitSetup() async {
     state = const AsyncLoading();
     try {
@@ -53,29 +63,37 @@ class SetupSubmitController extends StateNotifier<AsyncValue<void>> {
       final user = Supabase.instance.client.auth.currentUser;
 
       if (user == null) throw Exception('User not logged in');
+      if (data.businessType.isEmpty) throw Exception('Business type required');
+
+      final tenantId = const Uuid().v4();
+      debugPrint(
+        "shop name: ${data.shopName}, city: ${data.city}, address: ${data.address}, businessType: ${data.businessType}, branchCount: ${data.branchCount}",
+      );
+
+      await Supabase.instance.client.from('users').upsert({
+        'id': user.id,
+        'full_name': user.userMetadata?['full_name'] ?? '',
+        'email': user.email ?? '',
+        'phone': user.userMetadata?['phone'] ?? '',
+        'role': 'owner',
+        'tenant_id': tenantId,
+      }, onConflict: 'id');
 
       // 1. Tenant (shop) create karo
-      final tenantResponse =
-          await Supabase.instance.client
-              .from('tenants')
-              .insert({
-                'shop_name': data.shopName,
-                'city': data.city,
-                'address': data.address,
-                'business_type': data.businessType,
-                'branch_count': data.branchCount,
-                'setup_complete': true,
-              })
-              .select()
-              .single();
+      await Supabase.instance.client.from('tenants').insert({
+        'id': tenantId,
+        'shop_name': data.shopName,
+        'city': data.city,
+        'address': data.address,
+        'business_type': data.businessType,
+        'branch_count': data.branchCount,
+        'plan': 'free',
+        'status': 'active',
+        'setup_complete': true,
+      });
 
-      final tenantId = tenantResponse['id'];
-
-      // 2. User ko tenant se link karo
-      await Supabase.instance.client
-          .from('users')
-          .update({'tenant_id': tenantId})
-          .eq('id', user.id);
+      // 2. User ko tenant se link karo. Upsert keeps setup resilient if the
+      // users row was not created during signup.
 
       state = const AsyncData(null);
       return true;
