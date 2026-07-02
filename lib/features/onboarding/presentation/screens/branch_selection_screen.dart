@@ -102,12 +102,20 @@ class BranchSelectionScreen extends ConsumerWidget {
     final branchId = branch.id;
     if (user == null || branchId == null) return;
 
-    await ref
-        .read(setupFlowRepositoryProvider)
-        .selectBranch(userId: user.id, branchId: branchId);
+    try {
+      await ref
+          .read(setupFlowRepositoryProvider)
+          .selectBranch(userId: user.id, branchId: branchId);
 
-    if (context.mounted) {
-      context.go('/dashboard');
+      if (context.mounted) {
+        context.go('/dashboard');
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(friendlySetupError(error))));
+      }
     }
   }
 }
