@@ -1,12 +1,10 @@
-import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../data/models/shop_setup_model.dart';
+import '../../data/repositories/setup_flow_repository.dart';
 
-// ── Wizard data state ──
 final shopSetupDataProvider =
     StateNotifierProvider<ShopSetupNotifier, ShopSetupModel>((ref) {
       return ShopSetupNotifier();
@@ -20,7 +18,16 @@ class ShopSetupNotifier extends StateNotifier<ShopSetupModel> {
     required String city,
     required String address,
   }) {
-    state = state.copyWith(shopName: shopName, city: city, address: address);
+    state = state.copyWith(
+      shopName: shopName,
+      city: city,
+      address: address,
+      branches: _syncBranches(
+        branchCount: state.branchCount,
+        city: city,
+        address: address,
+      ),
+    );
   }
 
   void updateBusinessDetails({
@@ -29,15 +36,94 @@ class ShopSetupNotifier extends StateNotifier<ShopSetupModel> {
   }) {
     state = state.copyWith(
       businessType: businessType,
-      branchCount: branchCount,
+      branchCount: branchCount < 1 ? 1 : branchCount,
+      branches: _syncBranches(
+        branchCount: branchCount,
+        city: state.city,
+        address: state.address,
+      ),
+    );
+  }
+
+  void updateFromTenant({
+    required String shopName,
+    required String businessType,
+    required int branchCount,
+  }) {
+    state = state.copyWith(
+      shopName: shopName,
+      businessType: businessType,
+      branchCount: branchCount < 1 ? 1 : branchCount,
+      branches: _syncBranches(
+        branchCount: branchCount,
+        city: state.city,
+        address: state.address,
+      ),
+    );
+  }
+
+  List<BranchInputModel> _syncBranches({
+    required int branchCount,
+    required String city,
+    required String address,
+  }) {
+    final count = branchCount < 1 ? 1 : branchCount;
+    final branches = List<BranchInputModel>.from(state.branches);
+
+    while (branches.length < count) {
+      branches.add(BranchInputModel(name: 'Branch ${branches.length + 1}'));
+    }
+
+    if (branches.length > count) {
+      branches.removeRange(count, branches.length);
+    }
+
+    branches[0] = branches[0].copyWith(
+      name: branches[0].name.isEmpty ? 'Main Branch' : branches[0].name,
+      city: branches[0].city.isEmpty ? city : branches[0].city,
+      address: branches[0].address.isEmpty ? address : branches[0].address,
+    );
+
+    return branches;
+  }
+}
+
+final setupStepProvider = StateProvider<int>((ref) => 0);
+
+class SetupProgressState {
+  final bool isLoaded;
+  final String? tenantId;
+  final int branchCount;
+  final int completedBranches;
+
+  const SetupProgressState({
+    this.isLoaded = false,
+    this.tenantId,
+    this.branchCount = 1,
+    this.completedBranches = 0,
+  });
+
+  int get nextBranchNumber => completedBranches + 1;
+
+  SetupProgressState copyWith({
+    bool? isLoaded,
+    String? tenantId,
+    int? branchCount,
+    int? completedBranches,
+  }) {
+    return SetupProgressState(
+      isLoaded: isLoaded ?? this.isLoaded,
+      tenantId: tenantId ?? this.tenantId,
+      branchCount: branchCount ?? this.branchCount,
+      completedBranches: completedBranches ?? this.completedBranches,
     );
   }
 }
 
-// ── Current step index (0, 1, 2) ──
-final setupStepProvider = StateProvider<int>((ref) => 0);
+final setupProgressProvider = StateProvider<SetupProgressState>((ref) {
+  return const SetupProgressState();
+});
 
-// ── Submit controller ──
 final setupSubmitControllerProvider =
     StateNotifierProvider<SetupSubmitController, AsyncValue<void>>((ref) {
       return SetupSubmitController(ref);
@@ -45,6 +131,9 @@ final setupSubmitControllerProvider =
 
 class SetupSubmitController extends StateNotifier<AsyncValue<void>> {
   final Ref _ref;
+  late final SetupFlowRepository _repository = _ref.read(
+    setupFlowRepositoryProvider,
+  );
 
   SetupSubmitController(this._ref) : super(const AsyncData(null));
 
@@ -56,50 +145,114 @@ class SetupSubmitController extends StateNotifier<AsyncValue<void>> {
     state = AsyncError(Exception(message), StackTrace.current);
   }
 
-  Future<bool> submitSetup() async {
+  Future<void> loadResumeState() async {
+    state = const AsyncLoading();
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) throw Exception('User not logged in');
+
+      final status = await _repository.loadStatus(user.id);
+      final tenant = status.tenant;
+
+      if (tenant != null && status.target == SetupRouteTarget.setup) {
+        final branchCount = ((tenant['branch_count'] as num?) ?? 1).toInt();
+
+        _ref
+            .read(shopSetupDataProvider.notifier)
+            .updateFromTenant(
+              shopName: (tenant['shop_name'] as String?) ?? '',
+              businessType: (tenant['business_type'] as String?) ?? '',
+              branchCount: branchCount,
+            );
+
+        _ref.read(setupProgressProvider.notifier).state = SetupProgressState(
+          isLoaded: true,
+          tenantId: tenant['id'] as String?,
+          branchCount: branchCount,
+          completedBranches: status.branches.length,
+        );
+        _ref.read(setupStepProvider.notifier).state = 3;
+      } else {
+        _ref
+            .read(setupProgressProvider.notifier)
+            .state = const SetupProgressState(isLoaded: true);
+        _ref.read(setupStepProvider.notifier).state = 0;
+      }
+
+      state = const AsyncData(null);
+    } catch (e, st) {
+      state = AsyncError(e, st);
+    }
+  }
+
+  Future<bool> submitBusinessSetup() async {
     state = const AsyncLoading();
     try {
       final data = _ref.read(shopSetupDataProvider);
       final user = Supabase.instance.client.auth.currentUser;
 
       if (user == null) throw Exception('User not logged in');
+      if (data.shopName.trim().isEmpty) throw Exception('Shop name required');
       if (data.businessType.isEmpty) throw Exception('Business type required');
 
-      final tenantId = const Uuid().v4();
-      debugPrint(
-        "shop name: ${data.shopName}, city: ${data.city}, address: ${data.address}, businessType: ${data.businessType}, branchCount: ${data.branchCount}",
+      final tenantId = await _repository.ensureTenant(
+        user: user,
+        shopName: data.shopName.trim(),
+        businessType: data.businessType,
+        branchCount: data.branchCount,
       );
+      final completedBranches = await _repository.countBranches(tenantId);
 
-      await Supabase.instance.client.from('users').upsert({
-        'id': user.id,
-        'full_name': user.userMetadata?['full_name'] ?? '',
-        'email': user.email ?? '',
-        'phone': user.userMetadata?['phone'] ?? '',
-        'role': 'owner',
-        'tenant_id': tenantId,
-      }, onConflict: 'id');
-
-      // 1. Tenant (shop) create karo
-      await Supabase.instance.client.from('tenants').insert({
-        'id': tenantId,
-        'shop_name': data.shopName,
-        'city': data.city,
-        'address': data.address,
-        'business_type': data.businessType,
-        'branch_count': data.branchCount,
-        'plan': 'free',
-        'status': 'active',
-        'setup_complete': true,
-      });
-
-      // 2. User ko tenant se link karo. Upsert keeps setup resilient if the
-      // users row was not created during signup.
+      _ref.read(setupProgressProvider.notifier).state = SetupProgressState(
+        isLoaded: true,
+        tenantId: tenantId,
+        branchCount: data.branchCount,
+        completedBranches: completedBranches,
+      );
+      _ref.read(setupStepProvider.notifier).state = 3;
 
       state = const AsyncData(null);
       return true;
     } catch (e, st) {
       state = AsyncError(e, st);
       return false;
+    }
+  }
+
+  Future<SetupRouteTarget?> submitCurrentBranch(BranchInputModel branch) async {
+    state = const AsyncLoading();
+    try {
+      final progress = _ref.read(setupProgressProvider);
+      final user = Supabase.instance.client.auth.currentUser;
+      final tenantId = progress.tenantId;
+
+      if (user == null) throw Exception('User not logged in');
+      if (tenantId == null) throw Exception('Tenant setup required');
+      if (branch.city.trim().isEmpty) throw Exception('City required');
+      if (branch.address.trim().isEmpty) throw Exception('Address required');
+
+      final completedBranches = await _repository.createNextBranch(
+        tenantId: tenantId,
+        branchCount: progress.branchCount,
+        branch: branch,
+      );
+
+      _ref.read(setupProgressProvider.notifier).state = progress.copyWith(
+        completedBranches: completedBranches,
+      );
+
+      if (completedBranches >= progress.branchCount) {
+        await _repository.markSetupComplete(tenantId);
+        final status = await _repository.loadStatus(user.id);
+        state = const AsyncData(null);
+        return status.target;
+      }
+
+      state = const AsyncData(null);
+      return SetupRouteTarget.setup;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return null;
     }
   }
 }

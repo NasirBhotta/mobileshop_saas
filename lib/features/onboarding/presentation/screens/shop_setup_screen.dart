@@ -5,11 +5,13 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../data/models/shop_setup_model.dart';
+import '../../data/repositories/setup_flow_repository.dart';
 import '../providers/shop_setup_provider.dart';
+import '../widgets/setup_status_message.dart';
 import '../widgets/setup_step_basics.dart';
 import '../widgets/setup_step_business.dart';
 import '../widgets/setup_step_confirm.dart';
-import '../widgets/setup_status_message.dart';
 
 class ShopSetupScreen extends ConsumerStatefulWidget {
   const ShopSetupScreen({super.key});
@@ -20,24 +22,38 @@ class ShopSetupScreen extends ConsumerStatefulWidget {
 
 class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
   final _basicsFormKey = GlobalKey<FormState>();
+  final _branchFormKey = GlobalKey<FormState>();
   final _shopNameController = TextEditingController();
   final _cityController = TextEditingController();
   final _addressController = TextEditingController();
+  final _branchNameController = TextEditingController();
+  final _branchCityController = TextEditingController();
+  final _branchAddressController = TextEditingController();
 
-  static const _totalSteps = 3;
+  static const _totalSteps = 4;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      ref.read(setupSubmitControllerProvider.notifier).loadResumeState();
+    });
+  }
 
   @override
   void dispose() {
     _shopNameController.dispose();
     _cityController.dispose();
     _addressController.dispose();
+    _branchNameController.dispose();
+    _branchCityController.dispose();
+    _branchAddressController.dispose();
     super.dispose();
   }
 
-  void _goNext() {
+  Future<void> _goNext() async {
     final currentStep = ref.read(setupStepProvider);
 
-    // Step 1 validation
     if (currentStep == 0) {
       if (!_basicsFormKey.currentState!.validate()) return;
       ref
@@ -49,7 +65,6 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
           );
     }
 
-    // Step 2 validation
     if (currentStep == 1) {
       final data = ref.read(shopSetupDataProvider);
       if (data.businessType.isEmpty) {
@@ -60,32 +75,79 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
       }
     }
 
-    if (currentStep < _totalSteps - 1) {
-      ref.read(setupStepProvider.notifier).state = currentStep + 1;
-    } else {
-      _handleFinish();
+    if (currentStep == 2) {
+      await _handleBusinessSetup();
+      return;
     }
+
+    if (currentStep == 3) {
+      await _handleBranchSubmit();
+      return;
+    }
+
+    ref.read(setupStepProvider.notifier).state = currentStep + 1;
   }
 
   void _goBack() {
     final currentStep = ref.read(setupStepProvider);
-    if (currentStep > 0) {
+    if (currentStep > 0 && currentStep < 3) {
       ref.read(setupStepProvider.notifier).state = currentStep - 1;
     }
   }
 
-  Future<void> _handleFinish() async {
+  Future<void> _handleBusinessSetup() async {
     final success =
-        await ref.read(setupSubmitControllerProvider.notifier).submitSetup();
-    if (success && mounted) {
-      context.go('/dashboard');
+        await ref
+            .read(setupSubmitControllerProvider.notifier)
+            .submitBusinessSetup();
+
+    if (!success || !mounted) return;
+
+    final setupData = ref.read(shopSetupDataProvider);
+    final progress = ref.read(setupProgressProvider);
+    if (progress.completedBranches == 0) {
+      _branchNameController.text = 'Main Branch';
+      _branchCityController.text = setupData.city;
+      _branchAddressController.text = setupData.address;
     }
+  }
+
+  Future<void> _handleBranchSubmit() async {
+    if (!_branchFormKey.currentState!.validate()) return;
+
+    final target = await ref
+        .read(setupSubmitControllerProvider.notifier)
+        .submitCurrentBranch(
+          BranchInputModel(
+            name: _branchNameController.text.trim(),
+            city: _branchCityController.text.trim(),
+            address: _branchAddressController.text.trim(),
+          ),
+        );
+
+    if (!mounted || target == null) return;
+
+    if (target == SetupRouteTarget.branchSelection) {
+      context.go('/select-branch');
+      return;
+    }
+
+    if (target == SetupRouteTarget.dashboard) {
+      context.go('/dashboard');
+      return;
+    }
+
+    final progress = ref.read(setupProgressProvider);
+    _branchNameController.text = 'Branch ${progress.nextBranchNumber}';
+    _branchCityController.clear();
+    _branchAddressController.clear();
   }
 
   @override
   Widget build(BuildContext context) {
     final currentStep = ref.watch(setupStepProvider);
     final setupData = ref.watch(shopSetupDataProvider);
+    final setupProgress = ref.watch(setupProgressProvider);
     final submitState = ref.watch(setupSubmitControllerProvider);
     final isSubmitting = submitState.isLoading;
     final submitError = submitState.hasError ? submitState.error : null;
@@ -107,7 +169,6 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Progress Indicator ──
                   Row(
                     children: List.generate(_totalSteps, (index) {
                       final isActive = index <= currentStep;
@@ -127,10 +188,8 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
                     }),
                   ),
                   const SizedBox(height: 24),
-
-                  // ── Step Title ──
                   Text(
-                    _stepTitle(currentStep),
+                    _stepTitle(currentStep, setupProgress),
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -139,15 +198,13 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    _stepSubtitle(currentStep),
+                    _stepSubtitle(currentStep, setupProgress),
                     style: const TextStyle(
                       fontSize: 14,
                       color: AppColors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 28),
-
-                  // ── Step Content ──
                   Expanded(
                     child: SingleChildScrollView(
                       child: IndexedStack(
@@ -186,26 +243,33 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
                             },
                           ),
                           SetupStepConfirm(data: setupData),
+                          _CurrentBranchStep(
+                            formKey: _branchFormKey,
+                            branchNumber: setupProgress.nextBranchNumber,
+                            totalBranches: setupProgress.branchCount,
+                            nameController: _branchNameController,
+                            cityController: _branchCityController,
+                            addressController: _branchAddressController,
+                          ),
                         ],
                       ),
                     ),
                   ),
-
-                  // ── Navigation Buttons ──
                   if (submitError != null)
                     SetupStatusMessage(error: submitError),
                   Row(
                     children: [
-                      if (currentStep > 0)
+                      if (currentStep > 0 && currentStep < 3)
                         Expanded(
                           child: OutlinedButton(
                             onPressed: isSubmitting ? null : _goBack,
                             child: Text(AppStrings.setupBack),
                           ),
                         ),
-                      if (currentStep > 0) const SizedBox(width: 12),
+                      if (currentStep > 0 && currentStep < 3)
+                        const SizedBox(width: 12),
                       Expanded(
-                        flex: currentStep > 0 ? 1 : 2,
+                        flex: currentStep > 0 && currentStep < 3 ? 1 : 2,
                         child: ElevatedButton(
                           onPressed: isSubmitting ? null : _goNext,
                           child:
@@ -219,7 +283,7 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
                                     ),
                                   )
                                   : Text(
-                                    currentStep == _totalSteps - 1
+                                    currentStep >= 2
                                         ? AppStrings.setupFinish
                                         : AppStrings.setupNext,
                                   ),
@@ -236,25 +300,112 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
     );
   }
 
-  String _stepTitle(int step) {
+  String _stepTitle(int step, SetupProgressState progress) {
     switch (step) {
       case 0:
         return AppStrings.setupStep1Title;
       case 1:
         return AppStrings.setupStep2Title;
-      default:
+      case 2:
         return AppStrings.setupStep3Title;
+      default:
+        return 'Branch ${progress.nextBranchNumber} Setup';
     }
   }
 
-  String _stepSubtitle(int step) {
+  String _stepSubtitle(int step, SetupProgressState progress) {
     switch (step) {
       case 0:
         return AppStrings.setupStep1Subtitle;
       case 1:
         return AppStrings.setupStep2Subtitle;
-      default:
+      case 2:
         return AppStrings.setupStep3Subtitle;
+      default:
+        return '${progress.completedBranches} of ${progress.branchCount} branches saved';
     }
+  }
+}
+
+class _CurrentBranchStep extends StatelessWidget {
+  final GlobalKey<FormState> formKey;
+  final int branchNumber;
+  final int totalBranches;
+  final TextEditingController nameController;
+  final TextEditingController cityController;
+  final TextEditingController addressController;
+
+  const _CurrentBranchStep({
+    required this.formKey,
+    required this.branchNumber,
+    required this.totalBranches,
+    required this.nameController,
+    required this.cityController,
+    required this.addressController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Form(
+      key: formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Text(
+              'Branch $branchNumber of $totalBranches',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: nameController,
+            decoration: InputDecoration(
+              labelText: AppStrings.fieldBranchName,
+              hintText:
+                  branchNumber == 1 ? 'Main Branch' : 'Branch $branchNumber',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: cityController,
+            decoration: const InputDecoration(
+              labelText: AppStrings.fieldCity,
+              hintText: AppStrings.hintCity,
+            ),
+            validator:
+                (value) =>
+                    value == null || value.trim().isEmpty
+                        ? AppStrings.errorCityRequired
+                        : null,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: addressController,
+            decoration: const InputDecoration(
+              labelText: AppStrings.fieldAddress,
+              hintText: AppStrings.hintAddress,
+            ),
+            validator:
+                (value) =>
+                    value == null || value.trim().isEmpty
+                        ? AppStrings.errorAddressRequired
+                        : null,
+          ),
+        ],
+      ),
+    );
   }
 }

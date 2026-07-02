@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
+import '../../features/auth/presentation/providers/auth_provider.dart';
 
-class DesktopNav extends StatelessWidget {
+class DesktopNav extends ConsumerWidget {
   final Widget child;
   final int currentIndex;
 
@@ -39,7 +41,9 @@ class DesktopNav extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isLoggingOut = ref.watch(authControllerProvider).isLoading;
+
     return Scaffold(
       body: Row(
         children: [
@@ -136,30 +140,67 @@ class DesktopNav extends StatelessWidget {
 
                 // Shop name at bottom
                 Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                  child: Column(
                     children: [
-                      CircleAvatar(
-                        radius: 16,
-                        backgroundColor: AppColors.primary.withValues(
-                          alpha: 0.1,
-                        ),
-                        child: const Icon(
-                          Icons.store_rounded,
-                          size: 16,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'Meri Dukaan', // baad mein Supabase se aayega
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: AppColors.primary.withValues(
+                              alpha: 0.1,
+                            ),
+                            child: const Icon(
+                              Icons.store_rounded,
+                              size: 16,
+                              color: AppColors.primary,
+                            ),
                           ),
-                          overflow: TextOverflow.ellipsis,
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Meri Dukaan', // baad mein Supabase se aayega
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton.icon(
+                          onPressed:
+                              isLoggingOut
+                                  ? null
+                                  : () => _confirmLogout(context, ref),
+                          icon:
+                              isLoggingOut
+                                  ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : const Icon(Icons.logout_rounded, size: 18),
+                          label: const Text(AppStrings.logout),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            alignment: Alignment.centerLeft,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 10,
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                       ),
                     ],
@@ -177,5 +218,40 @@ class DesktopNav extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text(AppStrings.logoutTitle),
+            content: const Text(AppStrings.logoutMessage),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text(AppStrings.cancel),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: const Icon(Icons.logout_rounded, size: 18),
+                label: const Text(AppStrings.logout),
+              ),
+            ],
+          ),
+    );
+
+    if (shouldLogout != true || !context.mounted) return;
+
+    final loggedOut = await ref.read(authControllerProvider.notifier).logout();
+    if (!context.mounted) return;
+
+    if (loggedOut) {
+      context.go('/login');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(AppStrings.somethingWentWrong)),
+      );
+    }
   }
 }

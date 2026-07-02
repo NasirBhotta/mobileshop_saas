@@ -4,7 +4,9 @@ import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.
 import 'package:mobileshop_saas/features/auth/presentation/screens/signup_screen.dart';
 import 'package:mobileshop_saas/features/dashboard/presentation/screens/dashboard_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/app_intro_screen.dart';
+import 'package:mobileshop_saas/features/onboarding/presentation/screens/branch_selection_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/shop_setup_screen.dart';
+import 'package:mobileshop_saas/features/onboarding/data/repositories/setup_flow_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -12,14 +14,10 @@ final profileCompleteProvider = FutureProvider<bool>((ref) async {
   final user = Supabase.instance.client.auth.currentUser;
   if (user == null) return false;
 
-  final response =
-      await Supabase.instance.client
-          .from('users')
-          .select('tenant_id')
-          .eq('id', user.id)
-          .maybeSingle();
-
-  return response?['tenant_id'] != null;
+  final status = await ref
+      .read(setupFlowRepositoryProvider)
+      .loadStatus(user.id);
+  return status.target != SetupRouteTarget.setup;
 });
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -51,13 +49,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return '/';
       }
 
-      final setupDone = await _isShopSetupDone(session.user.id);
+      final setupStatus = await ref
+          .read(setupFlowRepositoryProvider)
+          .loadStatus(session.user.id);
 
-      if (!setupDone) {
+      if (setupStatus.target == SetupRouteTarget.setup) {
         return location == '/setup' ? null : '/setup';
       }
 
-      if (location == '/' || location == '/setup') {
+      if (setupStatus.target == SetupRouteTarget.branchSelection) {
+        return location == '/select-branch' ? null : '/select-branch';
+      }
+
+      if (location == '/' ||
+          location == '/setup' ||
+          location == '/select-branch') {
         return '/dashboard';
       }
 
@@ -88,24 +94,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ShopSetupScreen(),
       ),
       GoRoute(
+        path: '/select-branch',
+        builder: (context, state) => const BranchSelectionScreen(),
+      ),
+      GoRoute(
         path: '/dashboard',
         builder: (context, state) => const DashboardScreen(),
       ),
     ],
   );
 });
-
-Future<bool> _isShopSetupDone(String userId) async {
-  try {
-    final user =
-        await Supabase.instance.client
-            .from('users')
-            .select('tenant_id')
-            .eq('id', userId)
-            .maybeSingle();
-
-    return user?['tenant_id'] != null;
-  } catch (_) {
-    return false;
-  }
-}

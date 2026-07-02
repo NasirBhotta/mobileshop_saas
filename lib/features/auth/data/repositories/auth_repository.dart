@@ -1,14 +1,27 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../onboarding/data/repositories/setup_flow_repository.dart';
+
 class AuthRepository {
   final SupabaseClient _client = Supabase.instance.client;
+  late final SetupFlowRepository _setupFlowRepository = SetupFlowRepository(
+    client: _client,
+  );
 
   // ── Email/Password Login ──
   Future<AuthResponse> signInWithPassword({
     required String email,
     required String password,
-  }) {
-    return _client.auth.signInWithPassword(email: email, password: password);
+  }) async {
+    final response = await _client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+    final user = response.user;
+    if (user != null) {
+      await _setupFlowRepository.ensureUserProfile(user: user);
+    }
+    return response;
   }
 
   // ── Email/Password Signup ──
@@ -24,15 +37,12 @@ class AuthRepository {
       data: {'full_name': fullName},
     );
 
-    // Signup ke turant baad users table mein basic row banao
     if (response.user != null && response.session != null) {
-      await _client.from('users').insert({
-        'id': response.user!.id,
-        'full_name': fullName,
-        'email': email,
-        'phone': phone,
-        'role': 'owner',
-      });
+      await _setupFlowRepository.ensureUserProfile(
+        user: response.user!,
+        fullName: fullName,
+        phone: phone,
+      );
     }
 
     return response;
@@ -68,4 +78,16 @@ class AuthRepository {
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
 
   User? get currentUser => _client.auth.currentUser;
+
+  Future<void> ensureUserProfile({
+    required User user,
+    String? fullName,
+    String? phone,
+  }) {
+    return _setupFlowRepository.ensureUserProfile(
+      user: user,
+      fullName: fullName,
+      phone: phone,
+    );
+  }
 }

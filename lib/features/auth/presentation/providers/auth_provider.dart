@@ -21,29 +21,11 @@ final authListenerProvider = StreamProvider<void>((ref) async* {
   final repo = ref.watch(authRepositoryProvider);
 
   await for (final authState in repo.authStateChanges) {
-    // Sirf pehli baar sign in pe (email verify ke baad)
     if (authState.event == AuthChangeEvent.signedIn) {
       final user = authState.session?.user;
       if (user == null) continue;
 
-      // Check karo users table mein already hai ya nahi
-      final existing =
-          await Supabase.instance.client
-              .from('users')
-              .select('id')
-              .eq('id', user.id)
-              .maybeSingle();
-
-      // Nahi hai toh insert karo
-      if (existing == null) {
-        await Supabase.instance.client.from('users').insert({
-          'id': user.id,
-          'full_name': user.userMetadata?['full_name'] ?? '',
-          'email': user.email ?? '',
-          'phone': user.userMetadata?['phone'] ?? '',
-          'role': 'owner',
-        });
-      }
+      await repo.ensureUserProfile(user: user);
     }
   }
 });
@@ -95,6 +77,18 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
     try {
       await _repository.signInWithGoogle();
+      state = const AsyncData(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
+
+  Future<bool> logout() async {
+    state = const AsyncLoading();
+    try {
+      await _repository.signOut();
       state = const AsyncData(null);
       return true;
     } catch (e, st) {

@@ -93,6 +93,11 @@ class AppStrings {
   static const String somethingWentWrong =
       'Kuch ghalat ho gaya, dobara try karein';
   static const String retry = 'Dobara Koshish Karein';
+  static const String logout = 'Logout';
+  static const String logoutTitle = 'Logout karein?';
+  static const String logoutMessage =
+      'Aapka session is device se close ho jayega.';
+  static const String cancel = 'Cancel';
 
   // ═══════════════════════════════════════
   // Shop Setup
@@ -168,4 +173,9 @@ class AppStrings {
   static const String actionAddProduct = 'Product Add Karo';
   static const String actionNewRepair = 'Naya Repair';
   static const String actionAddExpense = 'Expense Add Karo';
+
+  static const String fieldBranchName = 'Branch Ka Naam';
+  static const String setupStep4Title = 'Sab Theek Hai?';
+  static const String setupStep4Subtitle =
+      'Ek baar check kar lein, phir setup complete karein';
 }

@@ -11,12 +11,20 @@ class SetupStepConfirm extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mainBranch = data.branches.isNotEmpty ? data.branches.first : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _ConfirmRow(label: AppStrings.confirmShopName, value: data.shopName),
-        _ConfirmRow(label: AppStrings.confirmCity, value: data.city),
-        _ConfirmRow(label: AppStrings.confirmAddress, value: data.address),
+        _ConfirmRow(
+          label: AppStrings.confirmCity,
+          value: mainBranch?.city ?? data.city,
+        ),
+        _ConfirmRow(
+          label: AppStrings.confirmAddress,
+          value: mainBranch?.address ?? data.address,
+        ),
         _ConfirmRow(
           label: AppStrings.confirmBusinessType,
           value: data.businessType,
