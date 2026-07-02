@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
+import '../../features/onboarding/data/repositories/setup_flow_repository.dart';
+import 'logout_action.dart';
 
 class DesktopNav extends ConsumerWidget {
   final Widget child;
@@ -43,6 +45,16 @@ class DesktopNav extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isLoggingOut = ref.watch(authControllerProvider).isLoading;
+    final setupStatus = ref.watch(setupFlowStatusProvider);
+    final hasMultipleBranches = setupStatus.maybeWhen(
+      data: (status) => status.branches.length >= 2,
+      orElse: () => false,
+    );
+    final showLogout = setupStatus.maybeWhen(
+      data: (status) => status.branches.length < 2,
+      error: (_, _) => true,
+      orElse: () => false,
+    );
 
     return Scaffold(
       body: Row(
@@ -171,38 +183,67 @@ class DesktopNav extends ConsumerWidget {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: TextButton.icon(
-                          onPressed:
-                              isLoggingOut
-                                  ? null
-                                  : () => _confirmLogout(context, ref),
-                          icon:
-                              isLoggingOut
-                                  ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                  : const Icon(Icons.logout_rounded, size: 18),
-                          label: const Text(AppStrings.logout),
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppColors.error,
-                            alignment: Alignment.centerLeft,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 10,
+                      if (hasMultipleBranches) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          child: TextButton.icon(
+                            onPressed: () => context.go('/select-branch'),
+                            icon: const Icon(
+                              Icons.storefront_rounded,
+                              size: 18,
                             ),
-                            textStyle: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                            label: const Text('Switch Branch'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              alignment: Alignment.centerLeft,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 10,
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
+                      if (showLogout)
+                        SizedBox(
+                          width: double.infinity,
+                          child: TextButton.icon(
+                            onPressed:
+                                isLoggingOut
+                                    ? null
+                                    : () => confirmLogout(context, ref),
+                            icon:
+                                isLoggingOut
+                                    ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                    : const Icon(
+                                      Icons.logout_rounded,
+                                      size: 18,
+                                    ),
+                            label: const Text(AppStrings.logout),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.error,
+                              alignment: Alignment.centerLeft,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 10,
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -218,40 +259,5 @@ class DesktopNav extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text(AppStrings.logoutTitle),
-            content: const Text(AppStrings.logoutMessage),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text(AppStrings.cancel),
-              ),
-              FilledButton.icon(
-                onPressed: () => Navigator.of(context).pop(true),
-                icon: const Icon(Icons.logout_rounded, size: 18),
-                label: const Text(AppStrings.logout),
-              ),
-            ],
-          ),
-    );
-
-    if (shouldLogout != true || !context.mounted) return;
-
-    final loggedOut = await ref.read(authControllerProvider.notifier).logout();
-    if (!context.mounted) return;
-
-    if (loggedOut) {
-      context.go('/login');
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(AppStrings.somethingWentWrong)),
-      );
-    }
   }
 }

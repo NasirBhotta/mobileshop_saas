@@ -4,7 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../../../features/auth/presentation/providers/auth_provider.dart';
+import '../../../../shared/widgets/logout_action.dart';
 import '../../data/models/shop_setup_model.dart';
 import '../../data/repositories/setup_flow_repository.dart';
 import '../widgets/setup_status_message.dart';
@@ -28,7 +31,9 @@ class BranchSelectionScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    debugPrint("BranchSelectionScreen BUILD");
     final branchesState = ref.watch(branchSelectionProvider);
+    final isLoggingOut = ref.watch(authControllerProvider).isLoading;
     final isDesktop = Responsive.isDesktop(context);
 
     return Scaffold(
@@ -51,21 +56,59 @@ class BranchSelectionScreen extends ConsumerWidget {
                     (branches) => Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Select Branch',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Choose the branch you want to open.',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: AppColors.textSecondary,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Select Branch',
+                                    style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  SizedBox(height: 6),
+                                  Text(
+                                    'Choose the branch you want to open.',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (branches.length >= 2) ...[
+                              const SizedBox(width: 12),
+                              TextButton.icon(
+                                onPressed:
+                                    isLoggingOut
+                                        ? null
+                                        : () => confirmLogout(context, ref),
+                                icon:
+                                    isLoggingOut
+                                        ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                        : const Icon(
+                                          Icons.logout_rounded,
+                                          size: 18,
+                                        ),
+                                label: const Text(AppStrings.logout),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.error,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 24),
                         Expanded(
@@ -106,6 +149,7 @@ class BranchSelectionScreen extends ConsumerWidget {
       await ref
           .read(setupFlowRepositoryProvider)
           .selectBranch(userId: user.id, branchId: branchId);
+      ref.invalidate(setupFlowStatusProvider);
 
       if (context.mounted) {
         context.go('/dashboard');

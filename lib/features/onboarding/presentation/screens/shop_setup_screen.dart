@@ -97,15 +97,18 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
   }
 
   Future<void> _handleBusinessSetup() async {
+    debugPrint('Handling business setup...');
     final success =
         await ref
             .read(setupSubmitControllerProvider.notifier)
             .submitBusinessSetup();
 
+    debugPrint('Business setup submission result: $success');
     if (!success || !mounted) return;
-
+    debugPrint('Business setup successful, moving to next step.');
     final setupData = ref.read(shopSetupDataProvider);
     final progress = ref.read(setupProgressProvider);
+    debugPrint('Setup data: $setupData, Progress: $progress');
     if (progress.completedBranches == 0) {
       _branchNameController.text = 'Main Branch';
       _branchCityController.text = setupData.city;
@@ -319,19 +322,22 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
   void _redirectCompletedSetup() {
     if (_isRedirectingCompletedSetup) return;
     _isRedirectingCompletedSetup = true;
-
+    debugPrint('Redirecting after completed setup...');
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final target =
           await ref
               .read(setupSubmitControllerProvider.notifier)
               .completeSetupIfReady();
 
+      debugPrint('Redirect target after completed setup: $target');
       if (!mounted || target == null) {
         _isRedirectingCompletedSetup = false;
         return;
       }
 
+      debugPrint('Navigating to target: $target');
       if (target == SetupRouteTarget.branchSelection) {
+        debugPrint('Navigating to branch selection screen...');
         context.go('/select-branch');
       } else {
         context.go('/dashboard');

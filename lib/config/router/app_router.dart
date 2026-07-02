@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.dart';
@@ -49,9 +50,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return '/';
       }
 
+      debugPrint("Router evaluating: ${state.uri.path}");
+
       final setupStatus = await ref
           .read(setupFlowRepositoryProvider)
           .loadStatus(session.user.id);
+
+      debugPrint("Router target: ${setupStatus.target}");
 
       if (setupStatus.target == SetupRouteTarget.setup) {
         return location == '/setup' ? null : '/setup';
@@ -59,6 +64,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       if (setupStatus.target == SetupRouteTarget.branchSelection) {
         return location == '/select-branch' ? null : '/select-branch';
+      }
+
+      if (location == '/select-branch' && setupStatus.branches.length >= 2) {
+        return null;
       }
 
       if (location == '/' ||

@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
+import '../../features/onboarding/data/repositories/setup_flow_repository.dart';
+import 'logout_action.dart';
 
 class MobileNav extends ConsumerWidget {
   final Widget child;
@@ -23,6 +25,16 @@ class MobileNav extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isLoggingOut = ref.watch(authControllerProvider).isLoading;
+    final setupStatus = ref.watch(setupFlowStatusProvider);
+    final hasMultipleBranches = setupStatus.maybeWhen(
+      data: (status) => status.branches.length >= 2,
+      orElse: () => false,
+    );
+    final showLogout = setupStatus.maybeWhen(
+      data: (status) => status.branches.length < 2,
+      error: (_, _) => true,
+      orElse: () => false,
+    );
 
     return Scaffold(
       body: child,
@@ -32,7 +44,13 @@ class MobileNav extends ConsumerWidget {
         indicatorColor: AppColors.primary.withValues(alpha: 0.12),
         onDestinationSelected: (index) {
           if (index == 4) {
-            _showMoreSheet(context, ref, isLoggingOut);
+            _showMoreSheet(
+              context,
+              ref,
+              isLoggingOut: isLoggingOut,
+              hasMultipleBranches: hasMultipleBranches,
+              showLogout: showLogout,
+            );
             return;
           }
 
@@ -69,9 +87,11 @@ class MobileNav extends ConsumerWidget {
 
   Future<void> _showMoreSheet(
     BuildContext context,
-    WidgetRef ref,
-    bool isLoggingOut,
-  ) async {
+    WidgetRef ref, {
+    required bool isLoggingOut,
+    required bool hasMultipleBranches,
+    required bool showLogout,
+  }) async {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -82,67 +102,50 @@ class MobileNav extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  ListTile(
-                    enabled: !isLoggingOut,
-                    leading:
-                        isLoggingOut
-                            ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : const Icon(
-                              Icons.logout_rounded,
-                              color: AppColors.error,
-                            ),
-                    title: const Text(
-                      AppStrings.logout,
-                      style: TextStyle(color: AppColors.error),
+                  if (hasMultipleBranches)
+                    ListTile(
+                      leading: const Icon(
+                        Icons.storefront_rounded,
+                        color: AppColors.primary,
+                      ),
+                      title: const Text(
+                        'Switch Branch',
+                        style: TextStyle(color: AppColors.primary),
+                      ),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        context.go('/select-branch');
+                      },
                     ),
-                    onTap: () async {
-                      Navigator.of(sheetContext).pop();
-                      await _confirmLogout(context, ref);
-                    },
-                  ),
+                  if (showLogout)
+                    ListTile(
+                      enabled: !isLoggingOut,
+                      leading:
+                          isLoggingOut
+                              ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                              : const Icon(
+                                Icons.logout_rounded,
+                                color: AppColors.error,
+                              ),
+                      title: const Text(
+                        AppStrings.logout,
+                        style: TextStyle(color: AppColors.error),
+                      ),
+                      onTap: () async {
+                        Navigator.of(sheetContext).pop();
+                        await confirmLogout(context, ref);
+                      },
+                    ),
                 ],
               ),
             ),
           ),
     );
-  }
-
-  Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text(AppStrings.logoutTitle),
-            content: const Text(AppStrings.logoutMessage),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text(AppStrings.cancel),
-              ),
-              FilledButton.icon(
-                onPressed: () => Navigator.of(context).pop(true),
-                icon: const Icon(Icons.logout_rounded, size: 18),
-                label: const Text(AppStrings.logout),
-              ),
-            ],
-          ),
-    );
-
-    if (shouldLogout != true || !context.mounted) return;
-
-    final loggedOut = await ref.read(authControllerProvider.notifier).logout();
-    if (!context.mounted) return;
-
-    if (loggedOut) {
-      context.go('/login');
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(AppStrings.somethingWentWrong)),
-      );
-    }
   }
 }

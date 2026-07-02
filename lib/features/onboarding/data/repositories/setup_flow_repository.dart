@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -5,6 +6,13 @@ import '../models/shop_setup_model.dart';
 
 final setupFlowRepositoryProvider = Provider<SetupFlowRepository>((ref) {
   return SetupFlowRepository();
+});
+
+final setupFlowStatusProvider = FutureProvider<SetupFlowStatus>((ref) async {
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) throw Exception('User not logged in');
+
+  return ref.read(setupFlowRepositoryProvider).loadStatus(user.id);
 });
 
 enum SetupRouteTarget { setup, branchSelection, dashboard }
@@ -63,6 +71,8 @@ class SetupFlowRepository {
     }
 
     final tenant = await loadTenant(tenantId as String);
+    debugPrint("Tenant after upsert: $tenant");
+
     if (tenant == null) {
       return SetupFlowStatus(target: SetupRouteTarget.setup, profile: profile);
     }
@@ -149,11 +159,21 @@ class SetupFlowRepository {
 
     final profile = await loadProfile(user.id);
     final existingTenantId = profile?['tenant_id'] as String?;
-    if (existingTenantId != null) return existingTenantId;
+
+    if (existingTenantId != null) {
+      final tenant = await loadTenant(existingTenantId);
+
+      if (tenant != null) {
+        return existingTenantId;
+      }
+
+      // The reference is stale.
+      await _client.from('users').update({'tenant_id': null}).eq('id', user.id);
+    }
 
     final tenantId = user.id;
 
-    await _client.from('tenants').upsert({
+    final result = await _client.from('tenants').upsert({
       'id': tenantId,
       'shop_name': shopName,
       'business_type': businessType,
@@ -163,10 +183,12 @@ class SetupFlowRepository {
       'setup_complete': false,
     }, onConflict: 'id');
 
+    debugPrint("UPSERT RESULT: $result");
     await _client
         .from('users')
         .update({'tenant_id': tenantId})
-        .eq('id', user.id);
+        .eq('id', user.id)
+        .select();
 
     return tenantId;
   }
