@@ -29,6 +29,7 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
   final _branchNameController = TextEditingController();
   final _branchCityController = TextEditingController();
   final _branchAddressController = TextEditingController();
+  bool _isRedirectingCompletedSetup = false;
 
   static const _totalSteps = 4;
 
@@ -152,6 +153,21 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
     final isSubmitting = submitState.isLoading;
     final submitError = submitState.hasError ? submitState.error : null;
     final isDesktop = Responsive.isDesktop(context);
+
+    if (currentStep == 3 && setupProgress.isComplete) {
+      if (submitError != null) {
+        return _CompletedSetupError(
+          error: submitError,
+          onRetry: isSubmitting ? null : _redirectCompletedSetup,
+        );
+      }
+
+      _redirectCompletedSetup();
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -300,6 +316,29 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
     );
   }
 
+  void _redirectCompletedSetup() {
+    if (_isRedirectingCompletedSetup) return;
+    _isRedirectingCompletedSetup = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final target =
+          await ref
+              .read(setupSubmitControllerProvider.notifier)
+              .completeSetupIfReady();
+
+      if (!mounted || target == null) {
+        _isRedirectingCompletedSetup = false;
+        return;
+      }
+
+      if (target == SetupRouteTarget.branchSelection) {
+        context.go('/select-branch');
+      } else {
+        context.go('/dashboard');
+      }
+    });
+  }
+
   String _stepTitle(int step, SetupProgressState progress) {
     switch (step) {
       case 0:
@@ -324,6 +363,50 @@ class _ShopSetupScreenState extends ConsumerState<ShopSetupScreen> {
       default:
         return '${progress.completedBranches} of ${progress.branchCount} branches saved';
     }
+  }
+}
+
+class _CompletedSetupError extends StatelessWidget {
+  final Object error;
+  final VoidCallback? onRetry;
+
+  const _CompletedSetupError({required this.error, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Setup finalize nahi ho saka',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SetupStatusMessage(error: error),
+                  ElevatedButton(
+                    onPressed: onRetry,
+                    child: const Text('Dobara Try Karein'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

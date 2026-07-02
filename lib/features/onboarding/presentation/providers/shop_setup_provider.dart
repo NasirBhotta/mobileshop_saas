@@ -103,7 +103,8 @@ class SetupProgressState {
     this.completedBranches = 0,
   });
 
-  int get nextBranchNumber => completedBranches + 1;
+  bool get isComplete => completedBranches >= branchCount;
+  int get nextBranchNumber => isComplete ? branchCount : completedBranches + 1;
 
   SetupProgressState copyWith({
     bool? isLoaded,
@@ -242,14 +243,43 @@ class SetupSubmitController extends StateNotifier<AsyncValue<void>> {
       );
 
       if (completedBranches >= progress.branchCount) {
-        await _repository.markSetupComplete(tenantId);
-        final status = await _repository.loadStatus(user.id);
-        state = const AsyncData(null);
-        return status.target;
+        final target = await completeSetupIfReady();
+        return target;
       }
 
       state = const AsyncData(null);
       return SetupRouteTarget.setup;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return null;
+    }
+  }
+
+  Future<SetupRouteTarget?> completeSetupIfReady() async {
+    state = const AsyncLoading();
+    try {
+      final progress = _ref.read(setupProgressProvider);
+      final user = Supabase.instance.client.auth.currentUser;
+      final tenantId = progress.tenantId;
+
+      if (user == null) throw Exception('User not logged in');
+      if (tenantId == null || !progress.isComplete) {
+        state = const AsyncData(null);
+        return null;
+      }
+
+      await _repository.markSetupComplete(tenantId);
+      final status = await _repository.loadStatus(user.id);
+
+      state = const AsyncData(null);
+
+      if (status.target == SetupRouteTarget.setup) {
+        return progress.branchCount > 1
+            ? SetupRouteTarget.branchSelection
+            : SetupRouteTarget.dashboard;
+      }
+
+      return status.target;
     } catch (e, st) {
       state = AsyncError(e, st);
       return null;
