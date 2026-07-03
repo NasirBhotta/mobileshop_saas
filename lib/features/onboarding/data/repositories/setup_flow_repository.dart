@@ -64,6 +64,8 @@ class SetupFlowRepository {
 
   Future<SetupFlowStatus> loadStatus(String userId) async {
     final profile = await loadProfile(userId);
+
+    debugPrint("Profile: $profile");
     final tenantId = profile?['tenant_id'];
 
     if (profile == null || tenantId == null) {
@@ -81,6 +83,10 @@ class SetupFlowRepository {
     final requiredBranches = ((tenant['branch_count'] as num?) ?? 1).toInt();
     final setupComplete = tenant['setup_complete'] == true;
 
+    debugPrint(
+      "Branches: ${branches.length}, Required: $requiredBranches, Setup Complete: $setupComplete",
+    );
+
     if (!setupComplete) {
       if (branches.length >= requiredBranches) {
         await markSetupComplete(tenantId);
@@ -93,7 +99,9 @@ class SetupFlowRepository {
         );
       }
     }
-
+    debugPrint(
+      "Branches: ${branches.length}, Required: $requiredBranches, Setup Complete: $setupComplete",
+    );
     if (branches.length <= 1) {
       if (branches.length == 1 && profile['branch_id'] != branches.first.id) {
         await selectBranch(userId: userId, branchId: branches.first.id!);
@@ -108,6 +116,10 @@ class SetupFlowRepository {
 
     final selectedBranchId = profile['branch_id'] as String?;
     final selectedBranchExists = branches.any((b) => b.id == selectedBranchId);
+
+    debugPrint(
+      "Selected Branch ID: $selectedBranchId, Exists: $selectedBranchExists",
+    );
     return SetupFlowStatus(
       target:
           selectedBranchExists
