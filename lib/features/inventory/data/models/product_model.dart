@@ -33,6 +33,7 @@ class ProductModel {
     final category = map['categories'] as Map<String, dynamic>?;
     final inventoryList = map['inventory'] as List<dynamic>?;
     final totalStock =
+        map['stock'] as int? ??
         inventoryList?.fold<int>(
           0,
           (sum, inv) => sum + ((inv['quantity'] as num?)?.toInt() ?? 0),
@@ -44,7 +45,8 @@ class ProductModel {
       tenantId: map['tenant_id'] as String,
       branchId: map['branch_id'] as String,
       categoryId: map['category_id'] as String?,
-      categoryName: category?['name'] as String?,
+      categoryName:
+          (map['category_name'] as String?) ?? category?['name'] as String?,
       name: map['name'] as String,
       sku: map['sku'] as String?,
       description: map['description'] as String?,
@@ -70,5 +72,21 @@ class ProductModel {
     'cost_price': costPrice,
     'imei_tracked': imeiTracked,
     'is_active': isActive,
+  };
+
+  Map<String, dynamic> toCacheMap() => {
+    'id': id,
+    'tenant_id': tenantId,
+    'branch_id': branchId,
+    'category_id': categoryId,
+    'category_name': categoryName,
+    'name': name,
+    'sku': sku,
+    'description': description,
+    'sale_price': salePrice,
+    'cost_price': costPrice,
+    'imei_tracked': imeiTracked,
+    'is_active': isActive,
+    'stock': stock,
   };
 }

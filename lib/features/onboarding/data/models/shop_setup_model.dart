@@ -33,6 +33,13 @@ class BranchInputModel {
       city: (map['city'] as String?) ?? '',
     );
   }
+
+  Map<String, dynamic> toCacheMap() => {
+    'id': id,
+    'name': name,
+    'address': address,
+    'city': city,
+  };
 }
 
 class ShopSetupModel {

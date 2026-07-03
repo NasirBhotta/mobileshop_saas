@@ -1,7 +1,9 @@
+import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/category_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/price_history_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 class InventoryRepository {
   final SupabaseClient _client = Supabase.instance.client;
@@ -13,12 +15,26 @@ class InventoryRepository {
   }
 
   Future<Map<String, dynamic>> _currentProfile() async {
-    final profile =
-        await _client
-            .from('users')
-            .select('tenant_id, branch_id')
-            .eq('id', _currentUser.id)
-            .maybeSingle();
+    Map<String, dynamic>? profile;
+    try {
+      profile =
+          await _client
+              .from('users')
+              .select('id, tenant_id, branch_id, full_name, email, phone, role')
+              .eq('id', _currentUser.id)
+              .maybeSingle();
+      if (profile != null) {
+        final selectedBranchId = await OfflineStore.loadSelectedBranchId(
+          _currentUser.id,
+        );
+        if (selectedBranchId != null) {
+          profile['branch_id'] = selectedBranchId;
+        }
+        await OfflineStore.saveProfile(_currentUser.id, profile);
+      }
+    } catch (_) {
+      profile = await OfflineStore.loadProfile(_currentUser.id);
+    }
 
     if (profile == null) throw Exception('User profile not found');
     return profile;
@@ -54,86 +70,161 @@ class InventoryRepository {
   Future<List<ProductModel>> fetchProducts({String? categoryId}) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    var query = _client
-        .from('products')
-        .select('*, categories(name), inventory!inner(quantity, branch_id)')
-        .eq('tenant_id', tenantId)
-        .eq('branch_id', branchId)
-        .eq('inventory.branch_id', branchId)
-        .eq('is_active', true);
+    await syncOfflineMutations();
 
-    if (categoryId != null) {
-      query = query.eq('category_id', categoryId);
+    try {
+      var query = _client
+          .from('products')
+          .select('*, categories(name), inventory!inner(quantity, branch_id)')
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
+          .eq('inventory.branch_id', branchId)
+          .eq('is_active', true);
+
+      if (categoryId != null) {
+        query = query.eq('category_id', categoryId);
+      }
+
+      final data = await query.order('name');
+      final products =
+          (data as List).map((e) => ProductModel.fromMap(e)).toList();
+      await OfflineStore.saveProducts(branchId, products);
+      return products;
+    } catch (_) {
+      final products = await OfflineStore.loadProducts(branchId);
+      if (categoryId == null) return products;
+      return products
+          .where((product) => product.categoryId == categoryId)
+          .toList();
     }
-
-    final data = await query.order('name');
-    return (data as List).map((e) => ProductModel.fromMap(e)).toList();
   }
 
   Future<ProductModel> addProduct(ProductModel product) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    final data =
-        await _client
-            .from('products')
-            .insert(product.toInsertMap(tenantId: tenantId, branchId: branchId))
-            .select('id')
-            .single();
+    try {
+      final data =
+          await _client
+              .from('products')
+              .insert(
+                product.toInsertMap(tenantId: tenantId, branchId: branchId),
+              )
+              .select('id')
+              .single();
 
-    final productId = data['id'] as String;
-    await setStock(
-      productId: productId,
-      branchId: branchId,
-      quantity: product.stock,
-    );
+      final productId = data['id'] as String;
+      await setStock(
+        productId: productId,
+        branchId: branchId,
+        quantity: product.stock,
+      );
 
-    return fetchProduct(productId);
+      final savedProduct = await fetchProduct(productId);
+      await OfflineStore.upsertCachedProduct(savedProduct);
+      return savedProduct;
+    } catch (_) {
+      final offlineProduct = await _offlineProduct(
+        product: product,
+        tenantId: tenantId,
+        branchId: branchId,
+        id: product.id.isEmpty ? const Uuid().v4() : product.id,
+      );
+      await OfflineStore.upsertCachedProduct(offlineProduct);
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'upsert_product',
+        payload: {'product': offlineProduct.toCacheMap()},
+      );
+      return offlineProduct;
+    }
   }
 
   Future<ProductModel> updateProduct(ProductModel product) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    await _client
-        .from('products')
-        .update(product.toInsertMap(tenantId: tenantId, branchId: branchId))
-        .eq('id', product.id)
-        .eq('branch_id', branchId)
-        .eq('tenant_id', tenantId);
+    try {
+      await _client
+          .from('products')
+          .update(product.toInsertMap(tenantId: tenantId, branchId: branchId))
+          .eq('id', product.id)
+          .eq('branch_id', branchId)
+          .eq('tenant_id', tenantId);
 
-    await setStock(
-      productId: product.id,
-      branchId: branchId,
-      quantity: product.stock,
-    );
+      await setStock(
+        productId: product.id,
+        branchId: branchId,
+        quantity: product.stock,
+      );
 
-    return fetchProduct(product.id);
+      final savedProduct = await fetchProduct(product.id);
+      await OfflineStore.upsertCachedProduct(savedProduct);
+      return savedProduct;
+    } catch (_) {
+      final offlineProduct = await _offlineProduct(
+        product: product,
+        tenantId: tenantId,
+        branchId: branchId,
+      );
+      await OfflineStore.upsertCachedProduct(offlineProduct);
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'upsert_product',
+        payload: {'product': offlineProduct.toCacheMap()},
+      );
+      return offlineProduct;
+    }
   }
 
   Future<ProductModel> fetchProduct(String productId) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    final data =
-        await _client
-            .from('products')
-            .select('*, categories(name), inventory!inner(quantity, branch_id)')
-            .eq('tenant_id', tenantId)
-            .eq('branch_id', branchId)
-            .eq('inventory.branch_id', branchId)
-            .eq('id', productId)
-            .single();
+    try {
+      final data =
+          await _client
+              .from('products')
+              .select(
+                '*, categories(name), inventory!inner(quantity, branch_id)',
+              )
+              .eq('tenant_id', tenantId)
+              .eq('branch_id', branchId)
+              .eq('inventory.branch_id', branchId)
+              .eq('id', productId)
+              .single();
 
-    return ProductModel.fromMap(data);
+      final product = ProductModel.fromMap(data);
+      await OfflineStore.upsertCachedProduct(product);
+      return product;
+    } catch (_) {
+      final products = await OfflineStore.loadProducts(branchId);
+      return products.firstWhere((product) => product.id == productId);
+    }
   }
 
   Future<void> deleteProduct(String productId) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    await _client
-        .from('products')
-        .update({'is_active': false})
-        .eq('id', productId)
-        .eq('tenant_id', tenantId)
-        .eq('branch_id', branchId);
+    try {
+      await _client
+          .from('products')
+          .update({'is_active': false})
+          .eq('id', productId)
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId);
+    } catch (_) {
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'delete_product',
+        payload: {
+          'product_id': productId,
+          'tenant_id': tenantId,
+          'branch_id': branchId,
+        },
+      );
+    }
+    await OfflineStore.deactivateCachedProduct(
+      branchId: branchId,
+      productId: productId,
+    );
   }
 
   // ── Bulk Pricing / Price History / IMEI Guards ──
@@ -177,18 +268,43 @@ class InventoryRepository {
 
     for (final product in products) {
       final newPrice = ((product.salePrice * multiplier) * 100).round() / 100;
-      final updatedRows = await _client
-          .from('products')
-          .update({'sale_price': newPrice})
-          .eq('id', product.id)
-          .eq('branch_id', branchId)
-          .eq('tenant_id', tenantId)
-          .eq('is_active', true)
-          .select('id');
+      final updatedProduct = ProductModel(
+        id: product.id,
+        tenantId: product.tenantId,
+        branchId: product.branchId,
+        categoryId: product.categoryId,
+        categoryName: product.categoryName,
+        name: product.name,
+        sku: product.sku,
+        description: product.description,
+        salePrice: newPrice,
+        costPrice: product.costPrice,
+        imeiTracked: product.imeiTracked,
+        isActive: product.isActive,
+        stock: product.stock,
+      );
 
-      if ((updatedRows as List).isNotEmpty) {
-        updatedCount++;
+      try {
+        final updatedRows = await _client
+            .from('products')
+            .update({'sale_price': newPrice})
+            .eq('id', product.id)
+            .eq('branch_id', branchId)
+            .eq('tenant_id', tenantId)
+            .eq('is_active', true)
+            .select('id');
+
+        if ((updatedRows as List).isEmpty) continue;
+      } catch (_) {
+        await OfflineStore.enqueueMutation(
+          userId: _currentUser.id,
+          type: 'upsert_product',
+          payload: {'product': updatedProduct.toCacheMap()},
+        );
       }
+
+      await OfflineStore.upsertCachedProduct(updatedProduct);
+      updatedCount++;
     }
 
     return updatedCount;
@@ -220,42 +336,95 @@ class InventoryRepository {
   Future<List<CategoryModel>> fetchCategories() async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    final data = await _client
-        .from('categories')
-        .select()
-        .eq('tenant_id', tenantId)
-        .eq('branch_id', branchId)
-        .order('name');
+    try {
+      final data = await _client
+          .from('categories')
+          .select()
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
+          .order('name');
 
-    return (data as List).map((e) => CategoryModel.fromMap(e)).toList();
+      final categories =
+          (data as List).map((e) => CategoryModel.fromMap(e)).toList();
+      await OfflineStore.saveCategories(branchId, categories);
+      return categories;
+    } catch (_) {
+      return OfflineStore.loadCategories(branchId);
+    }
   }
 
   Future<CategoryModel> addCategory(String name) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    final data =
-        await _client
-            .from('categories')
-            .insert({
-              'tenant_id': tenantId,
-              'branch_id': branchId,
-              'name': name,
-            })
-            .select()
-            .single();
+    try {
+      final data =
+          await _client
+              .from('categories')
+              .insert({
+                'tenant_id': tenantId,
+                'branch_id': branchId,
+                'name': name,
+              })
+              .select()
+              .single();
 
-    return CategoryModel.fromMap(data);
+      final category = CategoryModel.fromMap(data);
+      final categories = await OfflineStore.loadCategories(branchId);
+      await OfflineStore.saveCategories(
+        branchId,
+        [...categories.where((item) => item.id != category.id), category]
+          ..sort((a, b) => a.name.compareTo(b.name)),
+      );
+      return category;
+    } catch (_) {
+      final category = CategoryModel(
+        id: const Uuid().v4(),
+        tenantId: tenantId,
+        branchId: branchId,
+        name: name,
+      );
+      final categories = await OfflineStore.loadCategories(branchId);
+      await OfflineStore.saveCategories(
+        branchId,
+        [...categories.where((item) => item.id != category.id), category]
+          ..sort((a, b) => a.name.compareTo(b.name)),
+      );
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'upsert_category',
+        payload: {'category': category.toCacheMap()},
+      );
+      return category;
+    }
   }
 
   Future<void> deleteCategory(String categoryId) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    await _client
-        .from('categories')
-        .delete()
-        .eq('id', categoryId)
-        .eq('tenant_id', tenantId)
-        .eq('branch_id', branchId);
+    try {
+      await _client
+          .from('categories')
+          .delete()
+          .eq('id', categoryId)
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId);
+    } catch (_) {
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'delete_category',
+        payload: {
+          'category_id': categoryId,
+          'tenant_id': tenantId,
+          'branch_id': branchId,
+        },
+      );
+    }
+
+    final categories = await OfflineStore.loadCategories(branchId);
+    await OfflineStore.saveCategories(
+      branchId,
+      categories.where((category) => category.id != categoryId).toList(),
+    );
   }
 
   // ── Stock Adjustment ──
@@ -297,5 +466,103 @@ class InventoryRepository {
             .maybeSingle();
 
     return (data?['quantity'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<ProductModel> _offlineProduct({
+    required ProductModel product,
+    required String tenantId,
+    required String branchId,
+    String? id,
+  }) async {
+    final categories = await OfflineStore.loadCategories(branchId);
+    String? categoryName;
+    for (final category in categories) {
+      if (category.id == product.categoryId) {
+        categoryName = category.name;
+        break;
+      }
+    }
+
+    return ProductModel(
+      id: id ?? product.id,
+      tenantId: tenantId,
+      branchId: branchId,
+      categoryId: product.categoryId,
+      categoryName: categoryName ?? product.categoryName,
+      name: product.name,
+      sku: product.sku,
+      description: product.description,
+      salePrice: product.salePrice,
+      costPrice: product.costPrice,
+      imeiTracked: product.imeiTracked,
+      isActive: product.isActive,
+      stock: product.stock,
+    );
+  }
+
+  Future<void> syncOfflineMutations() async {
+    final userId = _currentUser.id;
+    final mutations = await OfflineStore.loadMutations(userId);
+    if (mutations.isEmpty) return;
+
+    final remaining = <OfflineMutation>[];
+    for (final mutation in mutations) {
+      try {
+        switch (mutation.type) {
+          case 'upsert_product':
+            await _syncUpsertProduct(mutation.payload);
+            break;
+          case 'delete_product':
+            await _client
+                .from('products')
+                .update({'is_active': false})
+                .eq('id', mutation.payload['product_id'])
+                .eq('tenant_id', mutation.payload['tenant_id'])
+                .eq('branch_id', mutation.payload['branch_id']);
+            break;
+          case 'upsert_category':
+            await _client
+                .from('categories')
+                .upsert(
+                  mutation.payload['category'] as Map<String, dynamic>,
+                  onConflict: 'id',
+                );
+            break;
+          case 'delete_category':
+            await _client
+                .from('categories')
+                .delete()
+                .eq('id', mutation.payload['category_id'])
+                .eq('tenant_id', mutation.payload['tenant_id'])
+                .eq('branch_id', mutation.payload['branch_id']);
+            break;
+          case 'select_branch':
+            await _client
+                .from('users')
+                .update({'branch_id': mutation.payload['branch_id']})
+                .eq('id', mutation.payload['user_id']);
+            break;
+          default:
+            remaining.add(mutation);
+        }
+      } catch (_) {
+        remaining.add(mutation);
+      }
+    }
+
+    await OfflineStore.saveMutations(userId, remaining);
+  }
+
+  Future<void> _syncUpsertProduct(Map<String, dynamic> payload) async {
+    final product = Map<String, dynamic>.from(payload['product'] as Map);
+    final stock = product.remove('stock') as int? ?? 0;
+    product.remove('category_name');
+
+    await _client.from('products').upsert(product, onConflict: 'id');
+    await _client.from('inventory').upsert({
+      'branch_id': product['branch_id'],
+      'product_id': product['id'],
+      'quantity': stock < 0 ? 0 : stock,
+    }, onConflict: 'branch_id,product_id');
   }
 }

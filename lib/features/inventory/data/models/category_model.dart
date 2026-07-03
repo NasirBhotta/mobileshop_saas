@@ -19,4 +19,11 @@ class CategoryModel {
       name: map['name'] as String,
     );
   }
+
+  Map<String, dynamic> toCacheMap() => {
+    'id': id,
+    'tenant_id': tenantId,
+    'branch_id': branchId,
+    'name': name,
+  };
 }

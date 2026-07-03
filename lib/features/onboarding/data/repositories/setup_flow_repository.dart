@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/offline/offline_store.dart';
 import '../models/shop_setup_model.dart';
 
 final setupFlowRepositoryProvider = Provider<SetupFlowRepository>((ref) {
@@ -63,6 +64,7 @@ class SetupFlowRepository {
   }
 
   Future<SetupFlowStatus> loadStatus(String userId) async {
+    await syncOfflineMutations(userId);
     final profile = await loadProfile(userId);
 
     debugPrint("Profile: $profile");
@@ -136,7 +138,20 @@ class SetupFlowRepository {
         .from('users')
         .select('id, tenant_id, branch_id, full_name, email, phone, role')
         .eq('id', userId)
-        .maybeSingle();
+        .maybeSingle()
+        .then((profile) async {
+          if (profile != null) {
+            final selectedBranchId = await OfflineStore.loadSelectedBranchId(
+              userId,
+            );
+            if (selectedBranchId != null) {
+              profile['branch_id'] = selectedBranchId;
+            }
+            await OfflineStore.saveProfile(userId, profile);
+          }
+          return profile;
+        })
+        .catchError((_) => OfflineStore.loadProfile(userId));
   }
 
   Future<Map<String, dynamic>?> loadTenant(String tenantId) {
@@ -146,19 +161,33 @@ class SetupFlowRepository {
           'id, shop_name, business_type, branch_count, plan, status, setup_complete',
         )
         .eq('id', tenantId)
-        .maybeSingle();
+        .maybeSingle()
+        .then((tenant) async {
+          if (tenant != null) await OfflineStore.saveTenant(tenantId, tenant);
+          return tenant;
+        })
+        .catchError((_) => OfflineStore.loadTenant(tenantId));
   }
 
   Future<List<BranchInputModel>> loadBranches(String tenantId) async {
-    final rows = await _client
-        .from('branches')
-        .select('id, name, address, city')
-        .eq('tenant_id', tenantId)
-        .order('id');
+    try {
+      final rows = await _client
+          .from('branches')
+          .select('id, name, address, city')
+          .eq('tenant_id', tenantId)
+          .order('id');
 
-    return (rows as List<dynamic>)
-        .map((row) => BranchInputModel.fromMap(row as Map<String, dynamic>))
-        .toList();
+      final branches =
+          (rows as List<dynamic>)
+              .map(
+                (row) => BranchInputModel.fromMap(row as Map<String, dynamic>),
+              )
+              .toList();
+      await OfflineStore.saveBranches(tenantId, branches);
+      return branches;
+    } catch (_) {
+      return OfflineStore.loadBranches(tenantId);
+    }
   }
 
   Future<String> ensureTenant({
@@ -241,10 +270,44 @@ class SetupFlowRepository {
   Future<void> selectBranch({
     required String userId,
     required String branchId,
-  }) {
-    return _client
-        .from('users')
-        .update({'branch_id': branchId})
-        .eq('id', userId);
+  }) async {
+    await OfflineStore.selectBranch(userId: userId, branchId: branchId);
+
+    try {
+      await _client
+          .from('users')
+          .update({'branch_id': branchId})
+          .eq('id', userId);
+    } catch (_) {
+      await OfflineStore.enqueueMutation(
+        userId: userId,
+        type: 'select_branch',
+        payload: {'user_id': userId, 'branch_id': branchId},
+      );
+    }
+  }
+
+  Future<void> syncOfflineMutations(String userId) async {
+    final mutations = await OfflineStore.loadMutations(userId);
+    if (mutations.isEmpty) return;
+
+    final remaining = <OfflineMutation>[];
+    for (final mutation in mutations) {
+      if (mutation.type != 'select_branch') {
+        remaining.add(mutation);
+        continue;
+      }
+
+      try {
+        await _client
+            .from('users')
+            .update({'branch_id': mutation.payload['branch_id']})
+            .eq('id', mutation.payload['user_id']);
+      } catch (_) {
+        remaining.add(mutation);
+      }
+    }
+
+    await OfflineStore.saveMutations(userId, remaining);
   }
 }
