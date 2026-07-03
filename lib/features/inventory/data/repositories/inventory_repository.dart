@@ -380,28 +380,36 @@ class InventoryRepository {
   }
 
   Future<List<PriceHistoryModel>> fetchPriceHistory(String productId) async {
-    final tenantId = await _currentTenantId();
-    final data = await _client
-        .from('product_price_history')
-        .select()
-        .eq('tenant_id', tenantId)
-        .eq('product_id', productId)
-        .order('changed_at', ascending: false)
-        .limit(50)
-        .timeout(_networkTimeout);
+    try {
+      final tenantId = await _currentTenantId();
+      final data = await _client
+          .from('product_price_history')
+          .select()
+          .eq('tenant_id', tenantId)
+          .eq('product_id', productId)
+          .order('changed_at', ascending: false)
+          .limit(50)
+          .timeout(_networkTimeout);
 
-    return (data as List).map((e) => PriceHistoryModel.fromMap(e)).toList();
+      return (data as List).map((e) => PriceHistoryModel.fromMap(e)).toList();
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<bool> productHasActiveImeiUnits(String productId) async {
-    final hasUnits = await _client
-        .rpc(
-          'product_has_active_imei_units',
-          params: {'p_product_id': productId},
-        )
-        .timeout(_networkTimeout);
+    try {
+      final hasUnits = await _client
+          .rpc(
+            'product_has_active_imei_units',
+            params: {'p_product_id': productId},
+          )
+          .timeout(_networkTimeout);
 
-    return hasUnits == true;
+      return hasUnits == true;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ── Categories ──

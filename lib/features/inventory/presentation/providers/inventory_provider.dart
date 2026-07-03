@@ -67,7 +67,6 @@ final productPriceHistoryProvider =
       ref,
       productId,
     ) async {
-      await ref.watch(setupFlowStatusProvider.future);
       return ref.read(inventoryRepositoryProvider).fetchPriceHistory(productId);
     });
 
@@ -75,7 +74,6 @@ final activeImeiUnitsProvider = FutureProvider.family<bool, String>((
   ref,
   productId,
 ) async {
-  await ref.watch(setupFlowStatusProvider.future);
   return ref
       .read(inventoryRepositoryProvider)
       .productHasActiveImeiUnits(productId);

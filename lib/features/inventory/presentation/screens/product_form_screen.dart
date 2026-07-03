@@ -7,6 +7,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../../../shared/widgets/loading_overlay.dart';
+import '../../data/models/category_model.dart';
 import '../../data/models/price_history_model.dart';
 import '../../data/models/product_model.dart';
 import '../providers/inventory_provider.dart';
@@ -32,6 +33,49 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   String? _selectedCategoryId;
   bool _imeiTracked = false;
   bool get _isEdit => widget.product != null;
+
+  List<CategoryModel> _uniqueCategories(List<CategoryModel> categories) {
+    final seen = <String>{};
+    return [
+      for (final category in categories)
+        if (seen.add(category.id)) category,
+    ];
+  }
+
+  String? _categoryDropdownValue(List<CategoryModel> categories) {
+    final selectedId = _selectedCategoryId;
+    if (selectedId == null) return null;
+    if (categories.any((category) => category.id == selectedId)) {
+      return selectedId;
+    }
+    if (_isEdit && widget.product?.categoryId == selectedId) {
+      return selectedId;
+    }
+    return null;
+  }
+
+  List<DropdownMenuItem<String?>> _categoryDropdownItems(
+    List<CategoryModel> categories,
+  ) {
+    final uniqueCategories = _uniqueCategories(categories);
+    final selectedId = _selectedCategoryId;
+    final hasSelectedCategory =
+        selectedId == null ||
+        uniqueCategories.any((category) => category.id == selectedId);
+
+    return [
+      const DropdownMenuItem(value: null, child: Text('Koi nahi')),
+      ...uniqueCategories.map(
+        (category) =>
+            DropdownMenuItem(value: category.id, child: Text(category.name)),
+      ),
+      if (!hasSelectedCategory && _isEdit)
+        DropdownMenuItem(
+          value: selectedId,
+          child: Text(widget.product?.categoryName ?? 'Current category'),
+        ),
+    ];
+  }
 
   @override
   void initState() {
@@ -295,27 +339,22 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       child: categoriesState.when(
                         loading: () => const LinearProgressIndicator(),
                         error: (_, _) => const SizedBox.shrink(),
-                        data:
-                            (categories) => DropdownButtonFormField<String?>(
-                              initialValue: _selectedCategoryId,
-                              hint: const Text('Category select karein'),
-                              decoration: const InputDecoration(),
-                              items: [
-                                const DropdownMenuItem(
-                                  value: null,
-                                  child: Text('Koi nahi'),
-                                ),
-                                ...categories.map(
-                                  (cat) => DropdownMenuItem(
-                                    value: cat.id,
-                                    child: Text(cat.name),
-                                  ),
-                                ),
-                              ],
-                              onChanged: (val) {
-                                setState(() => _selectedCategoryId = val);
-                              },
+                        data: (categories) {
+                          final dropdownCategories = _uniqueCategories(
+                            categories,
+                          );
+                          return DropdownButtonFormField<String?>(
+                            initialValue: _categoryDropdownValue(
+                              dropdownCategories,
                             ),
+                            hint: const Text('Category select karein'),
+                            decoration: const InputDecoration(),
+                            items: _categoryDropdownItems(dropdownCategories),
+                            onChanged: (val) {
+                              setState(() => _selectedCategoryId = val);
+                            },
+                          );
+                        },
                       ),
                     ),
 
