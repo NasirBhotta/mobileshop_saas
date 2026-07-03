@@ -2,9 +2,34 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../data/models/category_model.dart';
+import '../../data/models/price_history_model.dart';
 import '../../data/models/product_model.dart';
 import '../../data/repositories/inventory_repository.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
+
+class BulkPriceUpdateRequest {
+  final List<ProductModel> products;
+  final double percentage;
+  final String direction;
+
+  const BulkPriceUpdateRequest({
+    required this.products,
+    required this.percentage,
+    required this.direction,
+  });
+
+  List<String> get productIds => products.map((product) => product.id).toList();
+}
+
+class BulkPriceUpdateResult {
+  final int updatedCount;
+  final String? errorMessage;
+
+  const BulkPriceUpdateResult.success(this.updatedCount) : errorMessage = null;
+  const BulkPriceUpdateResult.failure(this.errorMessage) : updatedCount = 0;
+
+  bool get isSuccess => errorMessage == null;
+}
 
 final inventoryRepositoryProvider = Provider<InventoryRepository>((ref) {
   return InventoryRepository();
@@ -35,6 +60,25 @@ final productsProvider = FutureProvider<List<ProductModel>>((ref) async {
 final categoriesProvider = FutureProvider<List<CategoryModel>>((ref) async {
   await ref.watch(setupFlowStatusProvider.future);
   return ref.read(inventoryRepositoryProvider).fetchCategories();
+});
+
+final productPriceHistoryProvider =
+    FutureProvider.family<List<PriceHistoryModel>, String>((
+      ref,
+      productId,
+    ) async {
+      await ref.watch(setupFlowStatusProvider.future);
+      return ref.read(inventoryRepositoryProvider).fetchPriceHistory(productId);
+    });
+
+final activeImeiUnitsProvider = FutureProvider.family<bool, String>((
+  ref,
+  productId,
+) async {
+  await ref.watch(setupFlowStatusProvider.future);
+  return ref
+      .read(inventoryRepositoryProvider)
+      .productHasActiveImeiUnits(productId);
 });
 
 // Product CRUD controller
@@ -69,6 +113,7 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
       await _repository.updateProduct(product);
       _ref.invalidate(allProductsProvider);
       _ref.invalidate(productsProvider);
+      _ref.invalidate(productPriceHistoryProvider(product.id));
       state = const AsyncData(null);
       return true;
     } catch (e, st) {
@@ -88,6 +133,29 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
     } catch (e, st) {
       state = AsyncError(e, st);
       return false;
+    }
+  }
+
+  Future<BulkPriceUpdateResult> bulkUpdatePrices(
+    BulkPriceUpdateRequest request,
+  ) async {
+    state = const AsyncLoading();
+    try {
+      final updatedCount = await _repository.bulkUpdateProductPrices(
+        products: request.products,
+        percentage: request.percentage,
+        direction: request.direction,
+      );
+      _ref.invalidate(allProductsProvider);
+      _ref.invalidate(productsProvider);
+      for (final productId in request.productIds) {
+        _ref.invalidate(productPriceHistoryProvider(productId));
+      }
+      state = const AsyncData(null);
+      return BulkPriceUpdateResult.success(updatedCount);
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return BulkPriceUpdateResult.failure(e.toString());
     }
   }
 }

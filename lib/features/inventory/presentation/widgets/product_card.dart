@@ -6,8 +6,18 @@ import '../../data/models/product_model.dart';
 class ProductCard extends StatelessWidget {
   final ProductModel product;
   final VoidCallback onTap;
+  final bool isSelectionMode;
+  final bool isSelected;
+  final ValueChanged<bool>? onSelectionChanged;
 
-  const ProductCard({super.key, required this.product, required this.onTap});
+  const ProductCard({
+    super.key,
+    required this.product,
+    required this.onTap,
+    this.isSelectionMode = false,
+    this.isSelected = false,
+    this.onSelectionChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -15,17 +25,31 @@ class ProductCard extends StatelessWidget {
     final isOutOfStock = product.stock == 0;
 
     return InkWell(
-      onTap: onTap,
+      onTap:
+          isSelectionMode ? () => onSelectionChanged?.call(!isSelected) : onTap,
+      onLongPress: () => onSelectionChanged?.call(true),
       borderRadius: BorderRadius.circular(10),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color:
+              isSelected
+                  ? AppColors.primary.withValues(alpha: 0.06)
+                  : AppColors.surface,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(
+            color: isSelected ? AppColors.primary : AppColors.border,
+          ),
         ),
         child: Row(
           children: [
+            if (isSelectionMode) ...[
+              Checkbox(
+                value: isSelected,
+                onChanged: (value) => onSelectionChanged?.call(value ?? false),
+              ),
+              const SizedBox(width: 8),
+            ],
             // Product icon
             Container(
               width: 44,

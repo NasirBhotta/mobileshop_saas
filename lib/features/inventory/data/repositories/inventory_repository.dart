@@ -1,4 +1,5 @@
 import 'package:mobileshop_saas/features/inventory/data/models/category_model.dart';
+import 'package:mobileshop_saas/features/inventory/data/models/price_history_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -133,6 +134,86 @@ class InventoryRepository {
         .eq('id', productId)
         .eq('tenant_id', tenantId)
         .eq('branch_id', branchId);
+  }
+
+  // ── Bulk Pricing / Price History / IMEI Guards ──
+  Future<int> bulkUpdateProductPrices({
+    required List<ProductModel> products,
+    required double percentage,
+    required String direction,
+  }) async {
+    final productIds = products.map((product) => product.id).toList();
+
+    try {
+      final updatedCount = await _client.rpc(
+        'bulk_update_product_prices',
+        params: {
+          'p_product_ids': productIds,
+          'p_percentage': percentage,
+          'p_direction': direction,
+        },
+      );
+
+      return (updatedCount as num).toInt();
+    } catch (_) {
+      return _bulkUpdateProductPricesDirectly(
+        products: products,
+        percentage: percentage,
+        direction: direction,
+      );
+    }
+  }
+
+  Future<int> _bulkUpdateProductPricesDirectly({
+    required List<ProductModel> products,
+    required double percentage,
+    required String direction,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    final multiplier =
+        direction == 'markup' ? 1 + (percentage / 100) : 1 - (percentage / 100);
+    var updatedCount = 0;
+
+    for (final product in products) {
+      final newPrice = ((product.salePrice * multiplier) * 100).round() / 100;
+      final updatedRows = await _client
+          .from('products')
+          .update({'sale_price': newPrice})
+          .eq('id', product.id)
+          .eq('branch_id', branchId)
+          .eq('tenant_id', tenantId)
+          .eq('is_active', true)
+          .select('id');
+
+      if ((updatedRows as List).isNotEmpty) {
+        updatedCount++;
+      }
+    }
+
+    return updatedCount;
+  }
+
+  Future<List<PriceHistoryModel>> fetchPriceHistory(String productId) async {
+    final tenantId = await _currentTenantId();
+    final data = await _client
+        .from('product_price_history')
+        .select()
+        .eq('tenant_id', tenantId)
+        .eq('product_id', productId)
+        .order('changed_at', ascending: false)
+        .limit(50);
+
+    return (data as List).map((e) => PriceHistoryModel.fromMap(e)).toList();
+  }
+
+  Future<bool> productHasActiveImeiUnits(String productId) async {
+    final hasUnits = await _client.rpc(
+      'product_has_active_imei_units',
+      params: {'p_product_id': productId},
+    );
+
+    return hasUnits == true;
   }
 
   // ── Categories ──
