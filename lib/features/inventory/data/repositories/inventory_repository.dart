@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/category_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/price_history_model.dart';
@@ -6,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 class InventoryRepository {
+  static const _networkTimeout = Duration(milliseconds: 1200);
   final SupabaseClient _client = Supabase.instance.client;
 
   User get _currentUser {
@@ -15,14 +18,15 @@ class InventoryRepository {
   }
 
   Future<Map<String, dynamic>> _currentProfile() async {
+    final cachedProfile = await OfflineStore.loadProfile(_currentUser.id);
+    if (cachedProfile != null) {
+      unawaited(_refreshProfileCache());
+      return cachedProfile;
+    }
+
     Map<String, dynamic>? profile;
     try {
-      profile =
-          await _client
-              .from('users')
-              .select('id, tenant_id, branch_id, full_name, email, phone, role')
-              .eq('id', _currentUser.id)
-              .maybeSingle();
+      profile = await _remoteProfile().timeout(_networkTimeout);
       if (profile != null) {
         final selectedBranchId = await OfflineStore.loadSelectedBranchId(
           _currentUser.id,
@@ -40,6 +44,29 @@ class InventoryRepository {
     return profile;
   }
 
+  Future<Map<String, dynamic>?> _remoteProfile() {
+    return _client
+        .from('users')
+        .select('id, tenant_id, branch_id, full_name, email, phone, role')
+        .eq('id', _currentUser.id)
+        .maybeSingle();
+  }
+
+  Future<void> _refreshProfileCache() async {
+    try {
+      final profile = await _remoteProfile().timeout(_networkTimeout);
+      if (profile != null) {
+        final selectedBranchId = await OfflineStore.loadSelectedBranchId(
+          _currentUser.id,
+        );
+        if (selectedBranchId != null) {
+          profile['branch_id'] = selectedBranchId;
+        }
+        await OfflineStore.saveProfile(_currentUser.id, profile);
+      }
+    } catch (_) {}
+  }
+
   Future<String> _currentTenantId() async {
     final profile = await _currentProfile();
     final tenantId = profile['tenant_id'] as String?;
@@ -52,14 +79,19 @@ class InventoryRepository {
     final selectedBranchId = profile['branch_id'] as String?;
     if (selectedBranchId != null) return selectedBranchId;
 
-    final branch =
-        await _client
-            .from('branches')
-            .select('id')
-            .eq('tenant_id', tenantId)
-            .order('id')
-            .limit(1)
-            .maybeSingle();
+    final cachedBranches = await OfflineStore.loadBranches(tenantId);
+    if (cachedBranches.isNotEmpty && cachedBranches.first.id != null) {
+      return cachedBranches.first.id!;
+    }
+
+    final branch = await _client
+        .from('branches')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .order('id')
+        .limit(1)
+        .maybeSingle()
+        .timeout(_networkTimeout);
 
     final branchId = branch?['id'] as String?;
     if (branchId == null) throw Exception('Branch not found');
@@ -70,26 +102,24 @@ class InventoryRepository {
   Future<List<ProductModel>> fetchProducts({String? categoryId}) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    await syncOfflineMutations();
+    final cachedProducts = await OfflineStore.loadProducts(branchId);
+    if (cachedProducts.isNotEmpty) {
+      unawaited(syncOfflineMutations());
+      unawaited(
+        _refreshProductsCache(branchId: branchId, categoryId: categoryId),
+      );
+      if (categoryId == null) return cachedProducts;
+      return cachedProducts
+          .where((product) => product.categoryId == categoryId)
+          .toList();
+    }
 
     try {
-      var query = _client
-          .from('products')
-          .select('*, categories(name), inventory!inner(quantity, branch_id)')
-          .eq('tenant_id', tenantId)
-          .eq('branch_id', branchId)
-          .eq('inventory.branch_id', branchId)
-          .eq('is_active', true);
-
-      if (categoryId != null) {
-        query = query.eq('category_id', categoryId);
-      }
-
-      final data = await query.order('name');
-      final products =
-          (data as List).map((e) => ProductModel.fromMap(e)).toList();
-      await OfflineStore.saveProducts(branchId, products);
-      return products;
+      return await _fetchRemoteProducts(
+        tenantId: tenantId,
+        branchId: branchId,
+        categoryId: categoryId,
+      ).timeout(_networkTimeout);
     } catch (_) {
       final products = await OfflineStore.loadProducts(branchId);
       if (categoryId == null) return products;
@@ -99,18 +129,54 @@ class InventoryRepository {
     }
   }
 
+  Future<List<ProductModel>> _fetchRemoteProducts({
+    required String tenantId,
+    required String branchId,
+    String? categoryId,
+  }) async {
+    var query = _client
+        .from('products')
+        .select('*, categories(name), inventory!inner(quantity, branch_id)')
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId)
+        .eq('inventory.branch_id', branchId)
+        .eq('is_active', true);
+
+    if (categoryId != null) {
+      query = query.eq('category_id', categoryId);
+    }
+
+    final data = await query.order('name');
+    final products =
+        (data as List).map((e) => ProductModel.fromMap(e)).toList();
+    await OfflineStore.saveProducts(branchId, products);
+    return products;
+  }
+
+  Future<void> _refreshProductsCache({
+    required String branchId,
+    String? categoryId,
+  }) async {
+    try {
+      final tenantId = await _currentTenantId();
+      await _fetchRemoteProducts(
+        tenantId: tenantId,
+        branchId: branchId,
+        categoryId: categoryId,
+      ).timeout(_networkTimeout);
+    } catch (_) {}
+  }
+
   Future<ProductModel> addProduct(ProductModel product) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     try {
-      final data =
-          await _client
-              .from('products')
-              .insert(
-                product.toInsertMap(tenantId: tenantId, branchId: branchId),
-              )
-              .select('id')
-              .single();
+      final data = await _client
+          .from('products')
+          .insert(product.toInsertMap(tenantId: tenantId, branchId: branchId))
+          .select('id')
+          .single()
+          .timeout(_networkTimeout);
 
       final productId = data['id'] as String;
       await setStock(
@@ -148,7 +214,8 @@ class InventoryRepository {
           .update(product.toInsertMap(tenantId: tenantId, branchId: branchId))
           .eq('id', product.id)
           .eq('branch_id', branchId)
-          .eq('tenant_id', tenantId);
+          .eq('tenant_id', tenantId)
+          .timeout(_networkTimeout);
 
       await setStock(
         productId: product.id,
@@ -179,17 +246,15 @@ class InventoryRepository {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     try {
-      final data =
-          await _client
-              .from('products')
-              .select(
-                '*, categories(name), inventory!inner(quantity, branch_id)',
-              )
-              .eq('tenant_id', tenantId)
-              .eq('branch_id', branchId)
-              .eq('inventory.branch_id', branchId)
-              .eq('id', productId)
-              .single();
+      final data = await _client
+          .from('products')
+          .select('*, categories(name), inventory!inner(quantity, branch_id)')
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
+          .eq('inventory.branch_id', branchId)
+          .eq('id', productId)
+          .single()
+          .timeout(_networkTimeout);
 
       final product = ProductModel.fromMap(data);
       await OfflineStore.upsertCachedProduct(product);
@@ -209,7 +274,8 @@ class InventoryRepository {
           .update({'is_active': false})
           .eq('id', productId)
           .eq('tenant_id', tenantId)
-          .eq('branch_id', branchId);
+          .eq('branch_id', branchId)
+          .timeout(_networkTimeout);
     } catch (_) {
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
@@ -236,14 +302,16 @@ class InventoryRepository {
     final productIds = products.map((product) => product.id).toList();
 
     try {
-      final updatedCount = await _client.rpc(
-        'bulk_update_product_prices',
-        params: {
-          'p_product_ids': productIds,
-          'p_percentage': percentage,
-          'p_direction': direction,
-        },
-      );
+      final updatedCount = await _client
+          .rpc(
+            'bulk_update_product_prices',
+            params: {
+              'p_product_ids': productIds,
+              'p_percentage': percentage,
+              'p_direction': direction,
+            },
+          )
+          .timeout(_networkTimeout);
 
       return (updatedCount as num).toInt();
     } catch (_) {
@@ -292,7 +360,8 @@ class InventoryRepository {
             .eq('branch_id', branchId)
             .eq('tenant_id', tenantId)
             .eq('is_active', true)
-            .select('id');
+            .select('id')
+            .timeout(_networkTimeout);
 
         if ((updatedRows as List).isEmpty) continue;
       } catch (_) {
@@ -318,16 +387,19 @@ class InventoryRepository {
         .eq('tenant_id', tenantId)
         .eq('product_id', productId)
         .order('changed_at', ascending: false)
-        .limit(50);
+        .limit(50)
+        .timeout(_networkTimeout);
 
     return (data as List).map((e) => PriceHistoryModel.fromMap(e)).toList();
   }
 
   Future<bool> productHasActiveImeiUnits(String productId) async {
-    final hasUnits = await _client.rpc(
-      'product_has_active_imei_units',
-      params: {'p_product_id': productId},
-    );
+    final hasUnits = await _client
+        .rpc(
+          'product_has_active_imei_units',
+          params: {'p_product_id': productId},
+        )
+        .timeout(_networkTimeout);
 
     return hasUnits == true;
   }
@@ -336,37 +408,63 @@ class InventoryRepository {
   Future<List<CategoryModel>> fetchCategories() async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    try {
-      final data = await _client
-          .from('categories')
-          .select()
-          .eq('tenant_id', tenantId)
-          .eq('branch_id', branchId)
-          .order('name');
+    final cachedCategories = await OfflineStore.loadCategories(branchId);
+    if (cachedCategories.isNotEmpty) {
+      unawaited(
+        _refreshCategoriesCache(tenantId: tenantId, branchId: branchId),
+      );
+      return cachedCategories;
+    }
 
-      final categories =
-          (data as List).map((e) => CategoryModel.fromMap(e)).toList();
-      await OfflineStore.saveCategories(branchId, categories);
-      return categories;
+    try {
+      return await _fetchRemoteCategories(
+        tenantId: tenantId,
+        branchId: branchId,
+      ).timeout(_networkTimeout);
     } catch (_) {
       return OfflineStore.loadCategories(branchId);
     }
+  }
+
+  Future<List<CategoryModel>> _fetchRemoteCategories({
+    required String tenantId,
+    required String branchId,
+  }) async {
+    final data = await _client
+        .from('categories')
+        .select()
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId)
+        .order('name');
+
+    final categories =
+        (data as List).map((e) => CategoryModel.fromMap(e)).toList();
+    await OfflineStore.saveCategories(branchId, categories);
+    return categories;
+  }
+
+  Future<void> _refreshCategoriesCache({
+    required String tenantId,
+    required String branchId,
+  }) async {
+    try {
+      await _fetchRemoteCategories(
+        tenantId: tenantId,
+        branchId: branchId,
+      ).timeout(_networkTimeout);
+    } catch (_) {}
   }
 
   Future<CategoryModel> addCategory(String name) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     try {
-      final data =
-          await _client
-              .from('categories')
-              .insert({
-                'tenant_id': tenantId,
-                'branch_id': branchId,
-                'name': name,
-              })
-              .select()
-              .single();
+      final data = await _client
+          .from('categories')
+          .insert({'tenant_id': tenantId, 'branch_id': branchId, 'name': name})
+          .select()
+          .single()
+          .timeout(_networkTimeout);
 
       final category = CategoryModel.fromMap(data);
       final categories = await OfflineStore.loadCategories(branchId);
@@ -407,7 +505,8 @@ class InventoryRepository {
           .delete()
           .eq('id', categoryId)
           .eq('tenant_id', tenantId)
-          .eq('branch_id', branchId);
+          .eq('branch_id', branchId)
+          .timeout(_networkTimeout);
     } catch (_) {
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
@@ -434,11 +533,14 @@ class InventoryRepository {
     required int quantity, // positive = in, negative = out
   }) async {
     // Upsert inventory row
-    await _client.from('inventory').upsert({
-      'branch_id': branchId,
-      'product_id': productId,
-      'quantity': quantity,
-    }, onConflict: 'branch_id,product_id');
+    await _client
+        .from('inventory')
+        .upsert({
+          'branch_id': branchId,
+          'product_id': productId,
+          'quantity': quantity,
+        }, onConflict: 'branch_id,product_id')
+        .timeout(_networkTimeout);
   }
 
   Future<void> setStock({
@@ -446,24 +548,27 @@ class InventoryRepository {
     required String branchId,
     required int quantity,
   }) async {
-    await _client.from('inventory').upsert({
-      'branch_id': branchId,
-      'product_id': productId,
-      'quantity': quantity < 0 ? 0 : quantity,
-    }, onConflict: 'branch_id,product_id');
+    await _client
+        .from('inventory')
+        .upsert({
+          'branch_id': branchId,
+          'product_id': productId,
+          'quantity': quantity < 0 ? 0 : quantity,
+        }, onConflict: 'branch_id,product_id')
+        .timeout(_networkTimeout);
   }
 
   Future<int> getStock({
     required String productId,
     required String branchId,
   }) async {
-    final data =
-        await _client
-            .from('inventory')
-            .select('quantity')
-            .eq('product_id', productId)
-            .eq('branch_id', branchId)
-            .maybeSingle();
+    final data = await _client
+        .from('inventory')
+        .select('quantity')
+        .eq('product_id', productId)
+        .eq('branch_id', branchId)
+        .maybeSingle()
+        .timeout(_networkTimeout);
 
     return (data?['quantity'] as num?)?.toInt() ?? 0;
   }

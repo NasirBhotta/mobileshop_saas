@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/inventory/data/models/category_model.dart';
 import '../../features/inventory/data/models/product_model.dart';
 import '../../features/onboarding/data/models/shop_setup_model.dart';
+import '../local/local_store.dart';
 
 class OfflineMutation {
   final String type;
@@ -49,6 +50,10 @@ class OfflineStore {
     String userId,
     Map<String, dynamic> profile,
   ) async {
+    try {
+      await LocalStore.saveProfile(userId, profile);
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_profileKey(userId), jsonEncode(profile));
     final branchId = profile['branch_id'] as String?;
@@ -58,6 +63,11 @@ class OfflineStore {
   }
 
   static Future<Map<String, dynamic>?> loadProfile(String userId) async {
+    try {
+      final profile = await LocalStore.loadProfile(userId);
+      if (profile != null) return profile;
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_profileKey(userId));
     if (raw == null) return null;
@@ -74,11 +84,20 @@ class OfflineStore {
     String tenantId,
     Map<String, dynamic> tenant,
   ) async {
+    try {
+      await LocalStore.saveTenant(tenantId, tenant);
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tenantKey(tenantId), jsonEncode(tenant));
   }
 
   static Future<Map<String, dynamic>?> loadTenant(String tenantId) async {
+    try {
+      final tenant = await LocalStore.loadTenant(tenantId);
+      if (tenant != null) return tenant;
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_tenantKey(tenantId));
     if (raw == null) return null;
@@ -89,6 +108,10 @@ class OfflineStore {
     String tenantId,
     List<BranchInputModel> branches,
   ) async {
+    try {
+      await LocalStore.saveBranches(tenantId, branches);
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _branchesKey(tenantId),
@@ -97,6 +120,11 @@ class OfflineStore {
   }
 
   static Future<List<BranchInputModel>> loadBranches(String tenantId) async {
+    try {
+      final branches = await LocalStore.loadBranches(tenantId);
+      if (branches.isNotEmpty) return branches;
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_branchesKey(tenantId));
     if (raw == null) return [];
@@ -109,6 +137,10 @@ class OfflineStore {
     required String userId,
     required String branchId,
   }) async {
+    try {
+      await LocalStore.selectBranch(userId: userId, branchId: branchId);
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_selectedBranchKey(userId), branchId);
     final profile = await loadProfile(userId);
@@ -127,6 +159,10 @@ class OfflineStore {
     String branchId,
     List<ProductModel> products,
   ) async {
+    try {
+      await LocalStore.saveProducts(branchId, products);
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _productsKey(branchId),
@@ -135,6 +171,11 @@ class OfflineStore {
   }
 
   static Future<List<ProductModel>> loadProducts(String branchId) async {
+    try {
+      final products = await LocalStore.loadProducts(branchId);
+      if (products.isNotEmpty) return products;
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_productsKey(branchId));
     if (raw == null) return [];
@@ -144,6 +185,10 @@ class OfflineStore {
   }
 
   static Future<void> upsertCachedProduct(ProductModel product) async {
+    try {
+      await LocalStore.upsertProduct(product);
+    } catch (_) {}
+
     final products = await loadProducts(product.branchId);
     final nextProducts = [
       for (final item in products)
@@ -157,6 +202,13 @@ class OfflineStore {
     required String branchId,
     required String productId,
   }) async {
+    try {
+      await LocalStore.deactivateProduct(
+        branchId: branchId,
+        productId: productId,
+      );
+    } catch (_) {}
+
     final products = await loadProducts(branchId);
     await saveProducts(
       branchId,
@@ -168,6 +220,10 @@ class OfflineStore {
     String branchId,
     List<CategoryModel> categories,
   ) async {
+    try {
+      await LocalStore.saveCategories(branchId, categories);
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _categoriesKey(branchId),
@@ -176,6 +232,11 @@ class OfflineStore {
   }
 
   static Future<List<CategoryModel>> loadCategories(String branchId) async {
+    try {
+      final categories = await LocalStore.loadCategories(branchId);
+      if (categories.isNotEmpty) return categories;
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_categoriesKey(branchId));
     if (raw == null) return [];

@@ -9,6 +9,7 @@ import 'config/router/app_router.dart';
 import 'config/supabase/supabase_config.dart';
 import 'config/theme/app_theme.dart';
 import 'core/constants/app_strings.dart';
+import 'core/local/local_database.dart';
 
 void main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +31,8 @@ Future<void> _initializeApp() async {
     ),
     SharedPreferences.getInstance(),
   ]);
+
+  await LocalDatabase.initialize();
 }
 
 class MobileShopApp extends ConsumerWidget {

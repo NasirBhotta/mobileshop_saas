@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -33,6 +35,7 @@ class SetupFlowStatus {
 }
 
 class SetupFlowRepository {
+  static const _networkTimeout = Duration(milliseconds: 1200);
   final SupabaseClient _client;
 
   SetupFlowRepository({SupabaseClient? client})
@@ -64,7 +67,7 @@ class SetupFlowRepository {
   }
 
   Future<SetupFlowStatus> loadStatus(String userId) async {
-    await syncOfflineMutations(userId);
+    unawaited(syncOfflineMutations(userId));
     final profile = await loadProfile(userId);
 
     debugPrint("Profile: $profile");
@@ -91,7 +94,9 @@ class SetupFlowRepository {
 
     if (!setupComplete) {
       if (branches.length >= requiredBranches) {
-        await markSetupComplete(tenantId);
+        try {
+          await markSetupComplete(tenantId).timeout(_networkTimeout);
+        } catch (_) {}
       } else {
         return SetupFlowStatus(
           target: SetupRouteTarget.setup,
@@ -133,61 +138,118 @@ class SetupFlowRepository {
     );
   }
 
-  Future<Map<String, dynamic>?> loadProfile(String userId) {
+  Future<Map<String, dynamic>?> loadProfile(String userId) async {
+    final cachedProfile = await OfflineStore.loadProfile(userId);
+    if (cachedProfile != null) {
+      unawaited(_refreshProfileCache(userId));
+      return cachedProfile;
+    }
+
+    try {
+      final profile = await _remoteProfile(userId).timeout(_networkTimeout);
+      if (profile != null) {
+        await _saveProfileWithSelectedBranch(userId, profile);
+      }
+      return profile;
+    } catch (_) {
+      return OfflineStore.loadProfile(userId);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _remoteProfile(String userId) {
     return _client
         .from('users')
         .select('id, tenant_id, branch_id, full_name, email, phone, role')
         .eq('id', userId)
-        .maybeSingle()
-        .then((profile) async {
-          if (profile != null) {
-            final selectedBranchId = await OfflineStore.loadSelectedBranchId(
-              userId,
-            );
-            if (selectedBranchId != null) {
-              profile['branch_id'] = selectedBranchId;
-            }
-            await OfflineStore.saveProfile(userId, profile);
-          }
-          return profile;
-        })
-        .catchError((_) => OfflineStore.loadProfile(userId));
+        .maybeSingle();
   }
 
-  Future<Map<String, dynamic>?> loadTenant(String tenantId) {
+  Future<void> _refreshProfileCache(String userId) async {
+    try {
+      final profile = await _remoteProfile(userId).timeout(_networkTimeout);
+      if (profile != null) {
+        await _saveProfileWithSelectedBranch(userId, profile);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveProfileWithSelectedBranch(
+    String userId,
+    Map<String, dynamic> profile,
+  ) async {
+    final selectedBranchId = await OfflineStore.loadSelectedBranchId(userId);
+    if (selectedBranchId != null) {
+      profile['branch_id'] = selectedBranchId;
+    }
+    await OfflineStore.saveProfile(userId, profile);
+  }
+
+  Future<Map<String, dynamic>?> loadTenant(String tenantId) async {
+    final cachedTenant = await OfflineStore.loadTenant(tenantId);
+    if (cachedTenant != null) {
+      unawaited(_refreshTenantCache(tenantId));
+      return cachedTenant;
+    }
+
+    try {
+      final tenant = await _remoteTenant(tenantId).timeout(_networkTimeout);
+      if (tenant != null) await OfflineStore.saveTenant(tenantId, tenant);
+      return tenant;
+    } catch (_) {
+      return OfflineStore.loadTenant(tenantId);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _remoteTenant(String tenantId) {
     return _client
         .from('tenants')
         .select(
           'id, shop_name, business_type, branch_count, plan, status, setup_complete',
         )
         .eq('id', tenantId)
-        .maybeSingle()
-        .then((tenant) async {
-          if (tenant != null) await OfflineStore.saveTenant(tenantId, tenant);
-          return tenant;
-        })
-        .catchError((_) => OfflineStore.loadTenant(tenantId));
+        .maybeSingle();
+  }
+
+  Future<void> _refreshTenantCache(String tenantId) async {
+    try {
+      final tenant = await _remoteTenant(tenantId).timeout(_networkTimeout);
+      if (tenant != null) await OfflineStore.saveTenant(tenantId, tenant);
+    } catch (_) {}
   }
 
   Future<List<BranchInputModel>> loadBranches(String tenantId) async {
-    try {
-      final rows = await _client
-          .from('branches')
-          .select('id, name, address, city')
-          .eq('tenant_id', tenantId)
-          .order('id');
+    final cachedBranches = await OfflineStore.loadBranches(tenantId);
+    if (cachedBranches.isNotEmpty) {
+      unawaited(_refreshBranchesCache(tenantId));
+      return cachedBranches;
+    }
 
-      final branches =
-          (rows as List<dynamic>)
-              .map(
-                (row) => BranchInputModel.fromMap(row as Map<String, dynamic>),
-              )
-              .toList();
-      await OfflineStore.saveBranches(tenantId, branches);
-      return branches;
+    try {
+      return await _fetchRemoteBranches(tenantId).timeout(_networkTimeout);
     } catch (_) {
       return OfflineStore.loadBranches(tenantId);
     }
+  }
+
+  Future<List<BranchInputModel>> _fetchRemoteBranches(String tenantId) async {
+    final rows = await _client
+        .from('branches')
+        .select('id, name, address, city')
+        .eq('tenant_id', tenantId)
+        .order('id');
+
+    final branches =
+        (rows as List<dynamic>)
+            .map((row) => BranchInputModel.fromMap(row as Map<String, dynamic>))
+            .toList();
+    await OfflineStore.saveBranches(tenantId, branches);
+    return branches;
+  }
+
+  Future<void> _refreshBranchesCache(String tenantId) async {
+    try {
+      await _fetchRemoteBranches(tenantId).timeout(_networkTimeout);
+    } catch (_) {}
   }
 
   Future<String> ensureTenant({
@@ -277,7 +339,8 @@ class SetupFlowRepository {
       await _client
           .from('users')
           .update({'branch_id': branchId})
-          .eq('id', userId);
+          .eq('id', userId)
+          .timeout(_networkTimeout);
     } catch (_) {
       await OfflineStore.enqueueMutation(
         userId: userId,
@@ -302,7 +365,8 @@ class SetupFlowRepository {
         await _client
             .from('users')
             .update({'branch_id': mutation.payload['branch_id']})
-            .eq('id', mutation.payload['user_id']);
+            .eq('id', mutation.payload['user_id'])
+            .timeout(_networkTimeout);
       } catch (_) {
         remaining.add(mutation);
       }

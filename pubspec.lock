@@ -625,7 +625,7 @@ packages:
     source: hosted
     version: "2.7.0"
   path:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: path
       sha256: "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5"
@@ -633,7 +633,7 @@ packages:
     source: hosted
     version: "1.9.1"
   path_provider:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: path_provider
       sha256: a7f4874f987173da295a61c181b8ee71dab59b332a486b391babf26a1b884825
@@ -736,22 +736,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.7.3"
-  powersync:
-    dependency: "direct main"
-    description:
-      name: powersync
-      sha256: fd497501e9adbfcafb65870311c6c2b48f6146cbf67bb4e2d92f3f8da23bd9ab
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.3.1"
-  powersync_flutter_libs:
-    dependency: transitive
-    description:
-      name: powersync_flutter_libs
-      sha256: "24324947bffee25912abd3534203d7ab070b99d3186a8de658205ffb44902971"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.5.0+eol"
   pub_semver:
     dependency: transitive
     description:
@@ -949,14 +933,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.10.2"
-  sqlcipher_flutter_libs:
-    dependency: transitive
-    description:
-      name: sqlcipher_flutter_libs
-      sha256: "38d62d659d2fb8739bf25a42c9a350d1fdd6c29a5a61f13a946778ec75d27929"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.7.0+eol"
   sqlite3:
     dependency: transitive
     description:
@@ -965,38 +941,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.3.3"
-  sqlite3_connection_pool:
-    dependency: transitive
-    description:
-      name: sqlite3_connection_pool
-      sha256: "9d2b3b398b03c96743fd071521fc665be73c33c9cd5c56d87196baff8d8b4398"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.2.6"
   sqlite3_flutter_libs:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: sqlite3_flutter_libs
-      sha256: "3ed7553eee7bb368f8950f58ba29f634e06e813c029aff6a0d60862b96de8454"
+      sha256: eeb9e3a45207649076b808f8a5a74d68770d0b7f26ccef6d5f43106eee5375ad
       url: "https://pub.dev"
     source: hosted
-    version: "0.6.0+eol"
-  sqlite3_web:
-    dependency: transitive
-    description:
-      name: sqlite3_web
-      sha256: a7023d26a31e2783ef2cdb91cf0f066385742a2cba6c6da4de69ad56cc8d1079
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.1"
-  sqlite_async:
-    dependency: transitive
-    description:
-      name: sqlite_async
-      sha256: "17176f00a10e5b8ba6e0205e42de1c15a94ff8762745fed19750b44b6bbd5649"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.14.3"
+    version: "0.5.42"
   stack_trace:
     dependency: transitive
     description:
