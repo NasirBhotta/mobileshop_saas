@@ -178,4 +178,48 @@ class AppStrings {
   static const String setupStep4Title = 'Sab Theek Hai?';
   static const String setupStep4Subtitle =
       'Ek baar check kar lein, phir setup complete karein';
+
+  // ═══════════════════════════════════════
+  // Inventory
+  // ═══════════════════════════════════════s
+  static const String inventoryTitle = 'Inventory';
+  static const String inventoryEmpty = 'Koi product nahi mila';
+  static const String inventoryEmptyDesc = 'Pehla product add karein';
+  static const String inventoryAddProduct = 'Product Add Karein';
+  static const String inventoryEditProduct = 'Product Edit Karein';
+  static const String inventorySearch = 'Product dhoondein...';
+  static const String inventoryAllCategories = 'Sab';
+
+  // Product Form
+  static const String fieldProductName = 'Product Ka Naam';
+  static const String fieldSku = 'SKU (Optional)';
+  static const String fieldDescription = 'Description (Optional)';
+  static const String fieldSalePrice = 'Sale Price (₨)';
+  static const String fieldCostPrice = 'Cost Price (₨)';
+  static const String fieldCategory = 'Category';
+  static const String fieldImeiTracked = 'IMEI Tracking On Karein';
+
+  static const String hintProductName = 'Samsung Galaxy A15';
+  static const String hintSku = 'SAM-A15-BLK';
+  static const String hintSalePrice = '0.00';
+  static const String hintCostPrice = '0.00';
+
+  static const String errorProductNameRequired = 'Product naam zaroori hai';
+  static const String errorSalePriceInvalid = 'Valid price likhein';
+  static const String errorCostPriceInvalid = 'Valid cost likhein';
+
+  // Categories
+  static const String categoriesTitle = 'Categories';
+  static const String categoryAddNew = 'Nai Category';
+  static const String fieldCategoryName = 'Category Naam';
+  static const String hintCategoryName = 'Mobile Phones';
+  static const String errorCategoryNameRequired = 'Category naam zaroori hai';
+
+  // Stock
+  static const String stockAdjust = 'Stock Adjust Karein';
+  static const String stockIn = 'Stock In';
+  static const String stockOut = 'Stock Out';
+  static const String fieldQuantity = 'Quantity';
+  static const String fieldReason = 'Wajah (Optional)';
+  static const String currentStock = 'Maujuda Stock';
 }

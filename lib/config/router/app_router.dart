@@ -4,6 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/signup_screen.dart';
 import 'package:mobileshop_saas/features/dashboard/presentation/screens/dashboard_screen.dart';
+import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/screens/categories_screen.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/screens/inventory_screen.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/screens/product_form_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/app_intro_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/branch_selection_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/shop_setup_screen.dart';
@@ -109,6 +113,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/dashboard',
         builder: (context, state) => const DashboardScreen(),
+      ),
+
+      GoRoute(path: '/inventory', builder: (_, _) => const InventoryScreen()),
+      GoRoute(
+        path: '/inventory/add',
+        builder: (_, _) => const ProductFormScreen(),
+      ),
+      GoRoute(
+        path: '/inventory/edit',
+        builder:
+            (context, state) =>
+                ProductFormScreen(product: state.extra as ProductModel?),
+      ),
+      GoRoute(
+        path: '/inventory/categories',
+        builder: (_, _) => const CategoriesScreen(), // next step mein banayenge
       ),
     ],
   );

@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
 import '../../features/onboarding/data/repositories/setup_flow_repository.dart';
+import '../providers/navigation_loading_provider.dart';
 import 'logout_action.dart';
 
 class MobileNav extends ConsumerWidget {
@@ -54,6 +55,9 @@ class MobileNav extends ConsumerWidget {
             return;
           }
 
+          if (index == currentIndex) return;
+
+          ref.read(navigationLoadingProvider.notifier).showFor();
           context.go(_tabs[index]);
         },
         destinations: const [
@@ -114,6 +118,7 @@ class MobileNav extends ConsumerWidget {
                       ),
                       onTap: () {
                         Navigator.of(sheetContext).pop();
+                        ref.read(navigationLoadingProvider.notifier).showFor();
                         context.go('/select-branch');
                       },
                     ),

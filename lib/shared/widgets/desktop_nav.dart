@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
 import '../../features/onboarding/data/repositories/setup_flow_repository.dart';
+import '../providers/navigation_loading_provider.dart';
 import 'logout_action.dart';
 
 class DesktopNav extends ConsumerWidget {
@@ -141,7 +142,17 @@ class DesktopNav extends ConsumerWidget {
                                       : AppColors.textSecondary,
                             ),
                           ),
-                          onTap: () => context.go(_tabs[index]),
+                          onTap:
+                              isSelected
+                                  ? null
+                                  : () {
+                                    ref
+                                        .read(
+                                          navigationLoadingProvider.notifier,
+                                        )
+                                        .showFor();
+                                    context.go(_tabs[index]);
+                                  },
                         ),
                       );
                     },
@@ -187,7 +198,12 @@ class DesktopNav extends ConsumerWidget {
                         SizedBox(
                           width: double.infinity,
                           child: TextButton.icon(
-                            onPressed: () => context.go('/select-branch'),
+                            onPressed: () {
+                              ref
+                                  .read(navigationLoadingProvider.notifier)
+                                  .showFor();
+                              context.go('/select-branch');
+                            },
                             icon: const Icon(
                               Icons.storefront_rounded,
                               size: 18,

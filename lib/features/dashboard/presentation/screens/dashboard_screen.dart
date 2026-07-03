@@ -1,23 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../../../shared/widgets/app_layout.dart';
+import '../providers/dashboard_provider.dart';
 import '../widgets/quick_action_button.dart';
 import '../widgets/stat_card.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return AppLayout(
       currentIndex: 0,
       child:
           Responsive.isDesktop(context)
-              ? _DesktopDashboard()
-              : _MobileDashboard(),
+              ? const _DesktopDashboard()
+              : const _MobileDashboard(),
     );
   }
 }
@@ -25,9 +27,23 @@ class DashboardScreen extends StatelessWidget {
 // ════════════════════════════════════════
 // MOBILE DASHBOARD
 // ════════════════════════════════════════
-class _MobileDashboard extends StatelessWidget {
+class _MobileDashboard extends ConsumerWidget {
+  const _MobileDashboard();
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dashboardStats = ref.watch(dashboardStatsProvider);
+    final totalStock = dashboardStats.maybeWhen(
+      data: (stats) => stats.totalStock.toString(),
+      loading: () => '...',
+      orElse: () => '0',
+    );
+    final lowStock = dashboardStats.maybeWhen(
+      data: (stats) => stats.lowStock.toString(),
+      loading: () => '...',
+      orElse: () => '0',
+    );
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -79,8 +95,8 @@ class _MobileDashboard extends StatelessWidget {
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
                 childAspectRatio: 1.4,
-                children: const [
-                  StatCard(
+                children: [
+                  const StatCard(
                     title: AppStrings.dashboardTodaySales,
                     value: '₨ 0',
                     icon: Icons.trending_up_rounded,
@@ -89,12 +105,12 @@ class _MobileDashboard extends StatelessWidget {
                   ),
                   StatCard(
                     title: AppStrings.dashboardTotalStock,
-                    value: '0',
+                    value: totalStock,
                     icon: Icons.inventory_2_rounded,
                     color: AppColors.primary,
                     isCompact: true,
                   ),
-                  StatCard(
+                  const StatCard(
                     title: AppStrings.dashboardActiveRepairs,
                     value: '0',
                     icon: Icons.build_rounded,
@@ -103,7 +119,7 @@ class _MobileDashboard extends StatelessWidget {
                   ),
                   StatCard(
                     title: AppStrings.dashboardLowStock,
-                    value: '0',
+                    value: lowStock,
                     icon: Icons.warning_amber_rounded,
                     color: AppColors.error,
                     isCompact: true,
@@ -173,9 +189,23 @@ class _MobileDashboard extends StatelessWidget {
 // ════════════════════════════════════════
 // DESKTOP DASHBOARD
 // ════════════════════════════════════════
-class _DesktopDashboard extends StatelessWidget {
+class _DesktopDashboard extends ConsumerWidget {
+  const _DesktopDashboard();
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dashboardStats = ref.watch(dashboardStatsProvider);
+    final totalStock = dashboardStats.maybeWhen(
+      data: (stats) => stats.totalStock.toString(),
+      loading: () => '...',
+      orElse: () => '0',
+    );
+    final lowStock = dashboardStats.maybeWhen(
+      data: (stats) => stats.lowStock.toString(),
+      loading: () => '...',
+      orElse: () => '0',
+    );
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SingleChildScrollView(
@@ -234,8 +264,8 @@ class _DesktopDashboard extends StatelessWidget {
 
             // ── Stats Row (4 cards, horizontal) ──
             Row(
-              children: const [
-                Expanded(
+              children: [
+                const Expanded(
                   child: StatCard(
                     title: AppStrings.dashboardTodaySales,
                     value: '₨ 0',
@@ -243,17 +273,17 @@ class _DesktopDashboard extends StatelessWidget {
                     color: AppColors.success,
                   ),
                 ),
-                SizedBox(width: 16),
+                const SizedBox(width: 16),
                 Expanded(
                   child: StatCard(
                     title: AppStrings.dashboardTotalStock,
-                    value: '0',
+                    value: totalStock,
                     icon: Icons.inventory_2_rounded,
                     color: AppColors.primary,
                   ),
                 ),
-                SizedBox(width: 16),
-                Expanded(
+                const SizedBox(width: 16),
+                const Expanded(
                   child: StatCard(
                     title: AppStrings.dashboardActiveRepairs,
                     value: '0',
@@ -261,11 +291,11 @@ class _DesktopDashboard extends StatelessWidget {
                     color: AppColors.warning,
                   ),
                 ),
-                SizedBox(width: 16),
+                const SizedBox(width: 16),
                 Expanded(
                   child: StatCard(
                     title: AppStrings.dashboardLowStock,
-                    value: '0',
+                    value: lowStock,
                     icon: Icons.warning_amber_rounded,
                     color: AppColors.error,
                   ),

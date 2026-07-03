@@ -7,6 +7,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../../../features/auth/presentation/providers/auth_provider.dart';
+import '../../../../shared/providers/navigation_loading_provider.dart';
 import '../../../../shared/widgets/logout_action.dart';
 import '../../data/models/shop_setup_model.dart';
 import '../../data/repositories/setup_flow_repository.dart';
@@ -26,11 +27,19 @@ final branchSelectionProvider = FutureProvider<List<BranchInputModel>>((
   return repository.loadBranches(tenantId);
 });
 
-class BranchSelectionScreen extends ConsumerWidget {
+class BranchSelectionScreen extends ConsumerStatefulWidget {
   const BranchSelectionScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BranchSelectionScreen> createState() =>
+      _BranchSelectionScreenState();
+}
+
+class _BranchSelectionScreenState extends ConsumerState<BranchSelectionScreen> {
+  String? _selectingBranchId;
+
+  @override
+  Widget build(BuildContext context) {
     debugPrint("BranchSelectionScreen BUILD");
     final branchesState = ref.watch(branchSelectionProvider);
     final isLoggingOut = ref.watch(authControllerProvider).isLoading;
@@ -118,10 +127,16 @@ class BranchSelectionScreen extends ConsumerWidget {
                                 (_, _) => const SizedBox(height: 12),
                             itemBuilder: (context, index) {
                               final branch = branches[index];
+                              final isSelecting =
+                                  _selectingBranchId == branch.id;
                               return _BranchTile(
                                 branch: branch,
+                                isLoading: isSelecting,
                                 onTap:
-                                    () => _selectBranch(context, ref, branch),
+                                    _selectingBranchId == null
+                                        ? () =>
+                                            _selectBranch(context, ref, branch)
+                                        : null,
                               );
                             },
                           ),
@@ -145,6 +160,7 @@ class BranchSelectionScreen extends ConsumerWidget {
     final branchId = branch.id;
     if (user == null || branchId == null) return;
 
+    setState(() => _selectingBranchId = branchId);
     try {
       await ref
           .read(setupFlowRepositoryProvider)
@@ -152,6 +168,7 @@ class BranchSelectionScreen extends ConsumerWidget {
       ref.invalidate(setupFlowStatusProvider);
 
       if (context.mounted) {
+        ref.read(navigationLoadingProvider.notifier).showFor();
         context.go('/dashboard');
       }
     } catch (error) {
@@ -160,15 +177,24 @@ class BranchSelectionScreen extends ConsumerWidget {
           context,
         ).showSnackBar(SnackBar(content: Text(friendlySetupError(error))));
       }
+    } finally {
+      if (mounted) {
+        setState(() => _selectingBranchId = null);
+      }
     }
   }
 }
 
 class _BranchTile extends StatelessWidget {
   final BranchInputModel branch;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool isLoading;
 
-  const _BranchTile({required this.branch, required this.onTap});
+  const _BranchTile({
+    required this.branch,
+    required this.onTap,
+    required this.isLoading,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -214,7 +240,16 @@ class _BranchTile extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.textHint),
+            if (isLoading)
+              const SizedBox.square(
+                dimension: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.textHint,
+              ),
           ],
         ),
       ),

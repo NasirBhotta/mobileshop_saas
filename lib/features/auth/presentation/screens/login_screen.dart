@@ -56,6 +56,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           email: _emailController.text.trim(),
           password: _passwordController.text,
         );
+    if (!success || !mounted) return;
 
     // check branches count if > 1 then redirect to branch selection else redirect to dashboard
     final user = Supabase.instance.client.auth.currentUser;
@@ -82,7 +83,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final actualBranchCount = branches.length;
 
     debugPrint('Actual branch count: $actualBranchCount');
-    if (success && mounted && actualBranchCount < 1) {
+    if (!mounted) return;
+
+    if (actualBranchCount < 1) {
       context.go('/dashboard'); // router redirect bhi handle karega
     } else {
       context.go('/select-branch');
