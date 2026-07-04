@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:mobileshop_saas/features/inventory/data/models/stock_adjustment_model.dart';
 
 import '../../data/models/category_model.dart';
 import '../../data/models/price_history_model.dart';
@@ -21,6 +22,92 @@ class BulkPriceUpdateRequest {
   List<String> get productIds => products.map((product) => product.id).toList();
 }
 
+final stockAdjustmentControllerProvider =
+    StateNotifierProvider<StockAdjustmentController, AsyncValue<void>>((ref) {
+      return StockAdjustmentController(
+        ref.read(inventoryRepositoryProvider),
+        ref,
+      );
+    });
+
+final tenantSettingsProvider = FutureProvider<Map<String, dynamic>>((ref) {
+  return ref.read(inventoryRepositoryProvider).getSettings();
+});
+
+final settingsControllerProvider =
+    StateNotifierProvider<SettingsController, AsyncValue<void>>((ref) {
+      return SettingsController(ref.read(inventoryRepositoryProvider), ref);
+    });
+
+class SettingsController extends StateNotifier<AsyncValue<void>> {
+  final InventoryRepository _repository;
+  final Ref _ref;
+
+  SettingsController(this._repository, this._ref)
+    : super(const AsyncData(null));
+
+  Future<bool> saveSettings({
+    required int qtyThreshold,
+    required double valueThreshold,
+  }) async {
+    state = const AsyncLoading();
+    try {
+      await _repository.saveSettings(
+        qtyThreshold: qtyThreshold,
+        valueThreshold: valueThreshold,
+      );
+      _ref.invalidate(tenantSettingsProvider);
+      state = const AsyncData(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
+}
+
+class StockAdjustmentController extends StateNotifier<AsyncValue<void>> {
+  final InventoryRepository _repository;
+  final Ref _ref;
+
+  StockAdjustmentController(this._repository, this._ref)
+    : super(const AsyncData(null));
+
+  Future<bool> adjust({
+    required String productId,
+    required AdjustmentType type,
+    required int quantity,
+    required AdjustmentReason reason,
+    String? reasonNote,
+    bool isOverride = false,
+    required ProductModel product,
+  }) async {
+    state = const AsyncLoading();
+    try {
+      await _repository.adjustStock(
+        productId: productId,
+        type: type,
+        quantity: quantity,
+        reason: reason,
+        reasonNote: reasonNote,
+        isOverride: isOverride,
+        product: product,
+      );
+
+      // Providers refresh karo taake UI update ho
+      _ref.invalidate(productsProvider);
+      _ref.invalidate(allProductsProvider);
+      _ref.invalidate(adjustmentsProvider);
+
+      state = const AsyncData(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
+}
+
 class BulkPriceUpdateResult {
   final int updatedCount;
   final String? errorMessage;
@@ -30,6 +117,18 @@ class BulkPriceUpdateResult {
 
   bool get isSuccess => errorMessage == null;
 }
+
+// Ek product ki adjustment history
+// productId optional → null matlab sab products ki history
+final adjustmentsProvider =
+    FutureProvider.family<List<StockAdjustmentModel>, String?>((
+      ref,
+      productId,
+    ) async {
+      return ref
+          .read(inventoryRepositoryProvider)
+          .getAdjustments(productId: productId);
+    });
 
 final inventoryRepositoryProvider = Provider<InventoryRepository>((ref) {
   return InventoryRepository();

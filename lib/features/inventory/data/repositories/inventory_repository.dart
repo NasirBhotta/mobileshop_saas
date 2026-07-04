@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/rendering.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/utils/adjustment_extention.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/category_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/price_history_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
+import 'package:mobileshop_saas/features/inventory/data/models/stock_adjustment_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -19,45 +22,201 @@ class InventoryRepository {
 
   Future<void> adjustStock({
     required String productId,
-    required String type,
+    required AdjustmentType type,
     required int quantity,
-    required String reason,
-    required String branchId,
-    required int currentStock, // UI ko pata hona chahiye current stock
-    required String userRole, // 'owner', 'manager', 'cashier'
+    required AdjustmentReason reason,
+    String? reasonNote,
+    bool isOverride = false,
+
+    required ProductModel product,
   }) async {
-    if (quantity <= 0) {
-      throw Exception('Quantity positive honi chahiye');
-    }
-    if (reason.trim().isEmpty) {
-      throw Exception('Reason mandatory hai');
-    }
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    try {
+      final user = _client.auth.currentUser;
+      if (user == null) throw Exception('User not logged in');
 
-    // calculate karo naya stock kya banega
-    final projectedStock =
-        type == 'stock_out' ? currentStock - quantity : currentStock + quantity;
+      final invRow = await _client
+          .from('inventory')
+          .select('quantity')
+          .eq('branch_id', branchId)
+          .eq('product_id', productId)
+          .maybeSingle()
+          .timeout(_networkTimeout);
 
-    bool needsOverride = false;
+      final currentStock = (invRow?['quantity'] as num?)?.toInt() ?? 0;
 
-    if (projectedStock < 0) {
-      if (userRole != 'owner') {
-        // Manager/Cashier ke liye yahin rok do, RPC call bhi mat karo
-        throw Exception('Stock cannot go below zero. Ask Owner for override.');
+      final newStock =
+          type == AdjustmentType.stockIn
+              ? currentStock + quantity
+              : currentStock - quantity;
+
+      if (newStock < 0 && !isOverride) {
+        throw Exception(
+          'Stock zero se neeche nahi ja sakta. '
+          'Current stock: $currentStock, '
+          'Requested: $quantity',
+        );
       }
-      needsOverride = true; // Owner hai, but confirm karwana padega UI mein
+
+      final productRow = await _client
+          .from('products')
+          .select('cost_price')
+          .eq('id', productId)
+          .maybeSingle()
+          .timeout(_networkTimeout);
+
+      final unitCost = (productRow!['cost_price'] as num).toDouble();
+      final totalValue = unitCost * quantity; // kitna rupiya ka adjustment h
+      await _client
+          .from('stock_adjustments')
+          .insert({
+            'tenant_id': tenantId,
+            'branch_id': branchId,
+            'product_id': productId,
+
+            'adjustment_type': type.label,
+
+            'quantity': quantity,
+
+            'reason': reason.label, // or reason.code depending on your schema
+
+            'adjusted_by': user.id,
+            'user_id': user.id,
+
+            'reason_code': reason.label,
+            'reason_note': reasonNote,
+
+            'is_override': isOverride,
+            'unit_cost': unitCost,
+            'total_value': totalValue,
+          })
+          .timeout(_networkTimeout);
+
+      await _client
+          .from('inventory')
+          .upsert({
+            'branch_id': branchId,
+            'product_id': productId,
+            'quantity': newStock, // calculated naya stock
+            'updated_at': DateTime.now().toIso8601String(),
+          }, onConflict: 'branch_id,product_id')
+          .timeout(_networkTimeout);
+
+      await _checkAndNotifyHighValue(
+        tenantId: tenantId,
+        quantity: quantity,
+        totalValue: totalValue,
+        productId: productId,
+      );
+
+      final product = await fetchProduct(productId);
+      await OfflineStore.upsertCachedProduct(product);
+    } catch (e) {
+      final offlineProduct = await _offlineProduct(
+        product: product,
+        tenantId: tenantId,
+        branchId: branchId,
+      );
+
+      await OfflineStore.upsertCachedProduct(offlineProduct);
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'upsert_product',
+        payload: {'product': offlineProduct.toCacheMap()},
+      );
+      debugPrint('Error occurred while adjusting stock: $e');
+    }
+  }
+
+  Future<List<StockAdjustmentModel>> getAdjustments({
+    String? productId,
+    int limit = 50,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+
+    var query = _client
+        .from('stock_adjustments')
+        .select('*, products(name)')
+        .eq('branch_id', branchId);
+
+    if (productId != null) {
+      query = query.eq('product_id', productId);
     }
 
-    await _client.rpc(
-      'adjust_stock',
-      params: {
-        'p_product_id': productId,
-        'p_type': type,
-        'p_quantity': quantity,
-        'p_reason': reason,
-        'p_branch_id': branchId,
-        'p_owner_override': needsOverride,
-      },
-    );
+    final data = await query
+        .order('created_at', ascending: false)
+        .limit(limit)
+        .timeout(_networkTimeout);
+
+    return (data as List).map((e) => StockAdjustmentModel.fromMap(e)).toList();
+  }
+
+  Future<void> _checkAndNotifyHighValue({
+    required String tenantId,
+    required int quantity,
+    required double totalValue,
+    required String productId,
+  }) async {
+    // Tenant ki threshold settings lo
+    final settings =
+        await _client
+            .from('tenant_settings')
+            .select('adjustment_qty_threshold, adjustment_value_threshold')
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+
+    // Agar settings nahi hain → defaults use karo
+    final qtyThreshold =
+        (settings?['adjustment_qty_threshold'] as num?)?.toInt() ?? 10;
+    final valueThreshold =
+        (settings?['adjustment_value_threshold'] as num?)?.toDouble() ?? 50000;
+
+    // Check karo → threshold cross hua?
+    final isHighQty = quantity >= qtyThreshold;
+    final isHighValue = totalValue >= valueThreshold;
+
+    if (isHighQty || isHighValue) {
+      // Abhi sirf log karo → baad mein SMS/push add karein ge
+      debugPrint(
+        '⚠️ HIGH VALUE ADJUSTMENT: '
+        'qty=$quantity (threshold=$qtyThreshold), '
+        'value=$totalValue (threshold=$valueThreshold)',
+      );
+
+      // Future: yahan SMS ya push notification bhejein ge
+      // NotificationService.notifyOwner(...)
+    }
+  }
+
+  Future<Map<String, dynamic>> getSettings() async {
+    final tenantId = await _currentTenantId();
+
+    final settings =
+        await _client
+            .from('tenant_settings')
+            .select()
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+
+    // Agar settings nahi hain → defaults return karo
+    return settings ??
+        {'adjustment_qty_threshold': 10, 'adjustment_value_threshold': 50000.0};
+  }
+
+  Future<void> saveSettings({
+    required int qtyThreshold,
+    required double valueThreshold,
+  }) async {
+    final tenantId = await _currentTenantId();
+
+    await _client.from('tenant_settings').upsert({
+      'tenant_id': tenantId,
+      'adjustment_qty_threshold': qtyThreshold,
+      'adjustment_value_threshold': valueThreshold,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, onConflict: 'tenant_id');
   }
 
   Future<Map<String, dynamic>> _currentProfile() async {

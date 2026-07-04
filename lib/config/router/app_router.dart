@@ -8,6 +8,7 @@ import 'package:mobileshop_saas/features/inventory/data/models/product_model.dar
 import 'package:mobileshop_saas/features/inventory/presentation/screens/categories_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/inventory_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/product_form_screen.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/screens/stock_adjustment_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/app_intro_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/branch_selection_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/shop_setup_screen.dart';
@@ -106,6 +107,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/setup',
         builder: (context, state) => const ShopSetupScreen(),
       ),
+
       GoRoute(
         path: '/select-branch',
         builder: (context, state) => const BranchSelectionScreen(),
@@ -129,6 +131,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/inventory/categories',
         builder: (_, _) => const CategoriesScreen(), // next step mein banayenge
+      ),
+      GoRoute(
+        path: '/inventory/adjust',
+        builder:
+            (context, state) =>
+                StockAdjustmentScreen(product: state.extra as ProductModel),
       ),
     ],
   );

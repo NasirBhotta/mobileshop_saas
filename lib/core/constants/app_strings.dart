@@ -222,4 +222,14 @@ class AppStrings {
   static const String fieldQuantity = 'Quantity';
   static const String fieldReason = 'Wajah (Optional)';
   static const String currentStock = 'Maujuda Stock';
+
+  static const String stockAdjustButton = 'Adjustment Save Karein';
+  static const String stockAdjustSuccess = 'Stock update ho gaya!';
+  static const String fieldAdjustmentType = 'Adjustment Type';
+  static const String fieldReasonNote = 'Wajah Ki Tafseelat';
+  static const String hintReasonNote = 'Mazeed detail likhein...';
+  static const String errorQuantityRequired = 'Quantity likhein';
+  static const String errorQuantityInvalid = 'Quantity 1 ya zyada honi chahiye';
+  static const String errorReasonNoteRequired =
+      '"Other" select kiya hai — wajah likhna zaroori hai';
 }

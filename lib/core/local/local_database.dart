@@ -120,6 +120,34 @@ class LocalDatabase {
       )
     ''');
 
+    await _db.customStatement('''   
+      CREATE TABLE IF NOT EXISTS stock_adjustments (
+          id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL,
+          branch_id TEXT NOT NULL,
+          product_id TEXT NOT NULL,
+          adjustment_type TEXT NOT NULL,
+          quantity INTEGER NOT NULL,
+          reason TEXT NOT NULL,
+          adjusted_by TEXT NOT NULL,
+          created_at TEXT,
+          user_id TEXT NOT NULL,
+          reason_code TEXT NOT NULL,
+          reason_note TEXT,
+          is_override INTEGER NOT NULL DEFAULT 0,
+          unit_cost REAL,
+          total_value REAL
+        )
+    ''');
+    await _db.customStatement('''   
+      CREATE TABLE IF NOT EXISTS tenant_settings (
+          tenant_id TEXT PRIMARY KEY,
+          adjustment_qty_threshold INTEGER NOT NULL DEFAULT 10,
+          adjustment_value_threshold REAL NOT NULL DEFAULT 50000,
+          updated_at TEXT
+        )
+    ''');
+
     await _db.customStatement('''
       CREATE INDEX IF NOT EXISTS idx_products_branch
       ON products(branch_id)
@@ -132,6 +160,25 @@ class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_branches_tenant
       ON branches(tenant_id)
     ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_stock_adjustments_product
+      ON stock_adjustments(product_id);
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_stock_adjustments_branch
+      ON stock_adjustments(branch_id);
+
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_stock_adjustments_created
+      ON stock_adjustments(created_at);
+
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_tenant_settings_tenant
+      ON tenant_settings(tenant_id);
+    ''');
   }
 }
 
@@ -142,5 +189,5 @@ class _RawLocalDatabase extends GeneratedDatabase {
   Iterable<TableInfo> get allTables => const [];
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 }

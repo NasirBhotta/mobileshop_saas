@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:mobileshop_saas/core/constants/app_strings.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../data/models/product_model.dart';
@@ -131,6 +133,18 @@ class ProductCard extends StatelessWidget {
                               ? AppColors.warning
                               : AppColors.success,
                     ),
+                  ),
+                ),
+                SizedBox(height: 5),
+                // ProductCard ke andar, bottom mein
+                TextButton.icon(
+                  onPressed:
+                      () => context.push('/inventory/adjust', extra: product),
+                  icon: const Icon(Icons.tune_rounded, size: 16),
+                  label: const Text(AppStrings.stockAdjust),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    padding: EdgeInsets.zero,
                   ),
                 ),
               ],
