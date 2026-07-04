@@ -17,6 +17,49 @@ class InventoryRepository {
     return user;
   }
 
+  Future<void> adjustStock({
+    required String productId,
+    required String type,
+    required int quantity,
+    required String reason,
+    required String branchId,
+    required int currentStock, // UI ko pata hona chahiye current stock
+    required String userRole, // 'owner', 'manager', 'cashier'
+  }) async {
+    if (quantity <= 0) {
+      throw Exception('Quantity positive honi chahiye');
+    }
+    if (reason.trim().isEmpty) {
+      throw Exception('Reason mandatory hai');
+    }
+
+    // calculate karo naya stock kya banega
+    final projectedStock =
+        type == 'stock_out' ? currentStock - quantity : currentStock + quantity;
+
+    bool needsOverride = false;
+
+    if (projectedStock < 0) {
+      if (userRole != 'owner') {
+        // Manager/Cashier ke liye yahin rok do, RPC call bhi mat karo
+        throw Exception('Stock cannot go below zero. Ask Owner for override.');
+      }
+      needsOverride = true; // Owner hai, but confirm karwana padega UI mein
+    }
+
+    await _client.rpc(
+      'adjust_stock',
+      params: {
+        'p_product_id': productId,
+        'p_type': type,
+        'p_quantity': quantity,
+        'p_reason': reason,
+        'p_branch_id': branchId,
+        'p_owner_override': needsOverride,
+      },
+    );
+  }
+
   Future<Map<String, dynamic>> _currentProfile() async {
     final cachedProfile = await OfflineStore.loadProfile(_currentUser.id);
     if (cachedProfile != null) {
@@ -532,23 +575,6 @@ class InventoryRepository {
       branchId,
       categories.where((category) => category.id != categoryId).toList(),
     );
-  }
-
-  // ── Stock Adjustment ──
-  Future<void> adjustStock({
-    required String productId,
-    required String branchId,
-    required int quantity, // positive = in, negative = out
-  }) async {
-    // Upsert inventory row
-    await _client
-        .from('inventory')
-        .upsert({
-          'branch_id': branchId,
-          'product_id': productId,
-          'quantity': quantity,
-        }, onConflict: 'branch_id,product_id')
-        .timeout(_networkTimeout);
   }
 
   Future<void> setStock({
