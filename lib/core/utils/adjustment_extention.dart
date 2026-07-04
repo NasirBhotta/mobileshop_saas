@@ -37,6 +37,7 @@ extension AdjustmentReasonX on AdjustmentReason {
   // DB string se enum wapas banao
   static AdjustmentReason fromCode(String code) {
     switch (code) {
+      case 'damage':
       case 'damaged':
         return AdjustmentReason.damaged;
       case 'theft':
@@ -57,6 +58,8 @@ extension AdjustmentTypeX on AdjustmentType {
   String get code => this == AdjustmentType.stockIn ? 'in' : 'out';
   String get label => this == AdjustmentType.stockIn ? 'stock_in' : 'stock_out';
   static AdjustmentType fromCode(String code) {
-    return code == 'in' ? AdjustmentType.stockIn : AdjustmentType.stockOut;
+    return code == 'in' || code == 'stock_in'
+        ? AdjustmentType.stockIn
+        : AdjustmentType.stockOut;
   }
 }

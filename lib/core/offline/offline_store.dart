@@ -45,7 +45,11 @@ class OfflineStore {
   static String _categoriesKey(String branchId) =>
       'offline.categories.$branchId';
   static String _mutationsKey(String userId) => 'offline.mutations.$userId';
+  static String _tenantSettingsKey(String tenantId) =>
+      'offline.tenant_settings.$tenantId';
 
+  static String _stockAdjustmentsKey(String branchId) =>
+      'offline.stock_adjustments.$branchId';
   static Future<void> saveProfile(
     String userId,
     Map<String, dynamic> profile,
@@ -243,6 +247,98 @@ class OfflineStore {
     return (jsonDecode(raw) as List)
         .map((row) => CategoryModel.fromMap(Map<String, dynamic>.from(row)))
         .toList();
+  }
+
+  static Future<void> saveTenantSettings(
+    String tenantId,
+    Map<String, dynamic> settings,
+  ) async {
+    try {
+      await LocalStore.saveTenantSettings(settings);
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(_tenantSettingsKey(tenantId), jsonEncode(settings));
+  }
+
+  static Future<Map<String, dynamic>?> loadTenantSettings(
+    String tenantId,
+  ) async {
+    try {
+      final settings = await LocalStore.loadTenantSettings(tenantId);
+      if (settings != null) return settings;
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+
+    final raw = prefs.getString(_tenantSettingsKey(tenantId));
+
+    if (raw == null) return null;
+
+    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+  }
+
+  static Future<void> saveStockAdjustments(
+    String branchId,
+    List<Map<String, dynamic>> adjustments,
+  ) async {
+    try {
+      await LocalStore.saveStockAdjustments(adjustments);
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(
+      _stockAdjustmentsKey(branchId),
+      jsonEncode(adjustments),
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> loadStockAdjustments(
+    String branchId, {
+    String? productId,
+  }) async {
+    try {
+      final adjustments = await LocalStore.loadStockAdjustments(
+        branchId,
+        productId: productId,
+      );
+
+      if (adjustments.isNotEmpty) {
+        return adjustments;
+      }
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+
+    final raw = prefs.getString(_stockAdjustmentsKey(branchId));
+
+    if (raw == null) return [];
+
+    final adjustments =
+        (jsonDecode(raw) as List)
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+    if (productId == null) return adjustments;
+    return adjustments.where((e) => e['product_id'] == productId).toList();
+  }
+
+  static Future<void> upsertStockAdjustment(
+    String branchId,
+    Map<String, dynamic> adjustment,
+  ) async {
+    try {
+      await LocalStore.saveStockAdjustment(adjustment);
+    } catch (_) {}
+
+    final adjustments = await loadStockAdjustments(branchId);
+
+    adjustments.removeWhere((e) => e['id'] == adjustment['id']);
+
+    adjustments.insert(0, adjustment);
+
+    await saveStockAdjustments(branchId, adjustments);
   }
 
   static Future<void> enqueueMutation({

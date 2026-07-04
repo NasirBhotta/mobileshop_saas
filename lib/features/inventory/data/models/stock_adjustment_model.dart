@@ -38,18 +38,27 @@ class StockAdjustmentModel {
   factory StockAdjustmentModel.fromMap(Map<String, dynamic> map) {
     // products join se naam aayega
     final product = map['products'] as Map<String, dynamic>?;
+    final rawOverride = map['is_override'];
 
     return StockAdjustmentModel(
       id: map['id'] as String,
       branchId: map['branch_id'] as String,
       productId: map['product_id'] as String,
-      productName: product?['name'] as String? ?? 'Unknown',
+      productName:
+          product?['name'] as String? ??
+          map['product_name'] as String? ??
+          'Unknown',
       userId: map['user_id'] as String,
-      type: AdjustmentTypeX.fromCode(map['type'] as String),
+      type: AdjustmentTypeX.fromCode(
+        (map['type'] ?? map['adjustment_type']) as String,
+      ),
       quantity: (map['quantity'] as num).toInt(),
       reason: AdjustmentReasonX.fromCode(map['reason_code'] as String),
       reasonNote: map['reason_note'] as String?,
-      isOverride: map['is_override'] as bool? ?? false,
+      isOverride:
+          rawOverride is bool
+              ? rawOverride
+              : (rawOverride as num?)?.toInt() == 1,
       unitCost: (map['unit_cost'] as num?)?.toDouble() ?? 0,
       totalValue: (map['total_value'] as num?)?.toDouble() ?? 0,
       createdAt: DateTime.parse(map['created_at'] as String),

@@ -27,15 +27,13 @@ class InventoryRepository {
     required AdjustmentReason reason,
     String? reasonNote,
     bool isOverride = false,
-
     required ProductModel product,
   }) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    try {
-      final user = _client.auth.currentUser;
-      if (user == null) throw Exception('User not logged in');
+    final user = _currentUser;
 
+    try {
       final invRow = await _client
           .from('inventory')
           .select('quantity')
@@ -45,7 +43,6 @@ class InventoryRepository {
           .timeout(_networkTimeout);
 
       final currentStock = (invRow?['quantity'] as num?)?.toInt() ?? 0;
-
       final newStock =
           type == AdjustmentType.stockIn
               ? currentStock + quantity
@@ -66,31 +63,26 @@ class InventoryRepository {
           .maybeSingle()
           .timeout(_networkTimeout);
 
-      final unitCost = (productRow!['cost_price'] as num).toDouble();
-      final totalValue = unitCost * quantity; // kitna rupiya ka adjustment h
+      final unitCost =
+          (productRow?['cost_price'] as num?)?.toDouble() ?? product.costPrice;
+      final adjustment = _stockAdjustmentMap(
+        id: const Uuid().v4(),
+        tenantId: tenantId,
+        branchId: branchId,
+        product: product,
+        type: type,
+        quantity: quantity,
+        reason: reason,
+        userId: user.id,
+        reasonNote: reasonNote,
+        isOverride: isOverride,
+        unitCost: unitCost,
+        createdAt: DateTime.now(),
+      );
+
       await _client
           .from('stock_adjustments')
-          .insert({
-            'tenant_id': tenantId,
-            'branch_id': branchId,
-            'product_id': productId,
-
-            'adjustment_type': type.label,
-
-            'quantity': quantity,
-
-            'reason': reason.label, // or reason.code depending on your schema
-
-            'adjusted_by': user.id,
-            'user_id': user.id,
-
-            'reason_code': reason.label,
-            'reason_note': reasonNote,
-
-            'is_override': isOverride,
-            'unit_cost': unitCost,
-            'total_value': totalValue,
-          })
+          .insert(_remoteStockAdjustmentMap(adjustment))
           .timeout(_networkTimeout);
 
       await _client
@@ -98,7 +90,7 @@ class InventoryRepository {
           .upsert({
             'branch_id': branchId,
             'product_id': productId,
-            'quantity': newStock, // calculated naya stock
+            'quantity': newStock,
             'updated_at': DateTime.now().toIso8601String(),
           }, onConflict: 'branch_id,product_id')
           .timeout(_networkTimeout);
@@ -106,24 +98,60 @@ class InventoryRepository {
       await _checkAndNotifyHighValue(
         tenantId: tenantId,
         quantity: quantity,
-        totalValue: totalValue,
+        totalValue: unitCost * quantity,
         productId: productId,
       );
 
-      final product = await fetchProduct(productId);
-      await OfflineStore.upsertCachedProduct(product);
-    } catch (e) {
-      final offlineProduct = await _offlineProduct(
+      await OfflineStore.upsertStockAdjustment(branchId, adjustment);
+      await _cacheProductWithStock(
         product: product,
         tenantId: tenantId,
         branchId: branchId,
+        stock: newStock,
+      );
+    } catch (e) {
+      if (e.toString().contains('Stock zero se neeche')) rethrow;
+
+      final currentStock = product.stock;
+      final newStock =
+          type == AdjustmentType.stockIn
+              ? currentStock + quantity
+              : currentStock - quantity;
+
+      if (newStock < 0 && !isOverride) {
+        throw Exception(
+          'Stock zero se neeche nahi ja sakta. '
+          'Current stock: $currentStock, '
+          'Requested: $quantity',
+        );
+      }
+
+      final adjustment = _stockAdjustmentMap(
+        id: const Uuid().v4(),
+        tenantId: tenantId,
+        branchId: branchId,
+        product: product,
+        type: type,
+        quantity: quantity,
+        reason: reason,
+        userId: user.id,
+        reasonNote: reasonNote,
+        isOverride: isOverride,
+        unitCost: product.costPrice,
+        createdAt: DateTime.now(),
       );
 
-      await OfflineStore.upsertCachedProduct(offlineProduct);
+      await OfflineStore.upsertStockAdjustment(branchId, adjustment);
+      await _cacheProductWithStock(
+        product: product,
+        tenantId: tenantId,
+        branchId: branchId,
+        stock: newStock,
+      );
       await OfflineStore.enqueueMutation(
-        userId: _currentUser.id,
-        type: 'upsert_product',
-        payload: {'product': offlineProduct.toCacheMap()},
+        userId: user.id,
+        type: 'stock_adjustment',
+        payload: {'adjustment': adjustment, 'new_stock': newStock},
       );
       debugPrint('Error occurred while adjusting stock: $e');
     }
@@ -159,19 +187,13 @@ class InventoryRepository {
     required double totalValue,
     required String productId,
   }) async {
-    // Tenant ki threshold settings lo
-    final settings =
-        await _client
-            .from('tenant_settings')
-            .select('adjustment_qty_threshold, adjustment_value_threshold')
-            .eq('tenant_id', tenantId)
-            .maybeSingle();
+    final settings = await getSettings();
 
     // Agar settings nahi hain → defaults use karo
     final qtyThreshold =
-        (settings?['adjustment_qty_threshold'] as num?)?.toInt() ?? 10;
+        (settings['adjustment_qty_threshold'] as num?)?.toInt() ?? 10;
     final valueThreshold =
-        (settings?['adjustment_value_threshold'] as num?)?.toDouble() ?? 50000;
+        (settings['adjustment_value_threshold'] as num?)?.toDouble() ?? 50000;
 
     // Check karo → threshold cross hua?
     final isHighQty = quantity >= qtyThreshold;
@@ -193,16 +215,22 @@ class InventoryRepository {
   Future<Map<String, dynamic>> getSettings() async {
     final tenantId = await _currentTenantId();
 
-    final settings =
-        await _client
-            .from('tenant_settings')
-            .select()
-            .eq('tenant_id', tenantId)
-            .maybeSingle();
+    try {
+      final settings = await _client
+          .from('tenant_settings')
+          .select()
+          .eq('tenant_id', tenantId)
+          .maybeSingle()
+          .timeout(_networkTimeout);
 
-    // Agar settings nahi hain → defaults return karo
-    return settings ??
-        {'adjustment_qty_threshold': 10, 'adjustment_value_threshold': 50000.0};
+      // Agar settings nahi hain → defaults return karo
+      final resolved = settings ?? _defaultSettings(tenantId);
+      await OfflineStore.saveTenantSettings(tenantId, resolved);
+      return resolved;
+    } catch (_) {
+      return await OfflineStore.loadTenantSettings(tenantId) ??
+          _defaultSettings(tenantId);
+    }
   }
 
   Future<void> saveSettings({
@@ -210,13 +238,27 @@ class InventoryRepository {
     required double valueThreshold,
   }) async {
     final tenantId = await _currentTenantId();
-
-    await _client.from('tenant_settings').upsert({
+    final settings = {
       'tenant_id': tenantId,
       'adjustment_qty_threshold': qtyThreshold,
       'adjustment_value_threshold': valueThreshold,
       'updated_at': DateTime.now().toIso8601String(),
-    }, onConflict: 'tenant_id');
+    };
+
+    await OfflineStore.saveTenantSettings(tenantId, settings);
+
+    try {
+      await _client
+          .from('tenant_settings')
+          .upsert(settings, onConflict: 'tenant_id')
+          .timeout(_networkTimeout);
+    } catch (_) {
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'tenant_settings',
+        payload: {'settings': settings},
+      );
+    }
   }
 
   Future<Map<String, dynamic>> _currentProfile() async {
@@ -464,6 +506,27 @@ class InventoryRepository {
     } catch (_) {
       final products = await OfflineStore.loadProducts(branchId);
       return products.firstWhere((product) => product.id == productId);
+    }
+  }
+
+  Future<StockAdjustmentModel> fetchAdjustedProducts(String productId) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    try {
+      final data = await _client
+          .from('stock_adjustments')
+          .select('*, products(name)')
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
+          .eq('product_id', productId)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .single()
+          .timeout(_networkTimeout);
+
+      return StockAdjustmentModel.fromMap(data);
+    } catch (_) {
+      throw Exception('No stock adjustments found for product $productId');
     }
   }
 
@@ -766,6 +829,80 @@ class InventoryRepository {
     return (data?['quantity'] as num?)?.toInt() ?? 0;
   }
 
+  Map<String, dynamic> _defaultSettings(String tenantId) => {
+    'tenant_id': tenantId,
+    'adjustment_qty_threshold': 10,
+    'adjustment_value_threshold': 50000.0,
+    'updated_at': DateTime.now().toIso8601String(),
+  };
+
+  Map<String, dynamic> _stockAdjustmentMap({
+    required String id,
+    required String tenantId,
+    required String branchId,
+    required ProductModel product,
+    required AdjustmentType type,
+    required int quantity,
+    required AdjustmentReason reason,
+    required String userId,
+    required double unitCost,
+    required DateTime createdAt,
+    String? reasonNote,
+    bool isOverride = false,
+  }) {
+    return {
+      'id': id,
+      'tenant_id': tenantId,
+      'branch_id': branchId,
+      'product_id': product.id,
+      'product_name': product.name,
+      'adjustment_type': type.label,
+      'quantity': quantity,
+      'reason': reason.label,
+      'adjusted_by': userId,
+      'created_at': createdAt.toIso8601String(),
+      'user_id': userId,
+      'reason_code': reason.code,
+      'reason_note': reasonNote,
+      'is_override': isOverride,
+      'unit_cost': unitCost,
+      'total_value': unitCost * quantity,
+    };
+  }
+
+  Map<String, dynamic> _remoteStockAdjustmentMap(
+    Map<String, dynamic> adjustment,
+  ) {
+    final remote = Map<String, dynamic>.from(adjustment);
+    remote.remove('product_name');
+    remote.remove('products');
+    return remote;
+  }
+
+  Future<void> _cacheProductWithStock({
+    required ProductModel product,
+    required String tenantId,
+    required String branchId,
+    required int stock,
+  }) async {
+    final cachedProduct = ProductModel(
+      id: product.id,
+      tenantId: product.tenantId.isEmpty ? tenantId : product.tenantId,
+      branchId: product.branchId.isEmpty ? branchId : product.branchId,
+      categoryId: product.categoryId,
+      categoryName: product.categoryName,
+      name: product.name,
+      sku: product.sku,
+      description: product.description,
+      salePrice: product.salePrice,
+      costPrice: product.costPrice,
+      imeiTracked: product.imeiTracked,
+      isActive: product.isActive,
+      stock: stock,
+    );
+    await OfflineStore.upsertCachedProduct(cachedProduct);
+  }
+
   Future<ProductModel> _offlineProduct({
     required ProductModel product,
     required String tenantId,
@@ -834,6 +971,12 @@ class InventoryRepository {
                 .eq('tenant_id', mutation.payload['tenant_id'])
                 .eq('branch_id', mutation.payload['branch_id']);
             break;
+          case 'stock_adjustment':
+            await _syncStockAdjustment(mutation.payload);
+            break;
+          case 'tenant_settings':
+            await _syncTenantSettings(mutation.payload);
+            break;
           case 'select_branch':
             await _client
                 .from('users')
@@ -862,5 +1005,27 @@ class InventoryRepository {
       'product_id': product['id'],
       'quantity': stock < 0 ? 0 : stock,
     }, onConflict: 'branch_id,product_id');
+  }
+
+  Future<void> _syncStockAdjustment(Map<String, dynamic> payload) async {
+    final adjustment = Map<String, dynamic>.from(payload['adjustment'] as Map);
+    final newStock = (payload['new_stock'] as num).toInt();
+
+    await _client
+        .from('stock_adjustments')
+        .upsert(_remoteStockAdjustmentMap(adjustment), onConflict: 'id');
+    await _client.from('inventory').upsert({
+      'branch_id': adjustment['branch_id'],
+      'product_id': adjustment['product_id'],
+      'quantity': newStock,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, onConflict: 'branch_id,product_id');
+  }
+
+  Future<void> _syncTenantSettings(Map<String, dynamic> payload) async {
+    final settings = Map<String, dynamic>.from(payload['settings'] as Map);
+    await _client
+        .from('tenant_settings')
+        .upsert(settings, onConflict: 'tenant_id');
   }
 }

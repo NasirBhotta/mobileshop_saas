@@ -245,4 +245,117 @@ class LocalStore {
       'stock': row['stock'] ?? 0,
     });
   }
+
+  static Future<void> saveTenantSettings(Map<String, dynamic> settings) async {
+    await LocalDatabase.execute(
+      '''
+    INSERT OR REPLACE INTO tenant_settings(
+      tenant_id,
+      adjustment_qty_threshold,
+      adjustment_value_threshold,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?)
+    ''',
+      [
+        settings['tenant_id'],
+        settings['adjustment_qty_threshold'],
+        settings['adjustment_value_threshold'],
+        settings['updated_at'],
+      ],
+    );
+  }
+
+  static Future<Map<String, dynamic>?> loadTenantSettings(
+    String tenantId,
+  ) async {
+    final rows = await LocalDatabase.select(
+      'SELECT * FROM tenant_settings WHERE tenant_id = ?',
+      [tenantId],
+    );
+
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  static Future<void> saveStockAdjustment(
+    Map<String, dynamic> adjustment,
+  ) async {
+    await LocalDatabase.execute(
+      '''
+    INSERT OR REPLACE INTO stock_adjustments(
+      id,
+      tenant_id,
+      branch_id,
+      product_id,
+      adjustment_type,
+      quantity,
+      reason,
+      adjusted_by,
+      created_at,
+      user_id,
+      reason_code,
+      reason_note,
+      is_override,
+      unit_cost,
+      total_value
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''',
+      [
+        adjustment['id'],
+        adjustment['tenant_id'],
+        adjustment['branch_id'],
+        adjustment['product_id'],
+        adjustment['adjustment_type'],
+        adjustment['quantity'],
+        adjustment['reason'],
+        adjustment['adjusted_by'],
+        adjustment['created_at'],
+        adjustment['user_id'],
+        adjustment['reason_code'],
+        adjustment['reason_note'],
+        adjustment['is_override'] == true ? 1 : 0,
+        adjustment['unit_cost'],
+        adjustment['total_value'],
+      ],
+    );
+  }
+
+  static Future<void> saveStockAdjustments(
+    List<Map<String, dynamic>> adjustments,
+  ) async {
+    for (final adjustment in adjustments) {
+      await saveStockAdjustment(adjustment);
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> loadStockAdjustments(
+    String branchId, {
+    String? productId,
+  }) async {
+    if (productId == null) {
+      return LocalDatabase.select(
+        '''
+      SELECT sa.*, p.name AS product_name
+      FROM stock_adjustments sa
+      LEFT JOIN products p ON p.id = sa.product_id
+      WHERE sa.branch_id = ?
+      ORDER BY sa.created_at DESC
+      ''',
+        [branchId],
+      );
+    }
+
+    return LocalDatabase.select(
+      '''
+    SELECT sa.*, p.name AS product_name
+    FROM stock_adjustments sa
+    LEFT JOIN products p ON p.id = sa.product_id
+    WHERE sa.branch_id = ?
+      AND sa.product_id = ?
+    ORDER BY sa.created_at DESC
+    ''',
+      [branchId, productId],
+    );
+  }
 }

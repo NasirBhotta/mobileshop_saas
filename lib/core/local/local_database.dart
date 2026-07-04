@@ -189,5 +189,5 @@ class _RawLocalDatabase extends GeneratedDatabase {
   Iterable<TableInfo> get allTables => const [];
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 1;
 }
