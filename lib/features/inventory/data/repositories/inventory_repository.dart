@@ -20,6 +20,81 @@ class InventoryRepository {
     return user;
   }
 
+  // Branch-level threshold update karo
+  Future<void> updateBranchThreshold({
+    required String productId,
+    required int threshold,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    final updatedAt = DateTime.now().toIso8601String();
+
+    await _updateCachedBranchThreshold(
+      branchId: branchId,
+      productId: productId,
+      threshold: threshold,
+    );
+
+    try {
+      await _client
+          .from('inventory')
+          .upsert({
+            'branch_id': branchId,
+            'product_id': productId,
+            'reorder_threshold': threshold,
+            'updated_at': updatedAt,
+          }, onConflict: 'branch_id,product_id')
+          .timeout(_networkTimeout);
+    } catch (_) {
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'branch_threshold',
+        payload: {
+          'branch_id': branchId,
+          'product_id': productId,
+          'threshold': threshold,
+          'updated_at': updatedAt,
+        },
+      );
+    }
+  }
+
+  // Category default threshold update karo
+  Future<void> updateCategoryThreshold({
+    required String categoryId,
+    required int threshold,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+
+    await _updateCachedCategoryThreshold(
+      branchId: branchId,
+      categoryId: categoryId,
+      threshold: threshold,
+    );
+
+    try {
+      await _client
+          .from('categories')
+          .update({'default_reorder_threshold': threshold})
+          .eq('id', categoryId)
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
+          .timeout(_networkTimeout);
+    } catch (_) {
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'category_threshold',
+        payload: {
+          'tenant_id': tenantId,
+          'branch_id': branchId,
+          'category_id': categoryId,
+          'threshold': threshold,
+        },
+      );
+    }
+  }
+
   Future<void> adjustStock({
     required String productId,
     required AdjustmentType type,
@@ -380,7 +455,9 @@ class InventoryRepository {
   }) async {
     var query = _client
         .from('products')
-        .select('*, categories(name), inventory!inner(quantity, branch_id)')
+        .select(
+          '*, categories(name, default_reorder_threshold), inventory!inner(quantity, reorder_threshold, branch_id)',
+        )
         .eq('tenant_id', tenantId)
         .eq('branch_id', branchId)
         .eq('inventory.branch_id', branchId)
@@ -615,6 +692,9 @@ class InventoryRepository {
         imeiTracked: product.imeiTracked,
         isActive: product.isActive,
         stock: product.stock,
+        reorderThreshold: product.reorderThreshold,
+        branchThreshold: product.branchThreshold,
+        categoryThreshold: product.categoryThreshold,
       );
 
       try {
@@ -683,6 +763,7 @@ class InventoryRepository {
     final branchId = await _currentBranchId(tenantId);
     final cachedCategories = await OfflineStore.loadCategories(branchId);
     if (cachedCategories.isNotEmpty) {
+      unawaited(syncOfflineMutations());
       unawaited(
         _refreshCategoriesCache(tenantId: tenantId, branchId: branchId),
       );
@@ -731,29 +812,31 @@ class InventoryRepository {
   Future<CategoryModel> addCategory(String name) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
+    final category = CategoryModel(
+      id: const Uuid().v4(),
+      tenantId: tenantId,
+      branchId: branchId,
+      name: name,
+    );
     try {
       final data = await _client
           .from('categories')
-          .insert({'tenant_id': tenantId, 'branch_id': branchId, 'name': name})
+          .insert(category.toCacheMap())
           .select()
           .single()
           .timeout(_networkTimeout);
 
-      final category = CategoryModel.fromMap(data);
+      final savedCategory = CategoryModel.fromMap(data);
       final categories = await OfflineStore.loadCategories(branchId);
       await OfflineStore.saveCategories(
         branchId,
-        [...categories.where((item) => item.id != category.id), category]
-          ..sort((a, b) => a.name.compareTo(b.name)),
+        [
+          ...categories.where((item) => item.id != savedCategory.id),
+          savedCategory,
+        ]..sort((a, b) => a.name.compareTo(b.name)),
       );
-      return category;
+      return savedCategory;
     } catch (_) {
-      final category = CategoryModel(
-        id: const Uuid().v4(),
-        tenantId: tenantId,
-        branchId: branchId,
-        name: name,
-      );
       final categories = await OfflineStore.loadCategories(branchId);
       await OfflineStore.saveCategories(
         branchId,
@@ -899,6 +982,9 @@ class InventoryRepository {
       imeiTracked: product.imeiTracked,
       isActive: product.isActive,
       stock: stock,
+      reorderThreshold: product.reorderThreshold,
+      branchThreshold: product.branchThreshold,
+      categoryThreshold: product.categoryThreshold,
     );
     await OfflineStore.upsertCachedProduct(cachedProduct);
   }
@@ -932,6 +1018,85 @@ class InventoryRepository {
       imeiTracked: product.imeiTracked,
       isActive: product.isActive,
       stock: product.stock,
+      reorderThreshold: product.reorderThreshold,
+      branchThreshold: product.branchThreshold,
+      categoryThreshold: product.categoryThreshold,
+    );
+  }
+
+  Future<void> _updateCachedBranchThreshold({
+    required String branchId,
+    required String productId,
+    required int threshold,
+  }) async {
+    final products = await OfflineStore.loadProducts(branchId);
+    if (products.isEmpty) return;
+
+    await OfflineStore.saveProducts(branchId, [
+      for (final product in products)
+        if (product.id == productId)
+          _copyProduct(product, branchThreshold: threshold)
+        else
+          product,
+    ]);
+  }
+
+  Future<void> _updateCachedCategoryThreshold({
+    required String branchId,
+    required String categoryId,
+    required int threshold,
+  }) async {
+    final categories = await OfflineStore.loadCategories(branchId);
+    await OfflineStore.saveCategories(branchId, [
+      for (final category in categories)
+        if (category.id == categoryId)
+          CategoryModel(
+            id: category.id,
+            tenantId: category.tenantId,
+            branchId: category.branchId,
+            name: category.name,
+            defaultReorderThreshold: threshold,
+          )
+        else
+          category,
+    ]);
+
+    final products = await OfflineStore.loadProducts(branchId);
+    if (products.isEmpty) return;
+
+    await OfflineStore.saveProducts(branchId, [
+      for (final product in products)
+        if (product.categoryId == categoryId)
+          _copyProduct(product, categoryThreshold: threshold)
+        else
+          product,
+    ]);
+  }
+
+  ProductModel _copyProduct(
+    ProductModel product, {
+    int? stock,
+    int? reorderThreshold,
+    int? branchThreshold,
+    int? categoryThreshold,
+  }) {
+    return ProductModel(
+      id: product.id,
+      tenantId: product.tenantId,
+      branchId: product.branchId,
+      categoryId: product.categoryId,
+      categoryName: product.categoryName,
+      name: product.name,
+      sku: product.sku,
+      description: product.description,
+      salePrice: product.salePrice,
+      costPrice: product.costPrice,
+      imeiTracked: product.imeiTracked,
+      isActive: product.isActive,
+      stock: stock ?? product.stock,
+      reorderThreshold: reorderThreshold ?? product.reorderThreshold,
+      branchThreshold: branchThreshold ?? product.branchThreshold,
+      categoryThreshold: categoryThreshold ?? product.categoryThreshold,
     );
   }
 
@@ -967,6 +1132,24 @@ class InventoryRepository {
             await _client
                 .from('categories')
                 .delete()
+                .eq('id', mutation.payload['category_id'])
+                .eq('tenant_id', mutation.payload['tenant_id'])
+                .eq('branch_id', mutation.payload['branch_id']);
+            break;
+          case 'branch_threshold':
+            await _client.from('inventory').upsert({
+              'branch_id': mutation.payload['branch_id'],
+              'product_id': mutation.payload['product_id'],
+              'reorder_threshold': mutation.payload['threshold'],
+              'updated_at': mutation.payload['updated_at'],
+            }, onConflict: 'branch_id,product_id');
+            break;
+          case 'category_threshold':
+            await _client
+                .from('categories')
+                .update({
+                  'default_reorder_threshold': mutation.payload['threshold'],
+                })
                 .eq('id', mutation.payload['category_id'])
                 .eq('tenant_id', mutation.payload['tenant_id'])
                 .eq('branch_id', mutation.payload['branch_id']);

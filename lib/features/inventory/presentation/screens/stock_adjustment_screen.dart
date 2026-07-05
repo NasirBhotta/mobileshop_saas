@@ -98,7 +98,8 @@ class _StockAdjustmentScreenState extends ConsumerState<StockAdjustmentScreen> {
           backgroundColor: AppColors.success,
         ),
       );
-      ref.watch(productControllerProvider.notifier); // product list refresh
+      ref.invalidate(allProductsProvider);
+      ref.invalidate(productsProvider);
       context.pop(); // wapas product list pe
     }
   }
@@ -167,7 +168,29 @@ class _StockAdjustmentScreenState extends ConsumerState<StockAdjustmentScreen> {
                   // ── Product Info Card ──────────────────
                   _ProductInfoCard(product: widget.product),
                   const SizedBox(height: 24),
-
+                  _BranchThresholdCard(
+                    currentThreshold:
+                        widget.product.branchThreshold > 0
+                            ? widget.product.branchThreshold
+                            : widget.product.effectiveThreshold,
+                    effectiveSource:
+                        widget.product.branchThreshold > 0
+                            ? 'Branch level'
+                            : widget.product.reorderThreshold > 0
+                            ? 'Product level'
+                            : 'Category level',
+                    onChanged: (threshold) async {
+                      await ref
+                          .read(inventoryRepositoryProvider)
+                          .updateBranchThreshold(
+                            productId: widget.product.id,
+                            threshold: threshold,
+                          );
+                      ref.invalidate(allProductsProvider);
+                      ref.invalidate(productsProvider);
+                    },
+                  ),
+                  const SizedBox(height: 24),
                   // ── Type Toggle (Stock In / Stock Out) ─
                   const _SectionLabel(AppStrings.fieldAdjustmentType),
                   const SizedBox(height: 8),
@@ -339,6 +362,104 @@ class _ProductInfoCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BranchThresholdCard extends StatefulWidget {
+  final int currentThreshold;
+  final String effectiveSource;
+  final ValueChanged<int> onChanged;
+
+  const _BranchThresholdCard({
+    required this.currentThreshold,
+    required this.effectiveSource,
+    required this.onChanged,
+  });
+
+  @override
+  State<_BranchThresholdCard> createState() => _BranchThresholdCardState();
+}
+
+class _BranchThresholdCardState extends State<_BranchThresholdCard> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.currentThreshold.toString());
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.notifications_active_outlined,
+            color: AppColors.warning,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Low Stock Alert',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                Text(
+                  'Active: ${widget.effectiveSource}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Branch threshold input
+          SizedBox(
+            width: 70,
+            child: TextField(
+              controller: _ctrl,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              decoration: const InputDecoration(
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
+                ),
+                helperText: 'Branch',
+              ),
+              onChanged: (val) {
+                final parsed = int.tryParse(val);
+                if (parsed != null && parsed >= 1) {
+                  widget.onChanged(parsed);
+                }
+              },
+            ),
           ),
         ],
       ),

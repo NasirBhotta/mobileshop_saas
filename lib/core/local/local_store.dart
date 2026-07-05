@@ -129,7 +129,9 @@ class LocalStore {
       SELECT
         p.*,
         c.name AS category_name,
-        COALESCE(i.quantity, 0) AS stock
+        c.default_reorder_threshold AS category_threshold,
+        COALESCE(i.quantity, 0) AS stock,
+        COALESCE(i.reorder_threshold, 0) AS branch_threshold
       FROM products p
       LEFT JOIN categories c ON c.id = p.category_id
       LEFT JOIN inventory i ON i.product_id = p.id AND i.branch_id = p.branch_id
@@ -146,8 +148,9 @@ class LocalStore {
       '''
       INSERT OR REPLACE INTO products(
         id, tenant_id, branch_id, category_id, name, sku, description,
-        sale_price, cost_price, imei_tracked, is_active, created_at
-      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sale_price, cost_price, reorder_threshold, imei_tracked, is_active,
+        created_at
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         product.id,
@@ -159,6 +162,7 @@ class LocalStore {
         product.description,
         product.salePrice,
         product.costPrice,
+        product.reorderThreshold,
         product.imeiTracked ? 1 : 0,
         product.isActive ? 1 : 0,
         DateTime.now().toIso8601String(),
@@ -175,7 +179,7 @@ class LocalStore {
         product.branchId,
         product.id,
         product.stock,
-        5,
+        product.branchThreshold,
         DateTime.now().toIso8601String(),
       ],
     );
@@ -195,6 +199,9 @@ class LocalStore {
     String branchId,
     List<CategoryModel> categories,
   ) async {
+    await LocalDatabase.execute('DELETE FROM categories WHERE branch_id = ?', [
+      branchId,
+    ]);
     for (final category in categories) {
       await upsertCategory(category);
     }
@@ -212,14 +219,15 @@ class LocalStore {
     await LocalDatabase.execute(
       '''
       INSERT OR REPLACE INTO categories(
-        id, tenant_id, branch_id, name, created_at
-      ) VALUES(?, ?, ?, ?, ?)
+        id, tenant_id, branch_id, name, default_reorder_threshold, created_at
+      ) VALUES(?, ?, ?, ?, ?, ?)
       ''',
       [
         category.id,
         category.tenantId,
         category.branchId,
         category.name,
+        category.defaultReorderThreshold,
         DateTime.now().toIso8601String(),
       ],
     );

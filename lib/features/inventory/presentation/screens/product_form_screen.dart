@@ -29,7 +29,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   late final TextEditingController _salePriceController;
   late final TextEditingController _costPriceController;
   late final TextEditingController _quantityController;
-
+  late final TextEditingController _thresholdController;
   String? _selectedCategoryId;
   bool _imeiTracked = false;
   bool get _isEdit => widget.product != null;
@@ -95,6 +95,10 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     );
     _selectedCategoryId = p?.categoryId;
     _imeiTracked = p?.imeiTracked ?? false;
+
+    _thresholdController = TextEditingController(
+      text: widget.product?.reorderThreshold.toString() ?? '5',
+    );
   }
 
   @override
@@ -105,6 +109,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _salePriceController.dispose();
     _costPriceController.dispose();
     _quantityController.dispose();
+    _thresholdController.dispose();
     super.dispose();
   }
 
@@ -140,6 +145,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       costPrice: double.tryParse(_costPriceController.text) ?? 0,
       imeiTracked: _imeiTracked,
       stock: int.tryParse(_quantityController.text) ?? 0,
+      reorderThreshold: int.tryParse(_thresholdController.text) ?? 5,
     );
 
     bool success;
@@ -257,6 +263,25 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                         decoration: InputDecoration(
                           hintText: AppStrings.hintSku,
                         ),
+                      ),
+                    ),
+
+                    _FormField(
+                      label: 'Low Stock Alert (Quantity)',
+                      child: TextFormField(
+                        controller: _thresholdController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          hintText: '5',
+                          helperText: 'Jab stock is level pe aaye → alert',
+                        ),
+                        validator: (v) {
+                          final val = int.tryParse(v ?? '');
+                          if (val == null || val < 1) {
+                            return 'Kam az kam 1 hona chahiye';
+                          }
+                          return null;
+                        },
                       ),
                     ),
 

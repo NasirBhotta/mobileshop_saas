@@ -87,6 +87,7 @@ class LocalDatabase {
         tenant_id TEXT NOT NULL,
         branch_id TEXT NOT NULL,
         name TEXT NOT NULL,
+        default_reorder_threshold INTEGER NOT NULL DEFAULT 5,
         created_at TEXT
       )
     ''');
@@ -102,11 +103,23 @@ class LocalDatabase {
         description TEXT,
         sale_price REAL NOT NULL DEFAULT 0,
         cost_price REAL NOT NULL DEFAULT 0,
+        reorder_threshold INTEGER NOT NULL DEFAULT 0,
         imei_tracked INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT
       )
     ''');
+
+    await _addColumnIfMissing(
+      table: 'categories',
+      column: 'default_reorder_threshold',
+      definition: 'INTEGER NOT NULL DEFAULT 5',
+    );
+    await _addColumnIfMissing(
+      table: 'products',
+      column: 'reorder_threshold',
+      definition: 'INTEGER NOT NULL DEFAULT 0',
+    );
 
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS inventory (
@@ -179,6 +192,20 @@ class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_tenant_settings_tenant
       ON tenant_settings(tenant_id);
     ''');
+  }
+
+  static Future<void> _addColumnIfMissing({
+    required String table,
+    required String column,
+    required String definition,
+  }) async {
+    final rows = await _db.customSelect('PRAGMA table_info($table)').get();
+    final exists = rows.any((row) => row.data['name'] == column);
+    if (!exists) {
+      await _db.customStatement(
+        'ALTER TABLE $table ADD COLUMN $column $definition',
+      );
+    }
   }
 }
 

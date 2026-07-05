@@ -69,6 +69,40 @@ class CategoriesScreen extends ConsumerWidget {
                           ),
                         ),
                       ),
+
+                      SizedBox(
+                        width: 60,
+                        child: TextFormField(
+                          key: ValueKey(
+                            'category-threshold-${cat.id}-${cat.defaultReorderThreshold}',
+                          ),
+                          initialValue: cat.defaultReorderThreshold.toString(),
+                          keyboardType: TextInputType.number,
+                          textAlign: TextAlign.center,
+                          decoration: const InputDecoration(
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 8,
+                            ),
+                            helperText: 'Default',
+                          ),
+                          onChanged: (val) async {
+                            final parsed = int.tryParse(val);
+                            if (parsed != null && parsed >= 1) {
+                              await ref
+                                  .read(inventoryRepositoryProvider)
+                                  .updateCategoryThreshold(
+                                    categoryId: cat.id,
+                                    threshold: parsed,
+                                  );
+                              ref.invalidate(categoriesProvider);
+                              ref.invalidate(allProductsProvider);
+                              ref.invalidate(productsProvider);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       IconButton(
                         onPressed:
                             isMutating

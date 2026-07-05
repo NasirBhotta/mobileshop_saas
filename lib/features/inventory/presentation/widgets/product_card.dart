@@ -144,7 +144,12 @@ class ProductCard extends StatelessWidget {
                   label: const Text(AppStrings.stockAdjust),
                   style: TextButton.styleFrom(
                     foregroundColor: AppColors.primary,
-                    padding: EdgeInsets.zero,
+                    padding: EdgeInsets.only(
+                      left: 15,
+                      right: 15,
+                      top: 5,
+                      bottom: 5,
+                    ),
                   ),
                 ),
               ],
