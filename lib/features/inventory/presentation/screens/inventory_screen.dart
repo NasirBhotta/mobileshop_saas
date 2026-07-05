@@ -54,7 +54,8 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     final categoriesState = ref.watch(categoriesProvider);
     final selectedCategory = ref.watch(selectedCategoryProvider);
     final isUpdating = ref.watch(productControllerProvider).isLoading;
-
+    final isDesktop = Responsive.isDesktop(context);
+    final isTablet = Responsive.isTablet(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -217,28 +218,115 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
 
                   return RefreshIndicator(
                     onRefresh: () async => ref.invalidate(productsProvider),
-                    child: ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: products.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final product = products[index];
-                        return ProductCard(
-                          product: product,
-                          isSelectionMode: _isSelectionMode,
-                          isSelected: _selectedProductIds.contains(product.id),
-                          onSelectionChanged:
-                              (selected) =>
-                                  _toggleSelection(product.id, selected),
-                          onTap: () {
-                            ref
-                                .read(navigationLoadingProvider.notifier)
-                                .showFor();
-                            context.push('/inventory/edit', extra: product);
-                          },
-                        );
-                      },
-                    ),
+                    child:
+                        isDesktop
+                            ? GridView.builder(
+                              padding: const EdgeInsets.all(16),
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 4,
+                                    mainAxisSpacing: 8,
+                                    crossAxisSpacing: 8,
+                                    childAspectRatio: 3.5,
+                                  ),
+                              itemCount: products.length,
+                              itemBuilder: (context, index) {
+                                final product = products[index];
+                                return ProductCard(
+                                  product: product,
+                                  isSelectionMode: _isSelectionMode,
+                                  isSelected: _selectedProductIds.contains(
+                                    product.id,
+                                  ),
+                                  onSelectionChanged:
+                                      (selected) => _toggleSelection(
+                                        product.id,
+                                        selected,
+                                      ),
+                                  onTap: () {
+                                    ref
+                                        .read(
+                                          navigationLoadingProvider.notifier,
+                                        )
+                                        .showFor();
+                                    context.push(
+                                      '/inventory/edit',
+                                      extra: product,
+                                    );
+                                  },
+                                );
+                              },
+                            )
+                            : isTablet
+                            ? GridView.builder(
+                              padding: const EdgeInsets.all(16),
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 2,
+                                    mainAxisSpacing: 8,
+                                    crossAxisSpacing: 8,
+                                    childAspectRatio: 3.5,
+                                  ),
+                              itemCount: products.length,
+                              itemBuilder: (context, index) {
+                                final product = products[index];
+                                return ProductCard(
+                                  product: product,
+                                  isSelectionMode: _isSelectionMode,
+                                  isSelected: _selectedProductIds.contains(
+                                    product.id,
+                                  ),
+                                  onSelectionChanged:
+                                      (selected) => _toggleSelection(
+                                        product.id,
+                                        selected,
+                                      ),
+                                  onTap: () {
+                                    ref
+                                        .read(
+                                          navigationLoadingProvider.notifier,
+                                        )
+                                        .showFor();
+                                    context.push(
+                                      '/inventory/edit',
+                                      extra: product,
+                                    );
+                                  },
+                                );
+                              },
+                            )
+                            : ListView.separated(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: products.length,
+                              separatorBuilder:
+                                  (_, _) => const SizedBox(height: 8),
+                              itemBuilder: (context, index) {
+                                final product = products[index];
+                                return ProductCard(
+                                  product: product,
+                                  isSelectionMode: _isSelectionMode,
+                                  isSelected: _selectedProductIds.contains(
+                                    product.id,
+                                  ),
+                                  onSelectionChanged:
+                                      (selected) => _toggleSelection(
+                                        product.id,
+                                        selected,
+                                      ),
+                                  onTap: () {
+                                    ref
+                                        .read(
+                                          navigationLoadingProvider.notifier,
+                                        )
+                                        .showFor();
+                                    context.push(
+                                      '/inventory/edit',
+                                      extra: product,
+                                    );
+                                  },
+                                );
+                              },
+                            ),
                   );
                 },
               ),
