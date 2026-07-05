@@ -4,6 +4,7 @@ import 'package:flutter/rendering.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/adjustment_extention.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/category_model.dart';
+import 'package:mobileshop_saas/features/inventory/data/models/csv_import_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/price_history_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/stock_adjustment_model.dart';
@@ -633,6 +634,205 @@ class InventoryRepository {
       branchId: branchId,
       productId: productId,
     );
+  }
+
+  Future<CsvImportResult> importFromCsv(List<List<dynamic>> csvRows) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+
+    // Row 0 = headers → skip karo
+    final dataRows = csvRows.skip(1).toList();
+
+    final results = <CsvRowResult>[];
+    final importedSkus = <String>{}; // is import mein duplicate check
+
+    for (int i = 0; i < dataRows.length; i++) {
+      final row = dataRows[i];
+      final rowNum = i + 2; // +2 kyunki row 1 = header, row 2 = pehla data
+
+      // ── Column values nikalo ──
+      final name = _cell(row, 0); // column A
+      final sku = _cell(row, 1); // column B
+      final salePriceStr = _cell(row, 2); // column C
+      final costPriceStr = _cell(row, 3); // column D
+      final categoryName = _cell(row, 4); // column E
+      final quantityStr = _cell(row, 5); // column F
+
+      // ── Validation ──
+
+      // 1. Name required
+      if (name.isEmpty) {
+        results.add(
+          CsvRowResult(
+            rowNumber: rowNum,
+            isSuccess: false,
+            errorReason: 'Name is empty',
+          ),
+        );
+        continue; // next row pe jao
+      }
+
+      // 2. Sale price valid number hona chahiye
+      final salePrice = double.tryParse(salePriceStr);
+      if (salePrice == null || salePrice < 0) {
+        results.add(
+          CsvRowResult(
+            rowNumber: rowNum,
+            name: name,
+            sku: sku,
+            isSuccess: false,
+            errorReason: 'Sale price is not a valid number: "$salePriceStr"',
+          ),
+        );
+        continue;
+      }
+
+      // 3. SKU duplicate check (is CSV mein)
+      if (sku.isNotEmpty && importedSkus.contains(sku)) {
+        results.add(
+          CsvRowResult(
+            rowNumber: rowNum,
+            name: name,
+            sku: sku,
+            isSuccess: false,
+            errorReason: 'SKU already exists in CSV: "$sku"',
+          ),
+        );
+        continue;
+      }
+
+      // 4. SKU duplicate check (DB mein already exist karta hai?)
+      if (sku.isNotEmpty) {
+        final existing =
+            await _client
+                .from('products')
+                .select('id')
+                .eq('branch_id', branchId)
+                .eq('sku', sku)
+                .maybeSingle();
+
+        if (existing != null) {
+          results.add(
+            CsvRowResult(
+              rowNumber: rowNum,
+              name: name,
+              sku: sku,
+              isSuccess: false,
+              errorReason: 'SKU already exists in DB: "$sku"',
+            ),
+          );
+          continue;
+        }
+      }
+
+      // ── Valid row → save karo ──
+
+      // Category handle karo (naam se find ya create)
+      String? categoryId;
+      if (categoryName.isNotEmpty) {
+        categoryId = await _findOrCreateCategory(
+          name: categoryName,
+          tenantId: tenantId,
+          branchId: branchId,
+        );
+      }
+
+      // Product insert karo
+      final costPrice = double.tryParse(costPriceStr) ?? 0;
+      final quantity = int.tryParse(quantityStr) ?? 0;
+
+      try {
+        final inserted =
+            await _client
+                .from('products')
+                .insert({
+                  'tenant_id': tenantId,
+                  'branch_id': branchId,
+                  'category_id': categoryId,
+                  'name': name,
+                  'sku': sku.isEmpty ? null : sku,
+                  'sale_price': salePrice,
+                  'cost_price': costPrice,
+                  'is_active': true,
+                })
+                .select('id')
+                .single();
+
+        // Inventory row banao
+        await _client.from('inventory').upsert({
+          'branch_id': branchId,
+          'product_id': inserted['id'],
+          'quantity': quantity,
+        }, onConflict: 'branch_id,product_id');
+
+        // SKU track karo (duplicate check ke liye)
+        if (sku.isNotEmpty) importedSkus.add(sku);
+
+        results.add(
+          CsvRowResult(
+            rowNumber: rowNum,
+            name: name,
+            sku: sku,
+            isSuccess: true,
+          ),
+        );
+      } catch (e) {
+        results.add(
+          CsvRowResult(
+            rowNumber: rowNum,
+            name: name,
+            sku: sku,
+            isSuccess: false,
+            errorReason: e.toString(),
+          ),
+        );
+      }
+    }
+
+    return CsvImportResult(
+      totalRows: dataRows.length,
+      successCount: results.where((r) => r.isSuccess).length,
+      failedCount: results.where((r) => !r.isSuccess).length,
+      rows: results,
+    );
+  }
+
+  // Helper: CSV cell safe nikalo
+  String _cell(List<dynamic> row, int index) {
+    if (index >= row.length) return '';
+    return row[index]?.toString().trim() ?? '';
+  }
+
+  // Helper: Category naam se find karo ya create karo
+  Future<String> _findOrCreateCategory({
+    required String name,
+    required String tenantId,
+    required String branchId,
+  }) async {
+    // Pehle find karo
+    final existing =
+        await _client
+            .from('categories')
+            .select('id')
+            .eq('branch_id', branchId)
+            .eq('name', name)
+            .maybeSingle();
+
+    if (existing != null) return existing['id'] as String;
+
+    // Nahi mila → create karo
+    final created =
+        await _client
+            .from('categories')
+            .insert({
+              'tenant_id': tenantId,
+              'branch_id': branchId,
+              'name': name,
+            })
+            .select('id')
+            .single();
+
+    return created['id'] as String;
   }
 
   // ── Bulk Pricing / Price History / IMEI Guards ──

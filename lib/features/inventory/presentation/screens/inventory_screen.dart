@@ -109,6 +109,13 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       label: const Text('Add'),
                     ),
                   ],
+
+                  IconButton(
+                    onPressed: () => context.push('/inventory/import'),
+                    icon: const Icon(Icons.upload_file_rounded),
+                    color: AppColors.textSecondary,
+                    tooltip: 'CSV Import',
+                  ),
                 ],
               ),
             ),

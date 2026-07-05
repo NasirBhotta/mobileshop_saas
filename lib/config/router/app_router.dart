@@ -6,6 +6,7 @@ import 'package:mobileshop_saas/features/auth/presentation/screens/signup_screen
 import 'package:mobileshop_saas/features/dashboard/presentation/screens/dashboard_screen.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/categories_screen.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/screens/csv_import_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/inventory_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/product_form_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/stock_adjustment_screen.dart';
@@ -137,6 +138,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder:
             (context, state) =>
                 StockAdjustmentScreen(product: state.extra as ProductModel),
+      ),
+
+      GoRoute(
+        path: '/inventory/import',
+        builder: (_, _) => const CsvImportScreen(),
       ),
     ],
   );
