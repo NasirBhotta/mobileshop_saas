@@ -639,12 +639,15 @@ class InventoryRepository {
   Future<CsvImportResult> importFromCsv(List<List<dynamic>> csvRows) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
+    final userId = _currentUser.id;
 
     // Row 0 = headers → skip karo
     final dataRows = csvRows.skip(1).toList();
 
     final results = <CsvRowResult>[];
     final importedSkus = <String>{}; // is import mein duplicate check
+    var productsChanged = false;
+    var categoriesChanged = false;
 
     for (int i = 0; i < dataRows.length; i++) {
       final row = dataRows[i];
@@ -688,7 +691,8 @@ class InventoryRepository {
       }
 
       // 3. SKU duplicate check (is CSV mein)
-      if (sku.isNotEmpty && importedSkus.contains(sku)) {
+      final normalizedSku = sku.toLowerCase();
+      if (normalizedSku.isNotEmpty && importedSkus.contains(normalizedSku)) {
         results.add(
           CsvRowResult(
             rowNumber: rowNum,
@@ -702,91 +706,105 @@ class InventoryRepository {
       }
 
       // 4. SKU duplicate check (DB mein already exist karta hai?)
-      if (sku.isNotEmpty) {
-        final existing =
-            await _client
-                .from('products')
-                .select('id')
-                .eq('branch_id', branchId)
-                .eq('sku', sku)
-                .maybeSingle();
-
-        if (existing != null) {
-          results.add(
-            CsvRowResult(
-              rowNumber: rowNum,
-              name: name,
-              sku: sku,
-              isSuccess: false,
-              errorReason: 'SKU already exists in DB: "$sku"',
-            ),
-          );
-          continue;
-        }
-      }
-
-      // ── Valid row → save karo ──
-
-      // Category handle karo (naam se find ya create)
-      String? categoryId;
-      if (categoryName.isNotEmpty) {
-        categoryId = await _findOrCreateCategory(
-          name: categoryName,
-          tenantId: tenantId,
-          branchId: branchId,
-        );
-      }
-
-      // Product insert karo
-      final costPrice = double.tryParse(costPriceStr) ?? 0;
-      final quantity = int.tryParse(quantityStr) ?? 0;
-
-      try {
-        final inserted =
-            await _client
-                .from('products')
-                .insert({
-                  'tenant_id': tenantId,
-                  'branch_id': branchId,
-                  'category_id': categoryId,
-                  'name': name,
-                  'sku': sku.isEmpty ? null : sku,
-                  'sale_price': salePrice,
-                  'cost_price': costPrice,
-                  'is_active': true,
-                })
-                .select('id')
-                .single();
-
-        // Inventory row banao
-        await _client.from('inventory').upsert({
-          'branch_id': branchId,
-          'product_id': inserted['id'],
-          'quantity': quantity,
-        }, onConflict: 'branch_id,product_id');
-
-        // SKU track karo (duplicate check ke liye)
-        if (sku.isNotEmpty) importedSkus.add(sku);
-
-        results.add(
-          CsvRowResult(
-            rowNumber: rowNum,
-            name: name,
-            sku: sku,
-            isSuccess: true,
-          ),
-        );
-      } catch (e) {
+      if (sku.isNotEmpty && await _skuExists(branchId: branchId, sku: sku)) {
         results.add(
           CsvRowResult(
             rowNumber: rowNum,
             name: name,
             sku: sku,
             isSuccess: false,
-            errorReason: e.toString(),
+            errorReason: 'SKU already exists: "$sku"',
           ),
         );
+        continue;
       }
+
+      // ── Valid row → save karo ──
+
+      // Category handle karo (naam se find ya create)
+      CategoryModel? category;
+      if (categoryName.isNotEmpty) {
+        category = await _findOrCreateCsvCategory(
+          name: categoryName,
+          tenantId: tenantId,
+          branchId: branchId,
+          userId: userId,
+        );
+        categoriesChanged = true;
+      }
+
+      // Product insert karo
+      final costPrice = double.tryParse(costPriceStr) ?? 0;
+      final quantity = int.tryParse(quantityStr) ?? 0;
+      final product = ProductModel(
+        id: const Uuid().v4(),
+        tenantId: tenantId,
+        branchId: branchId,
+        categoryId: category?.id,
+        categoryName: category?.name,
+        name: name,
+        sku: sku.isEmpty ? null : sku,
+        salePrice: salePrice,
+        costPrice: costPrice,
+        isActive: true,
+        stock: quantity < 0 ? 0 : quantity,
+        categoryThreshold: category?.defaultReorderThreshold ?? 0,
+      );
+
+      try {
+        await _client
+            .from('products')
+            .upsert({
+              'id': product.id,
+              ...product.toInsertMap(tenantId: tenantId, branchId: branchId),
+            }, onConflict: 'id')
+            .timeout(_networkTimeout);
+
+        // Inventory row banao
+        await _client
+            .from('inventory')
+            .upsert({
+              'branch_id': branchId,
+              'product_id': product.id,
+              'quantity': product.stock,
+              'updated_at': DateTime.now().toIso8601String(),
+            }, onConflict: 'branch_id,product_id')
+            .timeout(_networkTimeout);
+      } catch (_) {
+        await OfflineStore.enqueueMutation(
+          userId: userId,
+          type: 'upsert_product',
+          payload: {'product': product.toCacheMap()},
+        );
+      }
+
+      await OfflineStore.upsertCachedProduct(product);
+
+      // SKU track karo (duplicate check ke liye)
+      if (normalizedSku.isNotEmpty) importedSkus.add(normalizedSku);
+      productsChanged = true;
+
+      results.add(
+        CsvRowResult(rowNumber: rowNum, name: name, sku: sku, isSuccess: true),
+      );
+    }
+
+    if (categoriesChanged) {
+      try {
+        await _fetchRemoteCategories(
+          tenantId: tenantId,
+          branchId: branchId,
+        ).timeout(_networkTimeout);
+      } catch (_) {}
+    }
+
+    if (productsChanged) {
+      try {
+        await _fetchRemoteProducts(
+          tenantId: tenantId,
+          branchId: branchId,
+        ).timeout(_networkTimeout);
+      } catch (_) {}
     }
 
     return CsvImportResult(
@@ -801,6 +819,31 @@ class InventoryRepository {
   String _cell(List<dynamic> row, int index) {
     if (index >= row.length) return '';
     return row[index]?.toString().trim() ?? '';
+  }
+
+  Future<bool> _skuExists({
+    required String branchId,
+    required String sku,
+  }) async {
+    final cachedProducts = await OfflineStore.loadProducts(branchId);
+    final normalizedSku = sku.toLowerCase();
+    final existsInCache = cachedProducts.any(
+      (product) => product.sku?.toLowerCase() == normalizedSku,
+    );
+    if (existsInCache) return true;
+
+    try {
+      final existing = await _client
+          .from('products')
+          .select('id')
+          .eq('branch_id', branchId)
+          .eq('sku', sku)
+          .maybeSingle()
+          .timeout(_networkTimeout);
+      return existing != null;
+    } catch (_) {
+      return false;
+    }
   }
 
   // Helper: Category naam se find karo ya create karo
@@ -836,6 +879,77 @@ class InventoryRepository {
   }
 
   // ── Bulk Pricing / Price History / IMEI Guards ──
+  Future<CategoryModel> _findOrCreateCsvCategory({
+    required String name,
+    required String tenantId,
+    required String branchId,
+    required String userId,
+  }) async {
+    final cachedCategories = await OfflineStore.loadCategories(branchId);
+    for (final category in cachedCategories) {
+      if (category.name.toLowerCase() == name.toLowerCase()) {
+        return category;
+      }
+    }
+
+    try {
+      final existing = await _client
+          .from('categories')
+          .select()
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
+          .eq('name', name)
+          .maybeSingle()
+          .timeout(_networkTimeout);
+
+      if (existing != null) {
+        final category = CategoryModel.fromMap(existing);
+        await _upsertCachedCategory(branchId, category);
+        return category;
+      }
+    } catch (_) {}
+
+    final category = CategoryModel(
+      id: const Uuid().v4(),
+      tenantId: tenantId,
+      branchId: branchId,
+      name: name,
+    );
+
+    await _upsertCachedCategory(branchId, category);
+
+    try {
+      final created = await _client
+          .from('categories')
+          .upsert(category.toCacheMap(), onConflict: 'id')
+          .select()
+          .single()
+          .timeout(_networkTimeout);
+      final savedCategory = CategoryModel.fromMap(created);
+      await _upsertCachedCategory(branchId, savedCategory);
+      return savedCategory;
+    } catch (_) {
+      await OfflineStore.enqueueMutation(
+        userId: userId,
+        type: 'upsert_category',
+        payload: {'category': category.toCacheMap()},
+      );
+      return category;
+    }
+  }
+
+  Future<void> _upsertCachedCategory(
+    String branchId,
+    CategoryModel category,
+  ) async {
+    final categories = await OfflineStore.loadCategories(branchId);
+    await OfflineStore.saveCategories(
+      branchId,
+      [...categories.where((item) => item.id != category.id), category]
+        ..sort((a, b) => a.name.compareTo(b.name)),
+    );
+  }
+
   Future<int> bulkUpdateProductPrices({
     required List<ProductModel> products,
     required double percentage,
@@ -1381,6 +1495,9 @@ class InventoryRepository {
     final product = Map<String, dynamic>.from(payload['product'] as Map);
     final stock = product.remove('stock') as int? ?? 0;
     product.remove('category_name');
+    product.remove('categories');
+    product.remove('branch_threshold');
+    product.remove('category_threshold');
 
     await _client.from('products').upsert(product, onConflict: 'id');
     await _client.from('inventory').upsert({

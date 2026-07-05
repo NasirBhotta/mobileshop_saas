@@ -39,7 +39,7 @@ class CsvImportController extends StateNotifier<AsyncValue<void>> {
       final csvString = String.fromCharCodes(bytes);
 
       final rows = Csv().decoder.convert(csvString);
-      if (rows.isEmpty) throw Exception('CSV file empty hai');
+      if (rows.isEmpty) throw Exception('CSV file is empty');
 
       final importResult = await _inventoryRepository.importFromCsv(rows);
       _ref.read(csvImportResultProvider.notifier).state = importResult;
@@ -47,6 +47,7 @@ class CsvImportController extends StateNotifier<AsyncValue<void>> {
       // 6. Products refresh karo
       _ref.invalidate(productsProvider);
       _ref.invalidate(allProductsProvider);
+      _ref.invalidate(categoriesProvider);
 
       state = const AsyncData(null);
     } catch (e) {
