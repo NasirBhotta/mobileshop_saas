@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:mobileshop_saas/core/extensions/product_sort_ext.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/stock_adjustment_model.dart';
 
 import '../../data/models/category_model.dart';
@@ -298,3 +299,47 @@ class CategoryController extends StateNotifier<AsyncValue<void>> {
     }
   }
 }
+
+final searchQueryProvider = StateProvider<String>((ref) => '');
+
+final sortOptionProvider = StateProvider<ProductSortOption>(
+  (ref) => ProductSortOption.nameAZ,
+);
+
+final filteredProductsProvider = Provider<AsyncValue<List<ProductModel>>>((
+  ref,
+) {
+  final productsAsync = ref.watch(productsProvider);
+  final query = ref.watch(searchQueryProvider).toLowerCase().trim();
+  final sortOption = ref.watch(sortOptionProvider);
+
+  return productsAsync.whenData((products) {
+    // 1. Search filter
+    var filtered =
+        products.where((p) {
+          if (query.isEmpty) return true;
+          // Naam ya SKU se match karo
+          final nameMatch = p.name.toLowerCase().contains(query);
+          final skuMatch = p.sku?.toLowerCase().contains(query) ?? false;
+          return nameMatch || skuMatch;
+        }).toList();
+
+    // 2. Sort
+    switch (sortOption) {
+      case ProductSortOption.nameAZ:
+        filtered.sort((a, b) => a.name.compareTo(b.name));
+      case ProductSortOption.nameZA:
+        filtered.sort((a, b) => b.name.compareTo(a.name));
+      case ProductSortOption.priceLow:
+        filtered.sort((a, b) => a.salePrice.compareTo(b.salePrice));
+      case ProductSortOption.priceHigh:
+        filtered.sort((a, b) => b.salePrice.compareTo(a.salePrice));
+      case ProductSortOption.stockLow:
+        filtered.sort((a, b) => a.stock.compareTo(b.stock));
+      case ProductSortOption.stockHigh:
+        filtered.sort((a, b) => b.stock.compareTo(a.stock));
+    }
+
+    return filtered;
+  });
+});

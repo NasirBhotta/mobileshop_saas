@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/widgets/category_filter_bar.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/widgets/product_card.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/widgets/sort_bottom_sheet.dart';
+import 'package:mobileshop_saas/shared/widgets/search_bar_field.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
@@ -47,7 +49,8 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
 
   @override
   Widget build(BuildContext context) {
-    final productsState = ref.watch(productsProvider);
+    final productsState = ref.watch(filteredProductsProvider);
+
     final categoriesState = ref.watch(categoriesProvider);
     final selectedCategory = ref.watch(selectedCategoryProvider);
     final isUpdating = ref.watch(productControllerProvider).isLoading;
@@ -99,6 +102,13 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       color: AppColors.textSecondary,
                       tooltip: AppStrings.categoriesTitle,
                     ),
+
+                    IconButton(
+                      onPressed: () => showSortSheet(context, ref),
+                      icon: const Icon(Icons.sort_rounded),
+                      color: AppColors.textSecondary,
+                      tooltip: AppStrings.sortBy,
+                    ),
                     // Add product button
                     FilledButton.icon(
                       onPressed: () {
@@ -119,7 +129,19 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                 ],
               ),
             ),
-
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: SizedBox(
+                height: 45,
+                child: SearchBarField(
+                  hint: AppStrings.searchProducts,
+                  onChanged: (query) {
+                    ref.read(searchQueryProvider.notifier).state = query;
+                  },
+                ),
+              ),
+            ),
+            SizedBox(height: 10),
             // ── Category Filter ──
             categoriesState.when(
               loading: () => const SizedBox.shrink(),
@@ -140,6 +162,19 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (error, _) => Center(child: Text(error.toString())),
                 data: (products) {
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      '${products.length} ${AppStrings.filterResults}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  );
                   if (products.isEmpty) {
                     return Center(
                       child: Column(

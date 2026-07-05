@@ -232,4 +232,17 @@ class AppStrings {
   static const String errorQuantityInvalid = 'Quantity 1 ya zyada honi chahiye';
   static const String errorReasonNoteRequired =
       '"Other" select kiya hai — wajah likhna zaroori hai';
+
+  // Search + Filter + Sort
+  static const String searchProducts = 'Product dhoondein...';
+  static const String sortBy = 'Sort By';
+  static const String sortNameAZ = 'Naam A-Z';
+  static const String sortNameZA = 'Naam Z-A';
+  static const String sortPriceLow = 'Price: Kam se Zyada';
+  static const String sortPriceHigh = 'Price: Zyada se Kam';
+  static const String sortStockLow = 'Stock: Kam se Zyada';
+  static const String sortStockHigh = 'Stock: Zyada se Kam';
+  static const String filterResults = 'Results';
+  static const String noSearchResults = 'Koi product nahi mila';
+  static const String noSearchResultsDesc = 'Alag naam ya SKU try karein';
 }
