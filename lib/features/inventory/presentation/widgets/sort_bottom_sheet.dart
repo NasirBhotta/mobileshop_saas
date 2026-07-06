@@ -18,6 +18,63 @@ void showSortSheet(BuildContext context, WidgetRef ref) {
   );
 }
 
+// void showSortDialog(BuildContext context, WidgetRef ref) {
+//   showDialog(
+//     context: context,
+//     builder:
+//         (_) => AlertDialog(
+//           title: const Text(AppStrings.sortBy),
+//           content: _SortSheet(ref: ref),
+//           actions: [
+//             TextButton(
+//               onPressed: () => Navigator.pop(context),
+//               child: const Text(AppStrings.cancel),
+//             ),
+//           ],
+//         ),
+//   );
+// }
+
+void showDropDown(BuildContext context, WidgetRef ref) {
+  final currentSort = ref.watch(sortOptionProvider);
+
+  showMenu(
+    context: context,
+    position: const RelativeRect.fromLTRB(100, 70, 0, 0),
+    items:
+        ProductSortOption.values.map((option) {
+          final isSelected = currentSort == option;
+          return PopupMenuItem<ProductSortOption>(
+            value: option,
+            child: Row(
+              children: [
+                Icon(
+                  _sortIcon(option),
+                  color:
+                      isSelected ? AppColors.primary : AppColors.textSecondary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  option.label,
+                  style: TextStyle(
+                    color:
+                        isSelected ? AppColors.primary : AppColors.textPrimary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+  ).then((selectedOption) {
+    if (selectedOption != null) {
+      ref.read(sortOptionProvider.notifier).state = selectedOption;
+    }
+  });
+}
+
 class _SortSheet extends StatelessWidget {
   final WidgetRef ref;
 
@@ -95,18 +152,18 @@ class _SortSheet extends StatelessWidget {
       ),
     );
   }
+}
 
-  IconData _sortIcon(ProductSortOption option) {
-    switch (option) {
-      case ProductSortOption.nameAZ:
-      case ProductSortOption.nameZA:
-        return Icons.sort_by_alpha_rounded;
-      case ProductSortOption.priceLow:
-      case ProductSortOption.priceHigh:
-        return Icons.attach_money_rounded;
-      case ProductSortOption.stockLow:
-      case ProductSortOption.stockHigh:
-        return Icons.inventory_2_rounded;
-    }
+IconData _sortIcon(ProductSortOption option) {
+  switch (option) {
+    case ProductSortOption.nameAZ:
+    case ProductSortOption.nameZA:
+      return Icons.sort_by_alpha_rounded;
+    case ProductSortOption.priceLow:
+    case ProductSortOption.priceHigh:
+      return Icons.attach_money_rounded;
+    case ProductSortOption.stockLow:
+    case ProductSortOption.stockHigh:
+      return Icons.inventory_2_rounded;
   }
 }

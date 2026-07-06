@@ -105,7 +105,11 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                     ),
 
                     IconButton(
-                      onPressed: () => showSortSheet(context, ref),
+                      onPressed:
+                          () =>
+                              isDesktop
+                                  ? showDropDown(context, ref)
+                                  : showSortSheet(context, ref),
                       icon: const Icon(Icons.sort_rounded),
                       color: AppColors.textSecondary,
                       tooltip: AppStrings.sortBy,

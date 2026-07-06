@@ -245,4 +245,95 @@ class AppStrings {
   static const String filterResults = 'Results';
   static const String noSearchResults = 'Koi product nahi mila';
   static const String noSearchResultsDesc = 'Alag naam ya SKU try karein';
+
+  // ═══════════════════════════════════════
+  // POS / Sales
+  // ═══════════════════════════════════════
+
+  // Screen Titles
+  static const String posTitle = 'New Sale';
+  static const String posHeldCarts = 'Held Carts';
+  static const String posSaleComplete = 'Sale Complete';
+  static const String posSalesHistory = 'Sales History';
+
+  // Cart
+  static const String cartEmpty = 'Cart empty hai';
+  static const String cartEmptyDesc = 'Product search karein ya scan karein';
+  static const String cartItems = 'Items';
+  static const String cartTotal = 'Total';
+  static const String cartSubtotal = 'Subtotal';
+  static const String cartDiscount = 'Discount';
+  static const String cartTax = 'Tax';
+  static const String cartItemCount = 'items';
+
+  // Product Search
+  static const String searchProductsPos =
+      'Product dhoondein ya SKU scan karein...';
+  static const String noProductsFound = 'Koi product nahi mila';
+
+  // Customer
+  static const String attachCustomer = 'Customer Lagayen (Optional)';
+  static const String customerSearch = 'Customer naam ya phone...';
+  static const String customerNotFound = 'Customer nahi mila';
+  static const String quickAddCustomer = 'Naya Customer Add Karein';
+  static const String customerAttached = 'Customer laga diya';
+  static const String customerRemoved = 'Customer hata diya';
+  static const String fieldCustomerName = 'Customer Ka Naam';
+  static const String fieldCustomerPhone = 'Phone Number';
+  static const String fieldCustomerEmail = 'Email (Optional)';
+  static const String hintCustomerName = 'Muhammad Ali';
+  static const String errorCustomerNameRequired = 'Naam zaroori hai';
+
+  // Payment
+  static const String paymentTitle = 'Payment';
+  static const String paymentMethod = 'Payment Method';
+  static const String paymentSplit = 'Split Payment';
+  static const String paymentCash = 'Cash';
+  static const String paymentEasypaisa = 'EasyPaisa';
+  static const String paymentJazzcash = 'JazzCash';
+  static const String paymentCard = 'Card';
+  static const String paymentRemaining = 'Remaining';
+  static const String paymentEntered = 'Entered';
+  static const String paymentExact = 'Exact change';
+  static const String checkoutButton = 'Checkout Karein';
+  static const String paymentComplete = 'Payment Complete ✓';
+  static const String paymentIncomplete = 'Payment poori nahi hai';
+
+  // Hold / Void
+  static const String holdCart = 'Cart Hold Karein';
+  static const String holdCartLabel = 'Cart Ka Naam (Optional)';
+  static const String hintHoldLabel = 'Customer 1, Walk-in...';
+  static const String holdSuccess = 'Cart hold ho gayi';
+  static const String resumeCart = 'Resume Karein';
+  static const String noHeldCarts = 'Koi held cart nahi';
+  static const String noHeldCartsDesc = 'Hold ki hui carts yahan dikhengi';
+  static const String voidCart = 'Cart Void Karein';
+  static const String voidCartConfirm =
+      'Kya aap yeh cart void karna chahte hain?';
+  static const String voidReason = 'Void Ki Wajah (Optional)';
+  static const String hintVoidReason = 'Galat items, customer na aaya...';
+  static const String voidSuccess = 'Cart void ho gayi';
+  static const String voidConfirmButton = 'Haan, Void Karein';
+
+  // Discount
+  static const String itemDiscount = 'Item Discount';
+  static const String hintDiscount = '0';
+  static const String errorDiscountInvalid = 'Valid discount likhein';
+  static const String errorDiscountExceeds =
+      'Discount price se zyada nahi ho sakta';
+
+  // Sale Complete
+  static const String saleCompleteTitle = 'Sale Complete! ✓';
+  static const String saleCompleteAmount = 'Total Amount';
+  static const String saleCompletePayments = 'Payments';
+  static const String printReceipt = 'Receipt Print Karein';
+  static const String shareReceipt = 'Receipt Share Karein';
+  static const String newSale = 'Naya Sale';
+
+  // Errors
+  static const String errorCartEmpty = 'Cart mein koi item nahi';
+  static const String errorStockInsufficient = 'Stock kam hai';
+  static const String errorPaymentMismatch = 'Payment total match nahi karta';
+  static const String errorCheckoutFailed =
+      'Checkout fail ho gaya, dobara try karein';
 }
