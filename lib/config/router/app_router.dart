@@ -14,8 +14,14 @@ import 'package:mobileshop_saas/features/onboarding/presentation/screens/app_int
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/branch_selection_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/shop_setup_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/data/repositories/setup_flow_repository.dart';
+import 'package:mobileshop_saas/features/pos/data/models/sale_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/customer_model.dart';
+import 'package:mobileshop_saas/features/pos/presentation/screens/customers_screen.dart';
 import 'package:mobileshop_saas/features/pos/presentation/screens/held_carts_screen.dart';
 import 'package:mobileshop_saas/features/pos/presentation/screens/pos_screen.dart';
+import 'package:mobileshop_saas/features/pos/presentation/screens/receipt_reprint_screen.dart';
+import 'package:mobileshop_saas/features/pos/presentation/screens/return_screen.dart';
+import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -147,7 +153,29 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const CsvImportScreen(),
       ),
       GoRoute(path: '/pos', builder: (_, _) => const PosScreen()),
+      GoRoute(path: '/pos/return', builder: (_, _) => const ReturnScreen()),
+      GoRoute(
+        path: '/pos/reprint',
+        builder: (_, _) => const ReceiptReprintScreen(),
+      ),
+      GoRoute(
+        path: '/pos/complete',
+        builder: (context, state) {
+          final sale = state.extra;
+          if (sale is! SaleModel) return const PosScreen();
+          return SaleCompleteScreen(sale: sale);
+        },
+      ),
       GoRoute(path: '/pos/held', builder: (_, _) => const HeldCartsScreen()),
+      GoRoute(path: '/customers', builder: (_, _) => const CustomersScreen()),
+      GoRoute(
+        path: '/customers/detail',
+        builder: (context, state) {
+          final customer = state.extra;
+          if (customer is! CustomerModel) return const CustomersScreen();
+          return CustomerDetailScreen(customer: customer);
+        },
+      ),
     ],
   );
 });

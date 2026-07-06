@@ -106,6 +106,21 @@ class MobileNav extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  ListTile(
+                    leading: const Icon(
+                      Icons.people_rounded,
+                      color: AppColors.primary,
+                    ),
+                    title: const Text(
+                      AppStrings.navCustomers,
+                      style: TextStyle(color: AppColors.primary),
+                    ),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/customers');
+                    },
+                  ),
                   if (hasMultipleBranches)
                     ListTile(
                       leading: const Icon(

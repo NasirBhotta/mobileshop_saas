@@ -16,7 +16,7 @@ class PosScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return AppLayout(
-      currentIndex: 2, // POS tab
+      currentIndex: 1, // POS tab
       child: _PosBody(),
     );
   }
@@ -57,6 +57,19 @@ class _PosBody extends ConsumerWidget {
           ],
         ),
         actions: [
+          IconButton(
+            onPressed: () => context.push('/pos/return'),
+            icon: const Icon(Icons.assignment_return_rounded),
+            color: AppColors.textSecondary,
+            tooltip: 'Return / Refund',
+          ),
+          IconButton(
+            onPressed: () => context.push('/pos/reprint'),
+            icon: const Icon(Icons.receipt_long_rounded),
+            color: AppColors.textSecondary,
+            tooltip: 'Reprint Receipt',
+          ),
+
           // Held carts button
           Stack(
             children: [
@@ -339,7 +352,7 @@ class _HeldCartsBadge extends ConsumerWidget {
 
     return heldCarts.when(
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
       data: (carts) {
         if (carts.isEmpty) return const SizedBox.shrink();
         return Positioned(

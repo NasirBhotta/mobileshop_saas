@@ -1,5 +1,5 @@
 // Payment methods enum
-enum PaymentMethod { cash, easypaisa, jazzcash, card }
+enum PaymentMethod { cash, easypaisa, jazzcash, card, credit }
 
 extension PaymentMethodX on PaymentMethod {
   String get code {
@@ -12,6 +12,8 @@ extension PaymentMethodX on PaymentMethod {
         return 'jazzcash';
       case PaymentMethod.card:
         return 'card';
+      case PaymentMethod.credit:
+        return 'credit';
     }
   }
 
@@ -25,6 +27,8 @@ extension PaymentMethodX on PaymentMethod {
         return 'JazzCash';
       case PaymentMethod.card:
         return 'Card';
+      case PaymentMethod.credit:
+        return 'Khata';
     }
   }
 
@@ -39,6 +43,8 @@ extension PaymentMethodX on PaymentMethod {
         return 'jazzcash';
       case PaymentMethod.card:
         return 'card';
+      case PaymentMethod.credit:
+        return 'credit';
     }
   }
 
@@ -50,6 +56,8 @@ extension PaymentMethodX on PaymentMethod {
         return PaymentMethod.jazzcash;
       case 'card':
         return PaymentMethod.card;
+      case 'credit':
+        return PaymentMethod.credit;
       default:
         return PaymentMethod.cash;
     }

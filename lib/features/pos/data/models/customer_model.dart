@@ -6,6 +6,8 @@ class CustomerModel {
   final String? phone;
   final String? email;
   final String? notes;
+  final double? creditLimit;
+  final double outstandingBalance;
   final DateTime? createdAt;
 
   const CustomerModel({
@@ -16,6 +18,8 @@ class CustomerModel {
     this.phone,
     this.email,
     this.notes,
+    this.creditLimit,
+    this.outstandingBalance = 0,
     this.createdAt,
   });
 
@@ -28,6 +32,8 @@ class CustomerModel {
       phone: map['phone'] as String?,
       email: map['email'] as String?,
       notes: map['notes'] as String?,
+      creditLimit: (map['credit_limit'] as num?)?.toDouble(),
+      outstandingBalance: (map['outstanding_balance'] as num?)?.toDouble() ?? 0,
       createdAt:
           map['created_at'] != null
               ? DateTime.parse(map['created_at'] as String)
@@ -45,7 +51,36 @@ class CustomerModel {
     'phone': phone,
     'email': email,
     'notes': notes,
+    'credit_limit': creditLimit,
+    'outstanding_balance': outstandingBalance,
   };
+
+  CustomerModel copyWith({
+    String? id,
+    String? tenantId,
+    String? branchId,
+    String? fullName,
+    String? phone,
+    String? email,
+    String? notes,
+    double? creditLimit,
+    bool clearCreditLimit = false,
+    double? outstandingBalance,
+    DateTime? createdAt,
+  }) {
+    return CustomerModel(
+      id: id ?? this.id,
+      tenantId: tenantId ?? this.tenantId,
+      branchId: branchId ?? this.branchId,
+      fullName: fullName ?? this.fullName,
+      phone: phone ?? this.phone,
+      email: email ?? this.email,
+      notes: notes ?? this.notes,
+      creditLimit: clearCreditLimit ? null : creditLimit ?? this.creditLimit,
+      outstandingBalance: outstandingBalance ?? this.outstandingBalance,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
 
   // Search ke liye
   bool matchesQuery(String query) {

@@ -1,5 +1,10 @@
 import 'dart:convert';
 
+import 'package:mobileshop_saas/features/pos/data/models/cart_item_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/customer_dashboard_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/customer_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/held_cart_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/sale_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/inventory/data/models/category_model.dart';
@@ -50,6 +55,11 @@ class OfflineStore {
 
   static String _stockAdjustmentsKey(String branchId) =>
       'offline.stock_adjustments.$branchId';
+
+  static String _salesKey(String branchId) => 'offline.sales.$branchId';
+  static String _heldCartsKey(String branchId) =>
+      'offline.held_carts.$branchId';
+
   static Future<void> saveProfile(
     String userId,
     Map<String, dynamic> profile,
@@ -372,4 +382,344 @@ class OfflineStore {
       jsonEncode(mutations.map((mutation) => mutation.toMap()).toList()),
     );
   }
+
+  // ════════════════════════════════════════
+  // SALES
+  // ════════════════════════════════════════
+
+  static Future<void> saveSale(SaleModel sale) async {
+    // SQLite mein save karo
+    try {
+      await LocalStore.saveSale(sale);
+    } catch (_) {}
+
+    // SharedPrefs fallback
+    final prefs = await SharedPreferences.getInstance();
+    final sales = await loadSales(sale.branchId);
+
+    // Naya sale add karo (duplicate check)
+    final updated = [
+      for (final s in sales)
+        if (s.id != sale.id) s,
+      sale,
+    ];
+
+    await prefs.setString(
+      _salesKey(sale.branchId),
+      jsonEncode(updated.map((s) => _saleToMap(s)).toList()),
+    );
+  }
+
+  static Future<List<SaleModel>> loadSales(String branchId) async {
+    // SQLite se try karo
+    try {
+      final sales = await LocalStore.loadSales(branchId);
+      if (sales.isNotEmpty) return sales;
+    } catch (_) {}
+
+    // SharedPrefs fallback
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_salesKey(branchId));
+    if (raw == null) return [];
+
+    return (jsonDecode(raw) as List)
+        .map((e) => SaleModel.fromMap(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+
+  // Stock decrement (offline sale ke baad)
+  static Future<void> decrementStock({
+    required String branchId,
+    required String productId,
+    required int quantity,
+  }) async {
+    try {
+      await LocalStore.decrementStock(
+        branchId: branchId,
+        productId: productId,
+        quantity: quantity,
+      );
+    } catch (_) {}
+
+    final products = await loadProducts(branchId);
+    final updated =
+        products.map((p) {
+          if (p.id != productId) return p;
+          final newStock = ((p.stock - quantity).clamp(0, 999999)).toInt();
+          return ProductModel(
+            id: p.id,
+            tenantId: p.tenantId,
+            branchId: p.branchId,
+            categoryId: p.categoryId,
+            categoryName: p.categoryName,
+            name: p.name,
+            sku: p.sku,
+            description: p.description,
+            salePrice: p.salePrice,
+            costPrice: p.costPrice,
+            imeiTracked: p.imeiTracked,
+            isActive: p.isActive,
+            stock: newStock,
+            reorderThreshold: p.reorderThreshold,
+            branchThreshold: p.branchThreshold,
+            categoryThreshold: p.categoryThreshold,
+          );
+        }).toList();
+    await saveProducts(branchId, updated);
+  }
+
+  // ════════════════════════════════════════
+  // HELD CARTS
+  // ════════════════════════════════════════
+
+  static Future<void> incrementStock({
+    required String branchId,
+    required String productId,
+    required int quantity,
+  }) async {
+    try {
+      await LocalStore.incrementStock(
+        branchId: branchId,
+        productId: productId,
+        quantity: quantity,
+      );
+    } catch (_) {}
+
+    final products = await loadProducts(branchId);
+    final updated =
+        products.map((p) {
+          if (p.id != productId) return p;
+          final newStock = ((p.stock + quantity).clamp(0, 999999)).toInt();
+          return ProductModel(
+            id: p.id,
+            tenantId: p.tenantId,
+            branchId: p.branchId,
+            categoryId: p.categoryId,
+            categoryName: p.categoryName,
+            name: p.name,
+            sku: p.sku,
+            description: p.description,
+            salePrice: p.salePrice,
+            costPrice: p.costPrice,
+            imeiTracked: p.imeiTracked,
+            isActive: p.isActive,
+            stock: newStock,
+            reorderThreshold: p.reorderThreshold,
+            branchThreshold: p.branchThreshold,
+            categoryThreshold: p.categoryThreshold,
+          );
+        }).toList();
+    await saveProducts(branchId, updated);
+  }
+
+  static Future<void> saveHeldCart(HeldCartModel cart) async {
+    try {
+      await LocalStore.saveHeldCart(cart);
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    final carts = await loadHeldCarts(cart.branchId);
+
+    final updated = [
+      for (final c in carts)
+        if (c.id != cart.id) c,
+      cart,
+    ];
+
+    await prefs.setString(
+      _heldCartsKey(cart.branchId),
+      jsonEncode(
+        updated
+            .map(
+              (c) => {
+                'id': c.id,
+                'branch_id': c.branchId,
+                'user_id': c.userId,
+                'label': c.label,
+                'cart_data': c.toCartData(),
+                'created_at': c.createdAt.toIso8601String(),
+                'expires_at': c.expiresAt?.toIso8601String(),
+              },
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  static Future<List<HeldCartModel>> loadHeldCarts(String branchId) async {
+    try {
+      final carts = await LocalStore.loadHeldCarts(branchId);
+      if (carts.isNotEmpty) return carts;
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_heldCartsKey(branchId));
+    if (raw == null) return [];
+
+    return (jsonDecode(raw) as List).map((e) {
+      final map = Map<String, dynamic>.from(e as Map);
+      final cartData = map['cart_data'] as Map<String, dynamic>;
+      final itemsList = cartData['items'] as List<dynamic>? ?? [];
+
+      return HeldCartModel(
+        id: map['id'] as String?,
+        branchId: map['branch_id'] as String,
+        userId: map['user_id'] as String,
+        label: map['label'] as String?,
+        customerId: cartData['customer_id'] as String?,
+        customerName: cartData['customer_name'] as String?,
+        items:
+            itemsList
+                .map(
+                  (i) => CartItemModel.fromMap(
+                    Map<String, dynamic>.from(i as Map),
+                  ),
+                )
+                .toList(),
+        createdAt: DateTime.parse(map['created_at'] as String),
+        expiresAt:
+            map['expires_at'] != null
+                ? DateTime.parse(map['expires_at'] as String)
+                : null,
+      );
+    }).toList();
+  }
+
+  static Future<void> deleteHeldCart({
+    required String branchId,
+    required String cartId,
+  }) async {
+    try {
+      await LocalStore.deleteHeldCart(cartId);
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    final carts = await loadHeldCarts(branchId);
+    await prefs.setString(
+      _heldCartsKey(branchId),
+      jsonEncode(
+        carts.where((c) => c.id != cartId).map((c) => c.toCartData()).toList(),
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════
+  // CUSTOMERS
+  // ════════════════════════════════════════
+
+  static Future<void> saveCustomer(CustomerModel customer) async {
+    try {
+      await LocalStore.saveCustomer(customer);
+    } catch (_) {}
+  }
+
+  static Future<List<CustomerModel>> searchCustomers({
+    required String branchId,
+    required String query,
+  }) async {
+    try {
+      return await LocalStore.searchCustomers(branchId: branchId, query: query);
+    } catch (_) {}
+    return [];
+  }
+
+  static Future<List<CustomerModel>> loadCustomers({
+    required String branchId,
+    String query = '',
+    int limit = 100,
+  }) async {
+    try {
+      return await LocalStore.loadCustomers(
+        branchId: branchId,
+        query: query,
+        limit: limit,
+      );
+    } catch (_) {}
+    return [];
+  }
+
+  static Future<CustomerModel?> loadCustomerById(String customerId) async {
+    try {
+      return await LocalStore.loadCustomerById(customerId);
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<CustomerModel?> loadCustomerByPhone({
+    required String tenantId,
+    required String phone,
+  }) async {
+    try {
+      return await LocalStore.loadCustomerByPhone(
+        tenantId: tenantId,
+        phone: phone,
+      );
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<void> updateCustomerCredit({
+    required String customerId,
+    double? creditLimit,
+    bool clearCreditLimit = false,
+    double? outstandingBalance,
+  }) async {
+    try {
+      await LocalStore.updateCustomerCredit(
+        customerId: customerId,
+        creditLimit: creditLimit,
+        clearCreditLimit: clearCreditLimit,
+        outstandingBalance: outstandingBalance,
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> adjustCustomerOutstanding({
+    required String customerId,
+    required double delta,
+  }) async {
+    try {
+      await LocalStore.adjustCustomerOutstanding(
+        customerId: customerId,
+        delta: delta,
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> saveCustomerSettlement(
+    CustomerSettlementModel settlement, {
+    bool synced = false,
+  }) async {
+    try {
+      await LocalStore.saveCustomerSettlement(settlement, synced: synced);
+    } catch (_) {}
+  }
+
+  static Future<List<CustomerSettlementModel>> loadCustomerSettlements(
+    String customerId,
+  ) async {
+    try {
+      return await LocalStore.loadCustomerSettlements(customerId);
+    } catch (_) {}
+    return [];
+  }
+
+  // ── Helper ──
+  static Map<String, dynamic> _saleToMap(SaleModel sale) => {
+    'id': sale.id,
+    'branch_id': sale.branchId,
+    'customer_id': sale.customerId,
+    'customer_name': sale.customerName,
+    'user_id': sale.userId,
+    'status': sale.status.code,
+    'subtotal': sale.subtotal,
+    'discount_amount': sale.discountAmount,
+    'tax_amount': sale.taxAmount,
+    'total': sale.total,
+    'notes': sale.notes,
+    'void_reason': sale.voidReason,
+    'created_at': sale.createdAt?.toIso8601String(),
+    'sale_items': sale.items.map((i) => i.toMap()).toList(),
+    'sale_payments': sale.payments.map((p) => p.toMap()).toList(),
+  };
 }

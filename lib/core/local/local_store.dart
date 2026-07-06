@@ -1,3 +1,12 @@
+import 'dart:convert';
+
+import 'package:mobileshop_saas/features/pos/data/models/cart_item_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/customer_dashboard_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/customer_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/held_cart_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/sale_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
+
 import '../../features/inventory/data/models/category_model.dart';
 import '../../features/inventory/data/models/product_model.dart';
 import '../../features/onboarding/data/models/shop_setup_model.dart';
@@ -261,14 +270,30 @@ class LocalStore {
       tenant_id,
       adjustment_qty_threshold,
       adjustment_value_threshold,
+      return_approval_threshold,
+      return_window_days,
+      cashier_discount_fixed_limit,
+      cashier_discount_percent_limit,
+      manager_discount_fixed_limit,
+      manager_discount_percent_limit,
+      discount_audit_threshold,
+      receipt_footer,
       updated_at
     )
-    VALUES (?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''',
       [
         settings['tenant_id'],
         settings['adjustment_qty_threshold'],
         settings['adjustment_value_threshold'],
+        settings['return_approval_threshold'] ?? 25000,
+        settings['return_window_days'] ?? 7,
+        settings['cashier_discount_fixed_limit'] ?? 500,
+        settings['cashier_discount_percent_limit'] ?? 10,
+        settings['manager_discount_fixed_limit'] ?? 5000,
+        settings['manager_discount_percent_limit'] ?? 25,
+        settings['discount_audit_threshold'] ?? 1000,
+        settings['receipt_footer'],
         settings['updated_at'],
       ],
     );
@@ -364,6 +389,497 @@ class LocalStore {
     ORDER BY sa.created_at DESC
     ''',
       [branchId, productId],
+    );
+  }
+
+  // ════════════════════════════════════════
+  // SALES
+  // ════════════════════════════════════════
+
+  static Future<void> saveSale(SaleModel sale) async {
+    // Sale header
+    await LocalDatabase.execute(
+      '''
+    INSERT OR REPLACE INTO sales(
+      id, branch_id, customer_id, customer_name,
+      user_id, status, subtotal, discount_amount,
+      tax_amount, total, notes, void_reason,
+      synced, created_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  ''',
+      [
+        sale.id,
+        sale.branchId,
+        sale.customerId,
+        sale.customerName,
+        sale.userId,
+        sale.status.code,
+        sale.subtotal,
+        sale.discountAmount,
+        sale.taxAmount,
+        sale.total,
+        sale.notes,
+        sale.voidReason,
+        0, // synced = false
+        sale.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+      ],
+    );
+
+    // Sale items
+    for (final item in sale.items) {
+      await LocalDatabase.execute(
+        '''
+      INSERT OR REPLACE INTO sale_items(
+        id, sale_id, product_id, product_name,
+        product_sku, quantity, unit_price,
+        discount_amount, tax_rate, line_total
+      ) VALUES(?,?,?,?,?,?,?,?,?,?)
+    ''',
+        [
+          '${sale.id}_${item.productId}', // composite id
+          sale.id,
+          item.productId,
+          item.productName,
+          item.productSku,
+          item.quantity,
+          item.unitPrice,
+          item.discountAmount,
+          item.taxRate,
+          item.lineTotal,
+        ],
+      );
+    }
+
+    // Sale payments
+    for (final payment in sale.payments) {
+      await LocalDatabase.execute(
+        '''
+      INSERT OR REPLACE INTO sale_payments(
+        id, sale_id, method, amount
+      ) VALUES(?,?,?,?)
+    ''',
+        [
+          '${sale.id}_${payment.method.name}', // here we can have error
+          sale.id,
+          payment.method.name,
+          payment.amount,
+        ],
+      );
+    }
+  }
+
+  static Future<List<SaleModel>> loadSales(String branchId) async {
+    // Sales fetch karo
+    final salesRows = await LocalDatabase.select(
+      '''
+    SELECT * FROM sales
+    WHERE branch_id = ?
+    ORDER BY created_at DESC
+    LIMIT 50
+  ''',
+      [branchId],
+    );
+
+    final sales = <SaleModel>[];
+
+    for (final row in salesRows) {
+      final saleId = row['id'] as String;
+
+      // Items fetch
+      final itemRows = await LocalDatabase.select(
+        '''
+      SELECT * FROM sale_items WHERE sale_id = ?
+    ''',
+        [saleId],
+      );
+
+      // Payments fetch
+      final paymentRows = await LocalDatabase.select(
+        '''
+      SELECT * FROM sale_payments WHERE sale_id = ?
+    ''',
+        [saleId],
+      );
+
+      sales.add(
+        SaleModel(
+          id: saleId,
+          branchId: row['branch_id'] as String,
+          customerId: row['customer_id'] as String?,
+          customerName: row['customer_name'] as String?,
+          userId: row['user_id'] as String,
+          status: SaleStatusX.fromCode(row['status'] as String),
+          subtotal: (row['subtotal'] as num).toDouble(),
+          discountAmount: (row['discount_amount'] as num).toDouble(),
+          taxAmount: (row['tax_amount'] as num).toDouble(),
+          total: (row['total'] as num).toDouble(),
+          notes: row['notes'] as String?,
+          voidReason: row['void_reason'] as String?,
+          items:
+              itemRows
+                  .map(
+                    (r) => CartItemModel(
+                      productId: r['product_id'] as String,
+                      productName: r['product_name'] as String,
+                      productSku: r['product_sku'] as String?,
+                      unitPrice: (r['unit_price'] as num).toDouble(),
+                      quantity: (r['quantity'] as num).toInt(),
+                      discountAmount: (r['discount_amount'] as num).toDouble(),
+                      taxRate: (r['tax_rate'] as num).toDouble(),
+                    ),
+                  )
+                  .toList(),
+          payments:
+              paymentRows
+                  .map(
+                    (r) => SalePaymentModel(
+                      method: PaymentMethodX.fromCode(r['method'] as String),
+                      amount: (r['amount'] as num).toDouble(),
+                    ),
+                  )
+                  .toList(),
+          createdAt:
+              row['created_at'] != null
+                  ? DateTime.parse(row['created_at'] as String)
+                  : null,
+        ),
+      );
+    }
+
+    return sales;
+  }
+
+  static Future<void> markSaleSynced(String saleId) async {
+    await LocalDatabase.execute('UPDATE sales SET synced = 1 WHERE id = ?', [
+      saleId,
+    ]);
+  }
+
+  static Future<List<Map<String, dynamic>>> loadUnsyncedSales(
+    String branchId,
+  ) async {
+    return LocalDatabase.select(
+      '''
+    SELECT id FROM sales
+    WHERE branch_id = ? AND synced = 0
+    ORDER BY created_at ASC
+  ''',
+      [branchId],
+    );
+  }
+
+  // ── Inventory local update (sale ke baad) ──
+  static Future<void> decrementStock({
+    required String branchId,
+    required String productId,
+    required int quantity,
+  }) async {
+    await LocalDatabase.execute(
+      '''
+    UPDATE inventory
+    SET quantity = MAX(0, quantity - ?),
+        updated_at = ?
+    WHERE branch_id = ? AND product_id = ?
+  ''',
+      [quantity, DateTime.now().toIso8601String(), branchId, productId],
+    );
+  }
+
+  static Future<void> incrementStock({
+    required String branchId,
+    required String productId,
+    required int quantity,
+  }) async {
+    await LocalDatabase.execute(
+      '''
+    UPDATE inventory
+    SET quantity = quantity + ?,
+        updated_at = ?
+    WHERE branch_id = ? AND product_id = ?
+  ''',
+      [quantity, DateTime.now().toIso8601String(), branchId, productId],
+    );
+  }
+
+  // ════════════════════════════════════════
+  // HELD CARTS (local)
+  // ════════════════════════════════════════
+
+  static Future<void> saveHeldCart(HeldCartModel cart) async {
+    await LocalDatabase.execute(
+      '''
+    INSERT OR REPLACE INTO held_carts(
+      id, branch_id, user_id, label,
+      cart_data, created_at, expires_at
+    ) VALUES(?,?,?,?,?,?,?)
+  ''',
+      [
+        cart.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        cart.branchId,
+        cart.userId,
+        cart.label,
+        jsonEncode(cart.toCartData()),
+        cart.createdAt.toIso8601String(),
+        cart.expiresAt?.toIso8601String(),
+      ],
+    );
+  }
+
+  static Future<List<HeldCartModel>> loadHeldCarts(String branchId) async {
+    final rows = await LocalDatabase.select(
+      '''
+    SELECT * FROM held_carts
+    WHERE branch_id = ?
+    ORDER BY created_at DESC
+  ''',
+      [branchId],
+    );
+
+    return rows.map((row) {
+      final cartData =
+          jsonDecode(row['cart_data'] as String) as Map<String, dynamic>;
+      final itemsList = cartData['items'] as List<dynamic>? ?? [];
+
+      return HeldCartModel(
+        id: row['id'] as String,
+        branchId: row['branch_id'] as String,
+        userId: row['user_id'] as String,
+        label: row['label'] as String?,
+        customerId: cartData['customer_id'] as String?,
+        customerName: cartData['customer_name'] as String?,
+        items:
+            itemsList
+                .map((e) => CartItemModel.fromMap(e as Map<String, dynamic>))
+                .toList(),
+        createdAt: DateTime.parse(row['created_at'] as String),
+        expiresAt:
+            row['expires_at'] != null
+                ? DateTime.parse(row['expires_at'] as String)
+                : null,
+      );
+    }).toList();
+  }
+
+  static Future<void> deleteHeldCart(String cartId) async {
+    await LocalDatabase.execute('DELETE FROM held_carts WHERE id = ?', [
+      cartId,
+    ]);
+  }
+
+  // ════════════════════════════════════════
+  // CUSTOMERS (local)
+  // ════════════════════════════════════════
+
+  static Future<void> saveCustomer(CustomerModel customer) async {
+    await LocalDatabase.execute(
+      '''
+    INSERT OR REPLACE INTO customers(
+      id, tenant_id, branch_id, full_name,
+      phone, email, notes, credit_limit, outstanding_balance, created_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?)
+  ''',
+      [
+        customer.id,
+        customer.tenantId,
+        customer.branchId,
+        customer.fullName,
+        customer.phone,
+        customer.email,
+        customer.notes,
+        customer.creditLimit,
+        customer.outstandingBalance,
+        customer.createdAt?.toIso8601String() ??
+            DateTime.now().toIso8601String(),
+      ],
+    );
+  }
+
+  static Future<List<CustomerModel>> searchCustomers({
+    required String branchId,
+    required String query,
+  }) async {
+    final rows = await LocalDatabase.select(
+      '''
+    SELECT * FROM customers
+    WHERE branch_id = ?
+    AND (
+      LOWER(full_name) LIKE ?
+      OR phone LIKE ?
+    )
+    LIMIT 10
+  ''',
+      [branchId, '%${query.toLowerCase()}%', '%$query%'],
+    );
+
+    return rows
+        .map(
+          (row) => CustomerModel(
+            id: row['id'] as String,
+            tenantId: row['tenant_id'] as String,
+            branchId: row['branch_id'] as String,
+            fullName: row['full_name'] as String,
+            phone: row['phone'] as String?,
+            email: row['email'] as String?,
+            notes: row['notes'] as String?,
+            creditLimit: (row['credit_limit'] as num?)?.toDouble(),
+            outstandingBalance:
+                (row['outstanding_balance'] as num?)?.toDouble() ?? 0,
+            createdAt:
+                row['created_at'] != null
+                    ? DateTime.parse(row['created_at'] as String)
+                    : null,
+          ),
+        )
+        .toList();
+  }
+
+  static Future<List<CustomerModel>> loadCustomers({
+    required String branchId,
+    String query = '',
+    int limit = 100,
+  }) async {
+    final normalized = query.trim().toLowerCase();
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM customers
+      WHERE branch_id = ?
+      AND (
+        ? = ''
+        OR LOWER(full_name) LIKE ?
+        OR phone LIKE ?
+        OR LOWER(COALESCE(email, '')) LIKE ?
+      )
+      ORDER BY full_name
+      LIMIT ?
+      ''',
+      [
+        branchId,
+        normalized,
+        '%$normalized%',
+        '%${query.trim()}%',
+        '%$normalized%',
+        limit,
+      ],
+    );
+
+    return rows.map(_customerFromRow).toList();
+  }
+
+  static Future<CustomerModel?> loadCustomerById(String customerId) async {
+    final rows = await LocalDatabase.select(
+      'SELECT * FROM customers WHERE id = ?',
+      [customerId],
+    );
+    return rows.isEmpty ? null : _customerFromRow(rows.first);
+  }
+
+  static Future<CustomerModel?> loadCustomerByPhone({
+    required String tenantId,
+    required String phone,
+  }) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM customers
+      WHERE tenant_id = ? AND phone = ?
+      LIMIT 1
+      ''',
+      [tenantId, phone],
+    );
+    return rows.isEmpty ? null : _customerFromRow(rows.first);
+  }
+
+  static Future<void> updateCustomerCredit({
+    required String customerId,
+    double? creditLimit,
+    bool clearCreditLimit = false,
+    double? outstandingBalance,
+  }) async {
+    final customer = await loadCustomerById(customerId);
+    if (customer == null) return;
+    await saveCustomer(
+      customer.copyWith(
+        creditLimit: creditLimit,
+        clearCreditLimit: clearCreditLimit,
+        outstandingBalance: outstandingBalance,
+      ),
+    );
+  }
+
+  static Future<void> adjustCustomerOutstanding({
+    required String customerId,
+    required double delta,
+  }) async {
+    await LocalDatabase.execute(
+      '''
+      UPDATE customers
+      SET outstanding_balance = MAX(0, outstanding_balance + ?)
+      WHERE id = ?
+      ''',
+      [delta, customerId],
+    );
+  }
+
+  static Future<void> saveCustomerSettlement(
+    CustomerSettlementModel settlement, {
+    bool synced = false,
+  }) async {
+    await LocalDatabase.execute(
+      '''
+      INSERT OR REPLACE INTO customer_settlements(
+        id, customer_id, branch_id, user_id, amount, method, notes, synced,
+        created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?)
+      ''',
+      [
+        settlement.id,
+        settlement.customerId,
+        settlement.branchId,
+        settlement.userId,
+        settlement.amount,
+        settlement.method,
+        settlement.notes,
+        synced ? 1 : 0,
+        settlement.createdAt.toIso8601String(),
+      ],
+    );
+  }
+
+  static Future<void> markCustomerSettlementSynced(String settlementId) async {
+    await LocalDatabase.execute(
+      'UPDATE customer_settlements SET synced = 1 WHERE id = ?',
+      [settlementId],
+    );
+  }
+
+  static Future<List<CustomerSettlementModel>> loadCustomerSettlements(
+    String customerId,
+  ) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM customer_settlements
+      WHERE customer_id = ?
+      ORDER BY created_at DESC
+      ''',
+      [customerId],
+    );
+    return rows.map(CustomerSettlementModel.fromMap).toList();
+  }
+
+  static CustomerModel _customerFromRow(Map<String, dynamic> row) {
+    return CustomerModel(
+      id: row['id'] as String,
+      tenantId: row['tenant_id'] as String,
+      branchId: row['branch_id'] as String,
+      fullName: row['full_name'] as String,
+      phone: row['phone'] as String?,
+      email: row['email'] as String?,
+      notes: row['notes'] as String?,
+      creditLimit: (row['credit_limit'] as num?)?.toDouble(),
+      outstandingBalance: (row['outstanding_balance'] as num?)?.toDouble() ?? 0,
+      createdAt:
+          row['created_at'] != null
+              ? DateTime.parse(row['created_at'] as String)
+              : null,
     );
   }
 }

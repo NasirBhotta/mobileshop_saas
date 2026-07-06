@@ -22,7 +22,7 @@ class QuickActionButton extends ConsumerWidget {
     return InkWell(
       onTap: () {
         ref.read(navigationLoadingProvider.notifier).showFor();
-        context.push(route);
+        context.go(route);
       },
       borderRadius: BorderRadius.circular(10),
       child: Container(

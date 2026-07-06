@@ -148,6 +148,14 @@ class _CustomerAttachSheetState extends ConsumerState<CustomerAttachSheet> {
                 hintText: '03XX-XXXXXXX',
               ),
             ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: AppStrings.fieldCustomerEmail,
+              ),
+            ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -188,6 +196,7 @@ class _CustomerAttachSheetState extends ConsumerState<CustomerAttachSheet> {
         .addCustomer(
           fullName: _nameCtrl.text.trim(),
           phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+          email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
         );
 
     if (customer != null && context.mounted) {

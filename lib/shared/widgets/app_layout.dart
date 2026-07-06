@@ -31,6 +31,7 @@ class AppLayout extends ConsumerWidget {
     return switch (index) {
       1 => 2, // POS
       2 => 1, // Inventory
+      3 => 4, // Customers live under More on mobile
       4 => 3, // Repairs
       _ => index,
     };

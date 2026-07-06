@@ -43,6 +43,11 @@ class _MobileDashboard extends ConsumerWidget {
       loading: () => '...',
       orElse: () => '0',
     );
+    final todaySales = dashboardStats.maybeWhen(
+      data: (stats) => 'Rs ${stats.todaySalesTotal.toStringAsFixed(0)}',
+      loading: () => '...',
+      orElse: () => 'Rs 0',
+    );
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -96,9 +101,9 @@ class _MobileDashboard extends ConsumerWidget {
                 mainAxisSpacing: 12,
                 childAspectRatio: 1.4,
                 children: [
-                  const StatCard(
+                  StatCard(
                     title: AppStrings.dashboardTodaySales,
-                    value: '₨ 0',
+                    value: todaySales,
                     icon: Icons.trending_up_rounded,
                     color: AppColors.success,
                     isCompact: true,
@@ -205,6 +210,15 @@ class _DesktopDashboard extends ConsumerWidget {
       loading: () => '...',
       orElse: () => '0',
     );
+    final todaySales = dashboardStats.maybeWhen(
+      data: (stats) => 'Rs ${stats.todaySalesTotal.toStringAsFixed(0)}',
+      loading: () => '...',
+      orElse: () => 'Rs 0',
+    );
+    final recentSales = dashboardStats.maybeWhen(
+      data: (stats) => stats.recentSales,
+      orElse: () => const [],
+    );
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -265,10 +279,10 @@ class _DesktopDashboard extends ConsumerWidget {
             // ── Stats Row (4 cards, horizontal) ──
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: StatCard(
                     title: AppStrings.dashboardTodaySales,
-                    value: '₨ 0',
+                    value: todaySales,
                     icon: Icons.trending_up_rounded,
                     color: AppColors.success,
                   ),
@@ -364,15 +378,44 @@ class _DesktopDashboard extends ConsumerWidget {
                   ),
                   const SizedBox(height: 16),
                   // Placeholder — baad mein Supabase se data aayega
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32),
-                      child: Text(
-                        'Abhi koi sale nahi hui',
-                        style: TextStyle(color: AppColors.textSecondary),
+                  if (recentSales.isEmpty)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 32),
+                        child: Text(
+                          'Abhi koi sale nahi hui',
+                          style: TextStyle(color: AppColors.textSecondary),
+                        ),
+                      ),
+                    )
+                  else
+                    ...recentSales.map(
+                      (sale) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Invoice #${sale.id?.substring(0, 8).toUpperCase() ?? 'SALE'}',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              'Rs ${sale.total.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.success,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),

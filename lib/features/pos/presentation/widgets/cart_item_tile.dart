@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../data/models/cart_item_model.dart';
+import '../../data/models/discount_approval_model.dart';
 import '../providers/pos_provider.dart';
 
 class CartItemTile extends ConsumerWidget {
@@ -22,7 +23,6 @@ class CartItemTile extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          // ── Top Row: Name + Remove ──
           Row(
             children: [
               Expanded(
@@ -37,7 +37,6 @@ class CartItemTile extends ConsumerWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              // Remove button
               GestureDetector(
                 onTap:
                     () => ref
@@ -52,15 +51,10 @@ class CartItemTile extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 8),
-
-          // ── Bottom Row: Qty + Discount + Line Total ──
           Row(
             children: [
-              // Quantity stepper
               _QtyController(item: item),
               const Spacer(),
-
-              // Discount button
               GestureDetector(
                 onTap: () => _showDiscountDialog(context, ref),
                 child: Container(
@@ -94,7 +88,7 @@ class CartItemTile extends ConsumerWidget {
                       const SizedBox(width: 4),
                       Text(
                         item.discountAmount > 0
-                            ? '-₨${item.discountAmount.toStringAsFixed(0)}'
+                            ? '-Rs ${item.discountAmount.toStringAsFixed(0)}'
                             : AppStrings.itemDiscount,
                         style: TextStyle(
                           fontSize: 11,
@@ -110,10 +104,8 @@ class CartItemTile extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 12),
-
-              // Line total
               Text(
-                '₨ ${item.lineTotal.toStringAsFixed(0)}',
+                'Rs ${item.lineTotal.toStringAsFixed(0)}',
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
@@ -127,66 +119,131 @@ class CartItemTile extends ConsumerWidget {
     );
   }
 
-  // Discount dialog
   void _showDiscountDialog(BuildContext context, WidgetRef ref) {
     final ctrl = TextEditingController(
       text:
           item.discountAmount > 0 ? item.discountAmount.toStringAsFixed(0) : '',
     );
+    final pinCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    var type = DiscountType.fixed;
 
     showDialog(
       context: context,
       builder:
-          (_) => AlertDialog(
-            title: const Text(AppStrings.itemDiscount),
-            content: TextField(
-              controller: ctrl,
-              keyboardType: TextInputType.number,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: AppStrings.hintDiscount,
-                prefixText: '₨ ',
-                helperText:
-                    'Max: ₨${item.unitPrice.toStringAsFixed(0)} per item',
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  // Discount hata do
-                  ref
-                      .read(cartProvider.notifier)
-                      .setItemDiscount(item.productId, 0);
-                  Navigator.pop(context);
-                },
-                child: const Text('Remove'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final discount = double.tryParse(ctrl.text) ?? 0;
-                  if (discount < 0 || discount > item.unitPrice) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(AppStrings.errorDiscountExceeds),
-                        backgroundColor: AppColors.error,
+          (_) => StatefulBuilder(
+            builder:
+                (dialogContext, setDialogState) => AlertDialog(
+                  title: const Text(AppStrings.itemDiscount),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SegmentedButton<DiscountType>(
+                        segments: const [
+                          ButtonSegment(
+                            value: DiscountType.fixed,
+                            label: Text('Rs'),
+                          ),
+                          ButtonSegment(
+                            value: DiscountType.percent,
+                            label: Text('%'),
+                          ),
+                        ],
+                        selected: {type},
+                        onSelectionChanged:
+                            (values) =>
+                                setDialogState(() => type = values.first),
                       ),
-                    );
-                    return;
-                  }
-                  ref
-                      .read(cartProvider.notifier)
-                      .setItemDiscount(item.productId, discount);
-                  Navigator.pop(context);
-                },
-                child: const Text('Apply'),
-              ),
-            ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: ctrl,
+                        keyboardType: TextInputType.number,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: AppStrings.hintDiscount,
+                          prefixText: type == DiscountType.fixed ? 'Rs ' : null,
+                          suffixText: type == DiscountType.percent ? '%' : null,
+                          helperText:
+                              type == DiscountType.fixed
+                                  ? 'Max: Rs ${item.unitPrice.toStringAsFixed(0)} per item'
+                                  : 'Max: 100%',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: pinCtrl,
+                        obscureText: true,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Manager PIN (if over limit)',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: reasonCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Reason (optional)',
+                        ),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        ref
+                            .read(cartProvider.notifier)
+                            .setItemDiscount(item.productId, 0);
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Remove'),
+                    ),
+                    FilledButton(
+                      onPressed: () async {
+                        final discount = double.tryParse(ctrl.text) ?? 0;
+                        if (discount < 0 ||
+                            (type == DiscountType.fixed &&
+                                discount > item.unitPrice) ||
+                            (type == DiscountType.percent && discount > 100)) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(AppStrings.errorDiscountExceeds),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                          return;
+                        }
+                        final success = await ref
+                            .read(discountControllerProvider.notifier)
+                            .applyItemDiscount(
+                              item: item,
+                              type: type,
+                              value: discount,
+                              approvalPin: pinCtrl.text,
+                              reason: reasonCtrl.text,
+                            );
+                        if (success && context.mounted) Navigator.pop(context);
+                        if (!success && context.mounted) {
+                          final error = ref.read(discountControllerProvider);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                error.error?.toString() ??
+                                    'Discount apply nahi hua',
+                              ),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                        }
+                      },
+                      child: const Text('Apply'),
+                    ),
+                  ],
+                ),
           ),
     );
   }
 }
 
-// ── Quantity Controller ──────────────────────────────
 class _QtyController extends ConsumerWidget {
   final CartItemModel item;
 
@@ -196,7 +253,6 @@ class _QtyController extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Row(
       children: [
-        // Decrement
         _QtyButton(
           icon: Icons.remove_rounded,
           onTap:
@@ -210,8 +266,6 @@ class _QtyController extends ConsumerWidget {
                           .decrementItem(item.productId),
           color: item.quantity == 1 ? AppColors.error : AppColors.textSecondary,
         ),
-
-        // Quantity
         Container(
           width: 36,
           alignment: Alignment.center,
@@ -224,8 +278,6 @@ class _QtyController extends ConsumerWidget {
             ),
           ),
         ),
-
-        // Increment
         _QtyButton(
           icon: Icons.add_rounded,
           onTap:

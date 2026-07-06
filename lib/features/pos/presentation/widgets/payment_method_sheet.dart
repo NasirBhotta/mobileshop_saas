@@ -58,8 +58,6 @@ class _PaymentMethodSheetState extends ConsumerState<PaymentMethodSheet> {
   }
 
   void _applyPayments() {
-    final cart = ref.read(cartProvider);
-
     // Sab payments clear karo
     ref.read(cartProvider.notifier).clearPayments();
 
@@ -135,7 +133,9 @@ class _PaymentMethodSheetState extends ConsumerState<PaymentMethodSheet> {
               onPressed: () {
                 setState(() {
                   // Sab clear karo
-                  for (final ctrl in _controllers.values) ctrl.clear();
+                  for (final ctrl in _controllers.values) {
+                    ctrl.clear();
+                  }
                   // Cash mein poora amount daalo
                   _controllers[PaymentMethod.cash]?.text = cart.total
                       .toStringAsFixed(0);

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
-import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
@@ -203,9 +203,7 @@ class CartPanel extends ConsumerWidget {
 
     if (sale != null && context.mounted) {
       // Sale complete screen pe jao
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => SaleCompleteScreen(sale: sale)));
+      context.go('/pos/complete', extra: sale);
     }
   }
 }
@@ -396,6 +394,8 @@ class _PaymentSummary extends ConsumerWidget {
         return Icons.phone_android_rounded;
       case PaymentMethod.card:
         return Icons.credit_card_rounded;
+      case PaymentMethod.credit:
+        return Icons.account_balance_wallet_rounded;
     }
   }
 }

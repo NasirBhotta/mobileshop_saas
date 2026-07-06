@@ -1,12 +1,14 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../data/models/cart_item_model.dart';
+import '../../data/models/customer_dashboard_model.dart';
 import '../../data/models/customer_model.dart';
+import '../../data/models/discount_approval_model.dart';
 import '../../data/models/held_cart_model.dart';
 import '../../data/models/sale_model.dart';
 import '../../data/models/sale_payment_model.dart';
+import '../../data/models/sale_return_model.dart';
 import '../../data/repositories/pos_repository.dart';
 
 // ── Repository Provider ──
@@ -20,12 +22,14 @@ class CartState {
   final CustomerModel? customer; // attached customer
   final List<SalePaymentModel> payments;
   final String? heldCartId; // agar resume hua
+  final List<DiscountApprovalModel> discountApprovals;
 
   const CartState({
     this.items = const [],
     this.customer,
     this.payments = const [],
     this.heldCartId,
+    this.discountApprovals = const [],
   });
 
   // ── Computed Properties ──
@@ -66,12 +70,14 @@ class CartState {
     List<SalePaymentModel>? payments,
     String? heldCartId,
     bool clearHeldCartId = false,
+    List<DiscountApprovalModel>? discountApprovals,
   }) {
     return CartState(
       items: items ?? this.items,
       customer: clearCustomer ? null : customer ?? this.customer,
       payments: payments ?? this.payments,
       heldCartId: clearHeldCartId ? null : heldCartId ?? this.heldCartId,
+      discountApprovals: discountApprovals ?? this.discountApprovals,
     );
   }
 }
@@ -131,14 +137,23 @@ class CartNotifier extends StateNotifier<CartState> {
   }
 
   // Item discount set karo
-  void setItemDiscount(String productId, double discount) {
+  void setItemDiscount(
+    String productId,
+    double discount, {
+    DiscountApprovalModel? approval,
+  }) {
     final updated =
         state.items.map((item) {
           return item.productId == productId
               ? item.copyWith(discountAmount: discount)
               : item;
         }).toList();
-    state = state.copyWith(items: updated);
+    final approvals = [
+      for (final existing in state.discountApprovals)
+        if (existing.productId != productId) existing,
+      if (approval != null) approval,
+    ];
+    state = state.copyWith(items: updated, discountApprovals: approvals);
   }
 
   // Quantity directly set karo
@@ -275,6 +290,7 @@ class CheckoutController extends StateNotifier<AsyncValue<SaleModel?>> {
         payments: cart.payments,
         customerId: cart.customer?.id,
         customerName: cart.customer?.fullName,
+        discountApprovals: cart.discountApprovals,
       );
 
       // Held cart tha → delete karo
@@ -355,6 +371,72 @@ final salesHistoryProvider = FutureProvider<List<SaleModel>>((ref) {
   return ref.read(posRepositoryProvider).fetchSales();
 });
 
+final receiptFooterProvider = FutureProvider<String?>((ref) {
+  return ref.read(posRepositoryProvider).fetchReceiptFooter();
+});
+
+final discountControllerProvider =
+    StateNotifierProvider<DiscountController, AsyncValue<void>>((ref) {
+      return DiscountController(ref.read(posRepositoryProvider), ref);
+    });
+
+class DiscountController extends StateNotifier<AsyncValue<void>> {
+  final PosRepository _repository;
+  final Ref _ref;
+
+  DiscountController(this._repository, this._ref)
+    : super(const AsyncData(null));
+
+  Future<bool> applyItemDiscount({
+    required CartItemModel item,
+    required DiscountType type,
+    required double value,
+    String? approvalPin,
+    String? reason,
+  }) async {
+    state = const AsyncLoading();
+    try {
+      final evaluation = await _repository.evaluateDiscount(
+        scope: 'item',
+        productId: item.productId,
+        baseAmount: item.unitPrice,
+        type: type,
+        value: value,
+        approvalPin: approvalPin,
+      );
+      if (!evaluation.allowed) {
+        state = AsyncError(
+          Exception(evaluation.message ?? 'Discount allowed nahi hai'),
+          StackTrace.current,
+        );
+        return false;
+      }
+
+      _ref
+          .read(cartProvider.notifier)
+          .setItemDiscount(
+            item.productId,
+            evaluation.discountAmount,
+            approval: DiscountApprovalModel(
+              scope: 'item',
+              productId: item.productId,
+              type: type,
+              requestedValue: value,
+              discountAmount: evaluation.discountAmount,
+              approvedBy: evaluation.approvedBy,
+              reason: reason,
+              exceededLimit: evaluation.requiresApproval,
+            ),
+          );
+      state = const AsyncData(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
+}
+
 // ── Customer Search Provider ────────────────────────
 final customerSearchQueryProvider = StateProvider<String>((ref) => '');
 
@@ -364,21 +446,37 @@ final customerSearchProvider =
       return ref.read(posRepositoryProvider).searchCustomers(query);
     });
 
+final customerListQueryProvider = StateProvider<String>((ref) => '');
+
+final customersProvider = FutureProvider<List<CustomerModel>>((ref) {
+  final query = ref.watch(customerListQueryProvider);
+  return ref.read(posRepositoryProvider).fetchCustomers(query: query);
+});
+
+final customerDashboardProvider =
+    FutureProvider.family<CustomerDashboardModel, String>((ref, customerId) {
+      return ref.read(posRepositoryProvider).fetchCustomerDashboard(customerId);
+    });
+
 // ── Customer Add Controller ─────────────────────────
 final customerControllerProvider =
     StateNotifierProvider<CustomerController, AsyncValue<void>>((ref) {
-      return CustomerController(ref.read(posRepositoryProvider));
+      return CustomerController(ref.read(posRepositoryProvider), ref);
     });
 
 class CustomerController extends StateNotifier<AsyncValue<void>> {
   final PosRepository _repository;
+  final Ref _ref;
 
-  CustomerController(this._repository) : super(const AsyncData(null));
+  CustomerController(this._repository, this._ref)
+    : super(const AsyncData(null));
 
   Future<CustomerModel?> addCustomer({
     required String fullName,
     String? phone,
     String? email,
+    String? notes,
+    double? creditLimit,
   }) async {
     state = const AsyncLoading();
     try {
@@ -386,9 +484,220 @@ class CustomerController extends StateNotifier<AsyncValue<void>> {
         fullName: fullName,
         phone: phone,
         email: email,
+        notes: notes,
+        creditLimit: creditLimit,
       );
+      _ref.invalidate(customersProvider);
       state = const AsyncData(null);
       return customer;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return null;
+    }
+  }
+
+  Future<CustomerModel?> updateCreditLimit({
+    required String customerId,
+    double? creditLimit,
+    bool clearCreditLimit = false,
+  }) async {
+    state = const AsyncLoading();
+    try {
+      final customer = await _repository.updateCustomerCreditLimit(
+        customerId: customerId,
+        creditLimit: creditLimit,
+        clearCreditLimit: clearCreditLimit,
+      );
+      _ref.invalidate(customersProvider);
+      _ref.invalidate(customerDashboardProvider(customerId));
+      state = const AsyncData(null);
+      return customer;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return null;
+    }
+  }
+}
+
+final customerSettlementControllerProvider =
+    StateNotifierProvider<CustomerSettlementController, AsyncValue<void>>((
+      ref,
+    ) {
+      return CustomerSettlementController(ref.read(posRepositoryProvider), ref);
+    });
+
+class CustomerSettlementController extends StateNotifier<AsyncValue<void>> {
+  final PosRepository _repository;
+  final Ref _ref;
+
+  CustomerSettlementController(this._repository, this._ref)
+    : super(const AsyncData(null));
+
+  Future<bool> settle({
+    required String customerId,
+    required double amount,
+    required String method,
+    String? notes,
+  }) async {
+    state = const AsyncLoading();
+    try {
+      await _repository.settleCustomerDues(
+        customerId: customerId,
+        amount: amount,
+        method: method,
+        notes: notes,
+      );
+      _ref.invalidate(customersProvider);
+      _ref.invalidate(customerDashboardProvider(customerId));
+      state = const AsyncData(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
+}
+
+class ReturnDraftState {
+  final SaleModel? sale;
+  final Map<String, int> quantitiesByProductId;
+  final Map<String, int> alreadyReturnedByProductId;
+  final RefundMethod refundMethod;
+
+  const ReturnDraftState({
+    this.sale,
+    this.quantitiesByProductId = const {},
+    this.alreadyReturnedByProductId = const {},
+    this.refundMethod = RefundMethod.cash,
+  });
+
+  double get refundAmount {
+    final currentSale = sale;
+    if (currentSale == null) return 0;
+    return currentSale.items.fold<double>(0, (sum, item) {
+      final qty = quantitiesByProductId[item.productId] ?? 0;
+      if (qty <= 0 || item.quantity == 0) return sum;
+      return sum + ((item.lineTotal / item.quantity) * qty);
+    });
+  }
+
+  ReturnDraftState copyWith({
+    SaleModel? sale,
+    bool clearSale = false,
+    Map<String, int>? quantitiesByProductId,
+    Map<String, int>? alreadyReturnedByProductId,
+    RefundMethod? refundMethod,
+  }) {
+    return ReturnDraftState(
+      sale: clearSale ? null : sale ?? this.sale,
+      quantitiesByProductId:
+          quantitiesByProductId ?? this.quantitiesByProductId,
+      alreadyReturnedByProductId:
+          alreadyReturnedByProductId ?? this.alreadyReturnedByProductId,
+      refundMethod: refundMethod ?? this.refundMethod,
+    );
+  }
+}
+
+final returnDraftProvider =
+    StateNotifierProvider<ReturnDraftNotifier, ReturnDraftState>((ref) {
+      return ReturnDraftNotifier(ref.read(posRepositoryProvider));
+    });
+
+class ReturnDraftNotifier extends StateNotifier<ReturnDraftState> {
+  final PosRepository _repository;
+
+  ReturnDraftNotifier(this._repository) : super(const ReturnDraftState());
+
+  Future<SaleModel?> searchInvoice(String invoiceId) async {
+    final sale = await _repository.findSaleForReturn(invoiceId);
+    if (sale == null || sale.id == null) {
+      state = const ReturnDraftState();
+      return null;
+    }
+    final returned = await _repository.loadReturnedQuantities(sale.id!);
+    state = ReturnDraftState(
+      sale: sale,
+      alreadyReturnedByProductId: returned,
+      quantitiesByProductId: {for (final item in sale.items) item.productId: 0},
+    );
+    return sale;
+  }
+
+  void setQuantity(String productId, int quantity) {
+    final sale = state.sale;
+    if (sale == null) return;
+    final item = sale.items.firstWhere((item) => item.productId == productId);
+    final alreadyReturned = state.alreadyReturnedByProductId[productId] ?? 0;
+    final available = item.quantity - alreadyReturned;
+    final safeQuantity = quantity.clamp(0, available).toInt();
+    state = state.copyWith(
+      quantitiesByProductId: {
+        ...state.quantitiesByProductId,
+        productId: safeQuantity,
+      },
+    );
+  }
+
+  void setRefundMethod(RefundMethod method) {
+    state = state.copyWith(refundMethod: method);
+  }
+}
+
+final returnControllerProvider =
+    StateNotifierProvider<ReturnController, AsyncValue<SaleReturnModel?>>((
+      ref,
+    ) {
+      return ReturnController(ref.read(posRepositoryProvider), ref);
+    });
+
+final pendingReturnsProvider = FutureProvider<List<SaleReturnModel>>((ref) {
+  return ref.read(posRepositoryProvider).fetchPendingReturns();
+});
+
+class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
+  final PosRepository _repository;
+  final Ref _ref;
+
+  ReturnController(this._repository, this._ref) : super(const AsyncData(null));
+
+  Future<SaleReturnModel?> submit({String? overrideReason}) async {
+    final draft = _ref.read(returnDraftProvider);
+    final sale = draft.sale;
+    if (sale == null) {
+      state = AsyncError(
+        Exception('Invoice pehle search karein'),
+        StackTrace.current,
+      );
+      return null;
+    }
+
+    state = const AsyncLoading();
+    try {
+      final result = await _repository.processReturn(
+        sale: sale,
+        quantitiesByProductId: draft.quantitiesByProductId,
+        refundMethod: draft.refundMethod,
+        overrideReason: overrideReason,
+      );
+      _ref.invalidate(salesHistoryProvider);
+      _ref.invalidate(pendingReturnsProvider);
+      state = AsyncData(result);
+      return result;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return null;
+    }
+  }
+
+  Future<SaleReturnModel?> approve(SaleReturnModel pendingReturn) async {
+    state = const AsyncLoading();
+    try {
+      final result = await _repository.approveReturn(pendingReturn);
+      _ref.invalidate(salesHistoryProvider);
+      _ref.invalidate(pendingReturnsProvider);
+      state = AsyncData(result);
+      return result;
     } catch (e, st) {
       state = AsyncError(e, st);
       return null;

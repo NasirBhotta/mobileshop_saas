@@ -184,6 +184,10 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       child: Scaffold(
         backgroundColor: AppColors.background,
         appBar: AppBar(
+          leading: IconButton(
+            onPressed: () => Navigator.pop(context),
+            icon: Icon(Icons.arrow_back),
+          ),
           title: Text(
             _isEdit
                 ? AppStrings.inventoryEditProduct

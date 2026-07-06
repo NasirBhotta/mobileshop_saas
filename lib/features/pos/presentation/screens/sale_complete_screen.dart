@@ -6,6 +6,8 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../data/models/sale_model.dart';
+import '../../data/services/receipt_service.dart';
+import '../providers/pos_provider.dart';
 
 class SaleCompleteScreen extends ConsumerWidget {
   final SaleModel sale;
@@ -15,6 +17,9 @@ class SaleCompleteScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDesktop = Responsive.isDesktop(context);
+    final footer = ref
+        .watch(receiptFooterProvider)
+        .maybeWhen(data: (value) => value, orElse: () => null);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -28,6 +33,14 @@ class SaleCompleteScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton.filledTonal(
+                      onPressed: () => context.go('/pos'),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      tooltip: 'Back',
+                    ),
+                  ),
                   const SizedBox(height: 24),
 
                   // ── Success Icon ──
@@ -186,30 +199,49 @@ class SaleCompleteScreen extends ConsumerWidget {
                   const SizedBox(height: 24),
 
                   // ── Action Buttons ──
-                  Row(
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 10,
                     children: [
-                      // Share receipt
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            // TODO: Share receipt
-                          },
-                          icon: const Icon(Icons.share_rounded, size: 18),
-                          label: const Text(AppStrings.shareReceipt),
-                        ),
+                      OutlinedButton.icon(
+                        onPressed:
+                            () => _deliverReceipt(
+                              ReceiptDeliveryMethod.thermalPrint,
+                              footer,
+                            ),
+                        icon: const Icon(Icons.print_rounded, size: 18),
+                        label: const Text(AppStrings.printReceipt),
                       ),
-                      const SizedBox(width: 12),
-
-                      // New sale
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () => context.go('/pos'),
-                          icon: const Icon(
-                            Icons.add_shopping_cart_rounded,
-                            size: 18,
-                          ),
-                          label: const Text(AppStrings.newSale),
+                      OutlinedButton.icon(
+                        onPressed:
+                            () => _deliverReceipt(
+                              ReceiptDeliveryMethod.whatsapp,
+                              footer,
+                            ),
+                        icon: const Icon(Icons.chat_rounded, size: 18),
+                        label: const Text('WhatsApp'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed:
+                            () => _deliverReceipt(
+                              ReceiptDeliveryMethod.email,
+                              footer,
+                            ),
+                        icon: const Icon(Icons.email_rounded, size: 18),
+                        label: const Text('Email'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _shareReceipt(footer),
+                        icon: const Icon(Icons.share_rounded, size: 18),
+                        label: const Text(AppStrings.shareReceipt),
+                      ),
+                      FilledButton.icon(
+                        onPressed: () => context.go('/pos'),
+                        icon: const Icon(
+                          Icons.add_shopping_cart_rounded,
+                          size: 18,
                         ),
+                        label: const Text(AppStrings.newSale),
                       ),
                     ],
                   ),
@@ -219,6 +251,18 @@ class SaleCompleteScreen extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _deliverReceipt(ReceiptDeliveryMethod method, String? footer) {
+    return ReceiptService.deliver(sale: sale, method: method, footer: footer);
+  }
+
+  Future<void> _shareReceipt(String? footer) {
+    return ReceiptService.deliver(
+      sale: sale,
+      method: ReceiptDeliveryMethod.whatsapp,
+      footer: footer,
     );
   }
 }
