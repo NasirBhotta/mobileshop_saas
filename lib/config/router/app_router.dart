@@ -14,6 +14,8 @@ import 'package:mobileshop_saas/features/onboarding/presentation/screens/app_int
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/branch_selection_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/shop_setup_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/data/repositories/setup_flow_repository.dart';
+import 'package:mobileshop_saas/features/pos/presentation/screens/held_carts_screen.dart';
+import 'package:mobileshop_saas/features/pos/presentation/screens/pos_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -144,6 +146,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/inventory/import',
         builder: (_, _) => const CsvImportScreen(),
       ),
+      GoRoute(path: '/pos', builder: (_, _) => const PosScreen()),
+      GoRoute(path: '/pos/held', builder: (_, _) => const HeldCartsScreen()),
     ],
   );
 });

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
+import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
