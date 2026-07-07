@@ -267,7 +267,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                   const SizedBox(height: 12),
 
                   OutlinedButton(
-                    onPressed: isSaving ? null : () => context.pop(),
+                    onPressed: isSaving ? null : _closeForm,
                     child: const Text('Cancel'),
                   ),
                 ],
@@ -277,6 +277,15 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
         ),
       ),
     );
+  }
+
+  void _closeForm() {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+
+    context.go('/repairs');
   }
 
   Future<void> _pickEstimatedDate() async {

@@ -38,7 +38,7 @@ class RepairsListScreen extends ConsumerWidget {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go('/repairs/new'),
+        onPressed: () => context.push('/repairs/new'),
         icon: const Icon(Icons.add),
         label: const Text('New Repair'),
       ),
@@ -49,7 +49,7 @@ class RepairsListScreen extends ConsumerWidget {
               selectedStatus: selectedStatus,
               onChanged: (status) {
                 ref.read(selectedRepairStatusFilterProvider.notifier).state =
-                    status as RepairTicketStatus;
+                    status;
               },
             ),
             const Divider(height: 1),
@@ -70,7 +70,7 @@ class RepairsListScreen extends ConsumerWidget {
                   if (tickets.isEmpty) {
                     return _EmptyRepairsView(
                       selectedStatus: selectedStatus,
-                      onCreate: () => context.go('/repairs/new'),
+                      onCreate: () => context.push('/repairs/new'),
                     );
                   }
                   return RefreshIndicator(
