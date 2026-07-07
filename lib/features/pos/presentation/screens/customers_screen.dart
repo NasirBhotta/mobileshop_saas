@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/utils/responsive.dart';
 import '../../../../shared/widgets/app_layout.dart';
 import '../../data/models/customer_model.dart';
 import '../providers/pos_provider.dart';
@@ -117,6 +118,24 @@ class _CustomersBodyState extends ConsumerState<_CustomersBody> {
   }
 
   void _showAddCustomerSheet(BuildContext context) {
+    if (Responsive.isDesktop(context)) {
+      showDialog<void>(
+        context: context,
+        builder:
+            (_) => Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 32,
+                vertical: 24,
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: const _CustomerFormSheet(showHandle: false),
+              ),
+            ),
+      );
+      return;
+    }
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -246,6 +265,25 @@ class CustomerDetailScreen extends ConsumerWidget {
                         icon: Icons.build_rounded,
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.info.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColors.info.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: const Text(
+                      'Credit limit max khata allowance hai. Khata sale checkout par outstanding mein add hoti hai; Settle Dues se customer ki payment record hoti hai aur outstanding kam hota hai.',
+                      style: TextStyle(
+                        color: AppColors.info,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   SizedBox(
@@ -393,7 +431,9 @@ class _MetricCard extends StatelessWidget {
 }
 
 class _CustomerFormSheet extends ConsumerStatefulWidget {
-  const _CustomerFormSheet();
+  final bool showHandle;
+
+  const _CustomerFormSheet({this.showHandle = true});
 
   @override
   ConsumerState<_CustomerFormSheet> createState() => _CustomerFormSheetState();
@@ -422,7 +462,7 @@ class _CustomerFormSheetState extends ConsumerState<_CustomerFormSheet> {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         16,
-        0,
+        widget.showHandle ? 0 : 16,
         16,
         MediaQuery.of(context).viewInsets.bottom + 16,
       ),
@@ -430,9 +470,21 @@ class _CustomerFormSheetState extends ConsumerState<_CustomerFormSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'Add Customer',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Add Customer',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                ),
+                if (!widget.showHandle)
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: 'Close',
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
             TextField(
@@ -458,6 +510,7 @@ class _CustomerFormSheetState extends ConsumerState<_CustomerFormSheet> {
               decoration: const InputDecoration(
                 labelText: 'Credit limit',
                 prefixText: 'Rs ',
+                helperText: 'Owner set kare. Blank ka matlab fixed limit nahi.',
               ),
             ),
             const SizedBox(height: 10),

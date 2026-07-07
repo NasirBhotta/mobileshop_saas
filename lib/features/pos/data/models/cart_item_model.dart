@@ -8,6 +8,7 @@ class CartItemModel {
   final int quantity;
   final double discountAmount; // item level discount
   final double taxRate; // percentage (0-100)
+  final int? availableStock;
 
   const CartItemModel({
     required this.productId,
@@ -17,6 +18,7 @@ class CartItemModel {
     this.quantity = 1,
     this.discountAmount = 0,
     this.taxRate = 0,
+    this.availableStock,
   });
 
   // ── Calculated Fields ──
@@ -29,6 +31,9 @@ class CartItemModel {
 
   // Final line total
   double get lineTotal => (discountedPrice * quantity) + taxAmount;
+
+  bool get isAtStockLimit =>
+      availableStock != null && quantity >= availableStock!;
 
   // ── Cart operations ──
 
@@ -46,6 +51,7 @@ class CartItemModel {
       productName: product.name,
       productSku: product.sku,
       unitPrice: product.salePrice,
+      availableStock: product.stock,
     );
   }
 
@@ -59,6 +65,7 @@ class CartItemModel {
       quantity: (map['quantity'] as num).toInt(),
       discountAmount: (map['discount_amount'] as num?)?.toDouble() ?? 0,
       taxRate: (map['tax_rate'] as num?)?.toDouble() ?? 0,
+      availableStock: (map['available_stock'] as num?)?.toInt(),
     );
   }
 
@@ -70,6 +77,7 @@ class CartItemModel {
     'quantity': quantity,
     'discount_amount': discountAmount,
     'tax_rate': taxRate,
+    'available_stock': availableStock,
   };
 
   CartItemModel copyWith({
@@ -80,6 +88,7 @@ class CartItemModel {
     int? quantity,
     double? discountAmount,
     double? taxRate,
+    int? availableStock,
   }) {
     return CartItemModel(
       productId: productId ?? this.productId,
@@ -89,6 +98,7 @@ class CartItemModel {
       quantity: quantity ?? this.quantity,
       discountAmount: discountAmount ?? this.discountAmount,
       taxRate: taxRate ?? this.taxRate,
+      availableStock: availableStock ?? this.availableStock,
     );
   }
 }

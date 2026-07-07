@@ -251,6 +251,7 @@ class _QtyController extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final canIncrease = !item.isAtStockLimit;
     return Row(
       children: [
         _QtyButton(
@@ -265,6 +266,7 @@ class _QtyController extends ConsumerWidget {
                           .read(cartProvider.notifier)
                           .decrementItem(item.productId),
           color: item.quantity == 1 ? AppColors.error : AppColors.textSecondary,
+          tooltip: item.quantity == 1 ? 'Remove item' : 'Decrease quantity',
         ),
         Container(
           width: 36,
@@ -281,9 +283,13 @@ class _QtyController extends ConsumerWidget {
         _QtyButton(
           icon: Icons.add_rounded,
           onTap:
-              () =>
-                  ref.read(cartProvider.notifier).incrementItem(item.productId),
-          color: AppColors.primary,
+              canIncrease
+                  ? () => ref
+                      .read(cartProvider.notifier)
+                      .incrementItem(item.productId)
+                  : null,
+          color: canIncrease ? AppColors.success : AppColors.textHint,
+          tooltip: canIncrease ? 'Increase quantity' : 'Stock limit reached',
         ),
       ],
     );
@@ -292,27 +298,34 @@ class _QtyController extends ConsumerWidget {
 
 class _QtyButton extends StatelessWidget {
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Color color;
+  final String tooltip;
 
   const _QtyButton({
     required this.icon,
     required this.onTap,
     required this.color,
+    required this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(6),
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: color.withValues(alpha: 0.24)),
+          ),
+          child: Icon(icon, size: 17, color: color),
         ),
-        child: Icon(icon, size: 16, color: color),
       ),
     );
   }

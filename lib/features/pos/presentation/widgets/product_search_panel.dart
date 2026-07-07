@@ -155,10 +155,12 @@ class _ProductTile extends ConsumerWidget {
     final inCart = cartItem != null;
 
     final isOutOfStock = product.isOutOfStock;
+    final isAtStockLimit =
+        cartItem != null && cartItem.quantity >= product.stock;
 
     return InkWell(
       onTap:
-          isOutOfStock
+          isOutOfStock || isAtStockLimit
               ? null // out of stock → tap disable
               : () {
                 ref
@@ -278,7 +280,7 @@ class _ProductTile extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
-                      '${cartItem.quantity} in cart',
+                      '${cartItem.quantity}/${product.stock} in cart',
                       style: const TextStyle(
                         fontSize: 10,
                         color: Colors.white,

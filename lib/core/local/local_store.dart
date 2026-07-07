@@ -592,12 +592,20 @@ class LocalStore {
   }) async {
     await LocalDatabase.execute(
       '''
-    UPDATE inventory
-    SET quantity = quantity + ?,
-        updated_at = ?
-    WHERE branch_id = ? AND product_id = ?
+    INSERT INTO inventory(
+      id, branch_id, product_id, quantity, updated_at
+    ) VALUES(?, ?, ?, ?, ?)
+    ON CONFLICT(branch_id, product_id) DO UPDATE SET
+      quantity = quantity + excluded.quantity,
+      updated_at = excluded.updated_at
   ''',
-      [quantity, DateTime.now().toIso8601String(), branchId, productId],
+      [
+        '${branchId}_$productId',
+        branchId,
+        productId,
+        quantity,
+        DateTime.now().toIso8601String(),
+      ],
     );
   }
 

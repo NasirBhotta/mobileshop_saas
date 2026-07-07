@@ -7,6 +7,7 @@ import 'package:mobileshop_saas/core/utils/network.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../inventory/data/models/product_model.dart';
 import '../models/cart_item_model.dart';
 import '../models/customer_dashboard_model.dart';
 import '../models/customer_model.dart';
@@ -522,11 +523,15 @@ class PosRepository {
       );
     }
 
-    await _logDiscountAudits(
-      saleId: saleId,
-      branchId: branchId,
-      discountApprovals: discountApprovals,
-    );
+    try {
+      await _logDiscountAudits(
+        saleId: saleId,
+        branchId: branchId,
+        discountApprovals: discountApprovals,
+      );
+    } catch (e) {
+      debugPrint('Discount audit save failed after checkout: $e');
+    }
 
     return sale;
   }
@@ -544,7 +549,7 @@ class PosRepository {
     }
     final limit = customer.creditLimit;
     if (limit == null) {
-      throw Exception('Is customer ki Khata limit set nahi hai.');
+      return;
     }
     final projected = customer.outstandingBalance + creditAmount;
     if (projected > limit + 0.01) {
@@ -557,19 +562,26 @@ class PosRepository {
   }
 
   Future<CustomerModel?> _loadCustomerById(String customerId) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
     try {
       final data = await _client
           .from('customers')
           .select()
           .eq('id', customerId)
+          .eq('branch_id', branchId)
           .maybeSingle()
           .timeout(Network.networkTimeout);
-      if (data == null) return await OfflineStore.loadCustomerById(customerId);
+      if (data == null) {
+        final local = await OfflineStore.loadCustomerById(customerId);
+        return local?.branchId == branchId ? local : null;
+      }
       final customer = CustomerModel.fromMap(data);
       await OfflineStore.saveCustomer(customer);
       return customer;
     } catch (_) {
-      return await OfflineStore.loadCustomerById(customerId);
+      final local = await OfflineStore.loadCustomerById(customerId);
+      return local?.branchId == branchId ? local : null;
     }
   }
 
@@ -590,8 +602,11 @@ class PosRepository {
           .from('customers')
           .update({'outstanding_balance': customer.outstandingBalance})
           .eq('id', customerId)
+          .eq('branch_id', customer.branchId)
           .timeout(Network.networkTimeout);
-    } catch (_) {}
+    } catch (e) {
+      if (!_isMissingCustomerCreditSchema(e)) rethrow;
+    }
   }
 
   Future<void> _logDiscountAudits({
@@ -822,13 +837,14 @@ class PosRepository {
           .from('held_carts')
           .delete()
           .eq('id', heldCartId)
+          .eq('branch_id', branchId)
           .timeout(Network.networkTimeout);
     } catch (e) {
       debugPrint('Offline deleteHeldCart: Queued delete mutation. Error: $e');
       await OfflineStore.enqueueMutation(
         userId: user.id,
         type: 'held_cart_delete',
-        payload: {'id': heldCartId},
+        payload: {'id': heldCartId, 'branch_id': branchId},
       );
     }
   }
@@ -914,12 +930,15 @@ class PosRepository {
   }
 
   Future<Map<String, int>> loadReturnedQuantities(String saleId) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
     final returned = <String, int>{};
     try {
       final rows = await _client
           .from('sale_return_items')
           .select('product_id, quantity, sale_returns!inner(status)')
           .eq('original_sale_id', saleId)
+          .eq('sale_returns.branch_id', branchId)
           .neq('sale_returns.status', 'rejected')
           .timeout(Network.networkTimeout);
 
@@ -937,10 +956,10 @@ class PosRepository {
       SELECT ri.product_id, SUM(ri.quantity) AS quantity
       FROM sale_return_items ri
       INNER JOIN sale_returns r ON r.id = ri.return_id
-      WHERE ri.original_sale_id = ? AND r.status != 'rejected'
+      WHERE ri.original_sale_id = ? AND r.branch_id = ? AND r.status != 'rejected'
       GROUP BY ri.product_id
       ''',
-      [saleId],
+      [saleId, branchId],
     );
     for (final row in rows) {
       returned[row['product_id'] as String] =
@@ -1040,16 +1059,17 @@ class PosRepository {
       await _restockReturnItems(saleReturn);
     }
 
+    if (await _isSaleSyncPending(sale.id!)) {
+      await _queueReturnMutation(saleReturn, type: 'sale_return');
+      return saleReturn;
+    }
+
     try {
       await _syncReturnRemote(saleReturn);
       await _markReturnSynced(saleReturn.id);
     } catch (e) {
       debugPrint('Offline return: saved locally. Queueing mutation. Error: $e');
-      await OfflineStore.enqueueMutation(
-        userId: _currentUser.id,
-        type: 'sale_return',
-        payload: saleReturn.toMap(),
-      );
+      await _queueReturnMutation(saleReturn, type: 'sale_return');
     }
 
     return saleReturn;
@@ -1093,6 +1113,46 @@ class PosRepository {
     return returns;
   }
 
+  Future<List<SaleReturnModel>> fetchApprovedReturns({int limit = 100}) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+
+    try {
+      final rows = await _client
+          .from('sale_returns')
+          .select('*, sale_return_items(*)')
+          .eq('branch_id', branchId)
+          .eq('status', SaleReturnStatus.approved.code)
+          .order('created_at', ascending: false)
+          .limit(limit)
+          .timeout(Network.networkTimeout);
+      return (rows as List).map((row) {
+        final map = Map<String, dynamic>.from(row as Map);
+        map['items'] = map['sale_return_items'];
+        return SaleReturnModel.fromMap(map);
+      }).toList();
+    } catch (_) {}
+
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM sale_returns
+      WHERE branch_id = ? AND status = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+      ''',
+      [branchId, SaleReturnStatus.approved.code, limit],
+    );
+    final returns = <SaleReturnModel>[];
+    for (final row in rows) {
+      final items = await LocalDatabase.select(
+        'SELECT * FROM sale_return_items WHERE return_id = ?',
+        [row['id']],
+      );
+      returns.add(SaleReturnModel.fromMap({...row, 'items': items}));
+    }
+    return returns;
+  }
+
   Future<SaleReturnModel> approveReturn(SaleReturnModel pendingReturn) async {
     final profile = await _currentProfile();
     final role = (profile['role'] as String? ?? 'cashier').toLowerCase();
@@ -1104,21 +1164,66 @@ class PosRepository {
       status: SaleReturnStatus.approved,
       approvedBy: _currentUser.id,
     );
+    final wasAlreadyApproved = await _isReturnAlreadyApproved(approved.id);
     await _saveReturnLocally(approved, synced: false);
-    await _restockReturnItems(approved);
+    if (!wasAlreadyApproved) {
+      await _restockReturnItems(approved);
+    }
 
     try {
       await _syncReturnRemote(approved);
       await _markReturnSynced(approved.id);
     } catch (e) {
       debugPrint('Offline return approval queued. Error: $e');
-      await OfflineStore.enqueueMutation(
-        userId: _currentUser.id,
-        type: 'sale_return_approval',
-        payload: approved.toMap(),
-      );
+      await _queueReturnMutation(approved, type: 'sale_return_approval');
     }
     return approved;
+  }
+
+  Future<bool> _isSaleSyncPending(String saleId) async {
+    final mutations = await OfflineStore.loadMutations(_currentUser.id);
+    for (final mutation in mutations) {
+      if (mutation.type != 'sale_checkout') continue;
+      final payloadSaleId = mutation.payload['sale_id'] as String?;
+      final saleData = mutation.payload['sale_data'];
+      final nestedSaleId =
+          saleData is Map ? Map<String, dynamic>.from(saleData)['id'] : null;
+      if (payloadSaleId == saleId || nestedSaleId == saleId) return true;
+    }
+
+    final rows = await LocalDatabase.select(
+      'SELECT synced FROM sales WHERE id = ? LIMIT 1',
+      [saleId],
+    );
+    if (rows.isEmpty) return false;
+    return ((rows.first['synced'] as num?)?.toInt() ?? 1) == 0;
+  }
+
+  Future<void> _queueReturnMutation(
+    SaleReturnModel saleReturn, {
+    required String type,
+  }) async {
+    final mutations = await OfflineStore.loadMutations(_currentUser.id);
+    final alreadyQueued = mutations.any(
+      (mutation) =>
+          mutation.type == type && mutation.payload['id'] == saleReturn.id,
+    );
+    if (alreadyQueued) return;
+
+    await OfflineStore.enqueueMutation(
+      userId: _currentUser.id,
+      type: type,
+      payload: saleReturn.toMap(),
+    );
+  }
+
+  Future<bool> _isReturnAlreadyApproved(String returnId) async {
+    final rows = await LocalDatabase.select(
+      'SELECT status FROM sale_returns WHERE id = ? LIMIT 1',
+      [returnId],
+    );
+    if (rows.isEmpty) return false;
+    return rows.first['status'] == SaleReturnStatus.approved.code;
   }
 
   Future<Map<String, dynamic>> _returnSettings() async {
@@ -1207,6 +1312,10 @@ class PosRepository {
 
   Future<void> _restockReturnItems(SaleReturnModel saleReturn) async {
     for (final item in saleReturn.items) {
+      await _ensureReturnedProductCached(
+        branchId: saleReturn.branchId,
+        item: item,
+      );
       await OfflineStore.incrementStock(
         branchId: saleReturn.branchId,
         productId: item.productId,
@@ -1215,7 +1324,44 @@ class PosRepository {
     }
   }
 
+  Future<void> _ensureReturnedProductCached({
+    required String branchId,
+    required SaleReturnItemModel item,
+  }) async {
+    final products = await OfflineStore.loadProducts(branchId);
+    if (products.any((product) => product.id == item.productId)) return;
+
+    final tenantId = await _currentTenantId();
+    final unitRefund =
+        item.quantity == 0 ? 0.0 : item.refundAmount / item.quantity;
+    await OfflineStore.upsertCachedProduct(
+      ProductModel(
+        id: item.productId,
+        tenantId: tenantId,
+        branchId: branchId,
+        name: item.productName,
+        sku: item.productSku,
+        salePrice: unitRefund,
+        costPrice: 0,
+        stock: 0,
+      ),
+    );
+  }
+
   Future<void> _syncReturnRemote(SaleReturnModel saleReturn) async {
+    var remoteAlreadyApproved = false;
+    try {
+      final existing = await _client
+          .from('sale_returns')
+          .select('status')
+          .eq('id', saleReturn.id)
+          .eq('branch_id', saleReturn.branchId)
+          .maybeSingle()
+          .timeout(Network.networkTimeout);
+      remoteAlreadyApproved =
+          existing?['status'] == SaleReturnStatus.approved.code;
+    } catch (_) {}
+
     await _client
         .from('sale_returns')
         .upsert({
@@ -1257,24 +1403,25 @@ class PosRepository {
         )
         .timeout(Network.networkTimeout);
 
-    if (saleReturn.status == SaleReturnStatus.approved) {
+    if (saleReturn.status == SaleReturnStatus.approved &&
+        !remoteAlreadyApproved) {
       for (final item in saleReturn.items) {
         final inv = await _client
             .from('inventory')
             .select('quantity')
             .eq('branch_id', saleReturn.branchId)
             .eq('product_id', item.productId)
-            .single()
+            .maybeSingle()
             .timeout(Network.networkTimeout);
-        final currentStock = (inv['quantity'] as num).toInt();
+        final currentStock = (inv?['quantity'] as num?)?.toInt() ?? 0;
         await _client
             .from('inventory')
-            .update({
+            .upsert({
+              'branch_id': saleReturn.branchId,
+              'product_id': item.productId,
               'quantity': currentStock + item.quantity,
               'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('branch_id', saleReturn.branchId)
-            .eq('product_id', item.productId)
+            }, onConflict: 'branch_id,product_id')
             .timeout(Network.networkTimeout);
       }
     }
@@ -1283,6 +1430,11 @@ class PosRepository {
   Future<List<CustomerModel>> searchCustomers(String query) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
+    unawaited(syncOfflineMutations());
+    final localCustomers = await OfflineStore.searchCustomers(
+      branchId: branchId,
+      query: query,
+    );
 
     try {
       final data = await _client
@@ -1302,18 +1454,24 @@ class PosRepository {
       for (final customer in remoteCustomers) {
         await OfflineStore.saveCustomer(customer);
       }
-      return remoteCustomers;
-    } catch (_) {
-      return await OfflineStore.searchCustomers(
-        branchId: branchId,
+      return _mergeCustomers(
+        remoteCustomers,
+        localCustomers,
         query: query,
-      );
+      ).take(10).toList();
+    } catch (_) {
+      return localCustomers;
     }
   }
 
   Future<List<CustomerModel>> fetchCustomers({String query = ''}) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
+    unawaited(syncOfflineMutations());
+    final localCustomers = await OfflineStore.loadCustomers(
+      branchId: branchId,
+      query: query,
+    );
 
     try {
       var request = _client
@@ -1336,9 +1494,9 @@ class PosRepository {
       for (final customer in customers) {
         await OfflineStore.saveCustomer(customer);
       }
-      return customers;
+      return _mergeCustomers(customers, localCustomers, query: query);
     } catch (_) {
-      return OfflineStore.loadCustomers(branchId: branchId, query: query);
+      return localCustomers;
     }
   }
 
@@ -1352,18 +1510,26 @@ class PosRepository {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final user = _currentUser;
-    final normalizedPhone = phone?.trim();
+    final normalizedPhone = _normalizeOptionalString(phone);
+    final normalizedEmail = _normalizeOptionalString(email);
+    final normalizedNotes = _normalizeOptionalString(notes);
     if (normalizedPhone != null && normalizedPhone.isNotEmpty) {
       final existing = await _findCustomerByPhone(
         tenantId: tenantId,
+        branchId: branchId,
         phone: normalizedPhone,
       );
       if (existing != null) {
         throw Exception('Phone number pehle se kisi customer ke paas hai.');
       }
     }
-    if (creditLimit != null) {
-      await _requireOwner();
+    var effectiveCreditLimit = creditLimit;
+    if (effectiveCreditLimit != null) {
+      try {
+        await _requireOwner();
+      } catch (_) {
+        effectiveCreditLimit = null;
+      }
     }
 
     final customerId = const Uuid().v4();
@@ -1373,9 +1539,9 @@ class PosRepository {
       branchId: branchId,
       fullName: fullName,
       phone: normalizedPhone,
-      email: email,
-      notes: notes,
-      creditLimit: creditLimit,
+      email: normalizedEmail,
+      notes: normalizedNotes,
+      creditLimit: effectiveCreditLimit,
       createdAt: DateTime.now(),
     );
 
@@ -1385,23 +1551,33 @@ class PosRepository {
     try {
       final data = await _client
           .from('customers')
-          .insert({
-            'id': customerId,
-            'tenant_id': tenantId,
-            'branch_id': branchId,
-            'full_name': fullName,
-            'phone': normalizedPhone,
-            'email': email,
-            'notes': notes,
-            'credit_limit': creditLimit,
-            'outstanding_balance': 0,
-          })
+          .insert(_customerRemotePayload(customer))
           .select()
           .single()
           .timeout(Network.networkTimeout);
 
-      return CustomerModel.fromMap(data);
+      final savedCustomer = CustomerModel.fromMap(data);
+      await OfflineStore.saveCustomer(savedCustomer);
+      return savedCustomer;
     } catch (e) {
+      if (_isMissingCustomerCreditSchema(e)) {
+        try {
+          final data = await _client
+              .from('customers')
+              .insert(_customerRemotePayload(customer, includeCredit: false))
+              .select()
+              .single()
+              .timeout(Network.networkTimeout);
+
+          final savedCustomer = CustomerModel.fromMap(data);
+          await OfflineStore.saveCustomer(savedCustomer);
+          return savedCustomer;
+        } catch (fallbackError) {
+          debugPrint(
+            'Customer insert fallback failed. Queueing mutation. Error: $fallbackError',
+          );
+        }
+      }
       debugPrint(
         'Offline addCustomer: saved locally. Queueing mutation. Error: $e',
       );
@@ -1414,9 +1590,9 @@ class PosRepository {
           'branch_id': branchId,
           'full_name': fullName,
           'phone': normalizedPhone,
-          'email': email,
-          'notes': notes,
-          'credit_limit': creditLimit,
+          'email': normalizedEmail,
+          'notes': normalizedNotes,
+          'credit_limit': effectiveCreditLimit,
           'outstanding_balance': 0,
           'created_at': customer.createdAt?.toIso8601String(),
         },
@@ -1425,8 +1601,83 @@ class PosRepository {
     }
   }
 
+  Map<String, dynamic> _customerRemotePayload(
+    CustomerModel customer, {
+    bool includeCredit = true,
+  }) {
+    final payload = <String, dynamic>{
+      'id': customer.id,
+      'tenant_id': customer.tenantId,
+      'branch_id': customer.branchId,
+      'full_name': customer.fullName,
+      'phone': customer.phone,
+      'email': customer.email,
+      'notes': customer.notes,
+      'created_at': customer.createdAt?.toIso8601String(),
+    };
+    if (includeCredit) {
+      payload['credit_limit'] = customer.creditLimit;
+      payload['outstanding_balance'] = customer.outstandingBalance;
+    }
+    return payload;
+  }
+
+  String? _normalizeOptionalString(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
+  }
+
+  bool _isMissingCustomerCreditSchema(Object error) {
+    if (error is! PostgrestException) return false;
+    final message = error.message.toLowerCase();
+    return error.code == 'PGRST204' &&
+        (message.contains('credit_limit') ||
+            message.contains('outstanding_balance'));
+  }
+
+  bool _isMissingDeferredSchema(Object error) {
+    if (error is! PostgrestException) return false;
+    final message = error.message.toLowerCase();
+    return _isMissingCustomerCreditSchema(error) ||
+        (error.code == 'PGRST205' &&
+            (message.contains('sale_returns') ||
+                message.contains('sale_return_items')));
+  }
+
+  List<CustomerModel> _mergeCustomers(
+    List<CustomerModel> remoteCustomers,
+    List<CustomerModel> localCustomers, {
+    String query = '',
+  }) {
+    final byId = <String, CustomerModel>{};
+    for (final customer in localCustomers) {
+      final id = customer.id;
+      if (id != null) byId[id] = customer;
+    }
+    for (final customer in remoteCustomers) {
+      final id = customer.id;
+      if (id != null) byId[id] = customer;
+    }
+
+    final normalized = query.trim();
+    final merged =
+        byId.values
+            .where(
+              (customer) =>
+                  normalized.isEmpty || customer.matchesQuery(normalized),
+            )
+            .toList()
+          ..sort(
+            (a, b) =>
+                a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
+          );
+    return merged;
+  }
+
   Future<CustomerModel?> _findCustomerByPhone({
     required String tenantId,
+    required String branchId,
     required String phone,
   }) async {
     try {
@@ -1434,18 +1685,24 @@ class PosRepository {
           .from('customers')
           .select()
           .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
           .eq('phone', phone)
           .maybeSingle()
           .timeout(Network.networkTimeout);
       if (data == null) {
-        return OfflineStore.loadCustomerByPhone(
+        final local = await OfflineStore.loadCustomerByPhone(
           tenantId: tenantId,
           phone: phone,
         );
+        return local?.branchId == branchId ? local : null;
       }
       return CustomerModel.fromMap(data);
     } catch (_) {
-      return OfflineStore.loadCustomerByPhone(tenantId: tenantId, phone: phone);
+      final local = await OfflineStore.loadCustomerByPhone(
+        tenantId: tenantId,
+        phone: phone,
+      );
+      return local?.branchId == branchId ? local : null;
     }
   }
 
@@ -1477,6 +1734,7 @@ class PosRepository {
           .from('customers')
           .update({'credit_limit': clearCreditLimit ? null : creditLimit})
           .eq('id', customerId)
+          .eq('branch_id', customer.branchId)
           .timeout(Network.networkTimeout);
     } catch (_) {
       await OfflineStore.enqueueMutation(
@@ -1484,6 +1742,7 @@ class PosRepository {
         type: 'customer_credit_limit',
         payload: {
           'customer_id': customerId,
+          'branch_id': customer.branchId,
           'credit_limit': clearCreditLimit ? null : creditLimit,
         },
       );
@@ -1503,23 +1762,62 @@ class PosRepository {
       0,
       (sum, sale) => sum + sale.total,
     );
+    final effectiveOutstanding = _effectiveOutstanding(
+      customer: customer,
+      purchases: purchases,
+      settlements: settlements,
+    );
+    if ((effectiveOutstanding - customer.outstandingBalance).abs() > 0.01) {
+      await OfflineStore.updateCustomerCredit(
+        customerId: customerId,
+        creditLimit: customer.creditLimit,
+        outstandingBalance: effectiveOutstanding,
+      );
+    }
 
     return CustomerDashboardModel(
-      customer: customer,
+      customer: customer.copyWith(outstandingBalance: effectiveOutstanding),
       lifetimeValue: lifetimeValue,
-      outstandingDues: customer.outstandingBalance,
+      outstandingDues: effectiveOutstanding,
       activeRepairTickets: 0,
       purchases: purchases,
       settlements: settlements,
     );
   }
 
+  double _effectiveOutstanding({
+    required CustomerModel customer,
+    required List<SaleModel> purchases,
+    required List<CustomerSettlementModel> settlements,
+  }) {
+    final creditSales = purchases.fold<double>(0, (sum, sale) {
+      final creditPaid = sale.payments
+          .where((payment) => payment.method == PaymentMethod.credit)
+          .fold<double>(
+            0,
+            (paymentSum, payment) => paymentSum + payment.amount,
+          );
+      return sum + creditPaid;
+    });
+    final settled = settlements.fold<double>(
+      0,
+      (sum, settlement) => sum + settlement.amount,
+    );
+    final computed =
+        (creditSales - settled).clamp(0, double.infinity).toDouble();
+    if (computed > customer.outstandingBalance) return computed;
+    return customer.outstandingBalance;
+  }
+
   Future<List<SaleModel>> _fetchCustomerSales(String customerId) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
     try {
       final data = await _client
           .from('sales')
           .select('*, customers(full_name), sale_items(*), sale_payments(*)')
           .eq('customer_id', customerId)
+          .eq('branch_id', branchId)
           .order('created_at', ascending: false)
           .limit(100)
           .timeout(Network.networkTimeout);
@@ -1527,8 +1825,6 @@ class PosRepository {
           .map((e) => SaleModel.fromMap(e as Map<String, dynamic>))
           .toList();
     } catch (_) {
-      final tenantId = await _currentTenantId();
-      final branchId = await _currentBranchId(tenantId);
       final sales = await OfflineStore.loadSales(branchId);
       return sales.where((sale) => sale.customerId == customerId).toList();
     }
@@ -1537,11 +1833,14 @@ class PosRepository {
   Future<List<CustomerSettlementModel>> _fetchCustomerSettlements(
     String customerId,
   ) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
     try {
       final data = await _client
           .from('customer_settlements')
           .select()
           .eq('customer_id', customerId)
+          .eq('branch_id', branchId)
           .order('created_at', ascending: false)
           .limit(100)
           .timeout(Network.networkTimeout);
@@ -1557,7 +1856,12 @@ class PosRepository {
       }
       return settlements;
     } catch (_) {
-      return OfflineStore.loadCustomerSettlements(customerId);
+      final settlements = await OfflineStore.loadCustomerSettlements(
+        customerId,
+      );
+      return settlements
+          .where((settlement) => settlement.branchId == branchId)
+          .toList();
     }
   }
 
@@ -1570,7 +1874,14 @@ class PosRepository {
     if (amount <= 0) throw Exception('Settlement amount valid nahi hai.');
     final customer = await _loadCustomerById(customerId);
     if (customer == null) throw Exception('Customer profile nahi mila.');
-    if (amount > customer.outstandingBalance + 0.01) {
+    final purchases = await _fetchCustomerSales(customerId);
+    final settlements = await _fetchCustomerSettlements(customerId);
+    final outstanding = _effectiveOutstanding(
+      customer: customer,
+      purchases: purchases,
+      settlements: settlements,
+    );
+    if (amount > outstanding + 0.01) {
       throw Exception('Settlement current dues se zyada nahi ho sakti.');
     }
 
@@ -1587,6 +1898,11 @@ class PosRepository {
       createdAt: DateTime.now(),
     );
 
+    await OfflineStore.updateCustomerCredit(
+      customerId: customerId,
+      creditLimit: customer.creditLimit,
+      outstandingBalance: outstanding,
+    );
     await OfflineStore.saveCustomerSettlement(settlement);
     await OfflineStore.adjustCustomerOutstanding(
       customerId: customerId,
@@ -1610,11 +1926,16 @@ class PosRepository {
           .insert(payload)
           .timeout(Network.networkTimeout);
       final updated = await OfflineStore.loadCustomerById(customerId);
-      await _client
-          .from('customers')
-          .update({'outstanding_balance': updated?.outstandingBalance ?? 0})
-          .eq('id', customerId)
-          .timeout(Network.networkTimeout);
+      try {
+        await _client
+            .from('customers')
+            .update({'outstanding_balance': updated?.outstandingBalance ?? 0})
+            .eq('id', customerId)
+            .eq('branch_id', branchId)
+            .timeout(Network.networkTimeout);
+      } catch (e) {
+        if (!_isMissingCustomerCreditSchema(e)) rethrow;
+      }
       await LocalStore.markCustomerSettlementSynced(settlement.id);
     } catch (_) {
       await OfflineStore.enqueueMutation(
@@ -1783,12 +2104,17 @@ class PosRepository {
                   customerId,
                 );
                 if (customer != null) {
-                  await _client
-                      .from('customers')
-                      .update({
-                        'outstanding_balance': customer.outstandingBalance,
-                      })
-                      .eq('id', customerId);
+                  try {
+                    await _client
+                        .from('customers')
+                        .update({
+                          'outstanding_balance': customer.outstandingBalance,
+                        })
+                        .eq('id', customerId)
+                        .eq('branch_id', customer.branchId);
+                  } catch (e) {
+                    if (!_isMissingCustomerCreditSchema(e)) rethrow;
+                  }
                 }
               }
 
@@ -1834,10 +2160,15 @@ class PosRepository {
               break;
 
             case 'held_cart_delete':
-              await _client
+              var deleteQuery = _client
                   .from('held_carts')
                   .delete()
                   .eq('id', mutation.payload['id']);
+              final branchId = mutation.payload['branch_id'] as String?;
+              if (branchId != null) {
+                deleteQuery = deleteQuery.eq('branch_id', branchId);
+              }
+              await deleteQuery;
               break;
 
             case 'void_cart':
@@ -1850,26 +2181,54 @@ class PosRepository {
               break;
 
             case 'add_customer':
-              await _client.from('customers').insert({
-                'id': mutation.payload['id'],
-                'tenant_id': mutation.payload['tenant_id'],
-                'branch_id': mutation.payload['branch_id'],
-                'full_name': mutation.payload['full_name'],
-                'phone': mutation.payload['phone'],
-                'email': mutation.payload['email'],
-                'notes': mutation.payload['notes'],
-                'credit_limit': mutation.payload['credit_limit'],
-                'outstanding_balance':
-                    mutation.payload['outstanding_balance'] ?? 0,
-                'created_at': mutation.payload['created_at'],
-              });
+              final payload = Map<String, dynamic>.from(mutation.payload);
+              try {
+                await _client.from('customers').upsert({
+                  'id': payload['id'],
+                  'tenant_id': payload['tenant_id'],
+                  'branch_id': payload['branch_id'],
+                  'full_name': payload['full_name'],
+                  'phone': payload['phone'],
+                  'email': payload['email'],
+                  'notes': payload['notes'],
+                  'credit_limit': payload['credit_limit'],
+                  'outstanding_balance': payload['outstanding_balance'] ?? 0,
+                  'created_at': payload['created_at'],
+                }, onConflict: 'id');
+              } catch (e) {
+                if (!_isMissingCustomerCreditSchema(e)) rethrow;
+                await _client.from('customers').upsert({
+                  'id': payload['id'],
+                  'tenant_id': payload['tenant_id'],
+                  'branch_id': payload['branch_id'],
+                  'full_name': payload['full_name'],
+                  'phone': payload['phone'],
+                  'email': payload['email'],
+                  'notes': payload['notes'],
+                  'created_at': payload['created_at'],
+                }, onConflict: 'id');
+              }
               break;
 
             case 'customer_credit_limit':
-              await _client
-                  .from('customers')
-                  .update({'credit_limit': mutation.payload['credit_limit']})
-                  .eq('id', mutation.payload['customer_id']);
+              try {
+                final customerId = mutation.payload['customer_id'] as String;
+                final branchId =
+                    mutation.payload['branch_id'] as String? ??
+                    (await OfflineStore.loadCustomerById(customerId))?.branchId;
+                if (branchId == null) {
+                  remaining.add(mutation);
+                  break;
+                }
+                await _client
+                    .from('customers')
+                    .update({'credit_limit': mutation.payload['credit_limit']})
+                    .eq('id', customerId)
+                    .eq('branch_id', branchId);
+              } catch (e) {
+                if (!_isMissingCustomerCreditSchema(e)) rethrow;
+                remaining.add(mutation);
+              }
               break;
 
             case 'customer_settlement':
@@ -1879,12 +2238,17 @@ class PosRepository {
               final customerId = mutation.payload['customer_id'] as String;
               final customer = await OfflineStore.loadCustomerById(customerId);
               if (customer != null) {
-                await _client
-                    .from('customers')
-                    .update({
-                      'outstanding_balance': customer.outstandingBalance,
-                    })
-                    .eq('id', customerId);
+                try {
+                  await _client
+                      .from('customers')
+                      .update({
+                        'outstanding_balance': customer.outstandingBalance,
+                      })
+                      .eq('id', customerId)
+                      .eq('branch_id', customer.branchId);
+                } catch (e) {
+                  if (!_isMissingCustomerCreditSchema(e)) rethrow;
+                }
               }
               await LocalStore.markCustomerSettlementSynced(
                 mutation.payload['id'] as String,
@@ -1893,12 +2257,20 @@ class PosRepository {
 
             case 'sale_return':
               final saleReturn = SaleReturnModel.fromMap(mutation.payload);
+              if (await _isSaleSyncPending(saleReturn.originalSaleId)) {
+                remaining.add(mutation);
+                break;
+              }
               await _syncReturnRemote(saleReturn);
               await _markReturnSynced(saleReturn.id);
               break;
 
             case 'sale_return_approval':
               final saleReturn = SaleReturnModel.fromMap(mutation.payload);
+              if (await _isSaleSyncPending(saleReturn.originalSaleId)) {
+                remaining.add(mutation);
+                break;
+              }
               await _syncReturnRemote(saleReturn);
               await _markReturnSynced(saleReturn.id);
               break;
@@ -1917,6 +2289,10 @@ class PosRepository {
               remaining.add(mutation);
           }
         } catch (e) {
+          if (_isMissingDeferredSchema(e)) {
+            remaining.add(mutation);
+            continue;
+          }
           debugPrint('Failed to sync mutation: ${mutation.type}, error: $e');
           remaining.add(mutation);
         }

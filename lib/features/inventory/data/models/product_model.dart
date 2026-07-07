@@ -133,4 +133,8 @@ class ProductModel {
     'branch_threshold': branchThreshold,
     'category_threshold': categoryThreshold,
   };
+
+  Object? copyWith({required int stock}) {
+    return null;
+  }
 }

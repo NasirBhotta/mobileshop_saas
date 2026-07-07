@@ -7,6 +7,9 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../../../features/auth/presentation/providers/auth_provider.dart';
+import '../../../../features/dashboard/presentation/providers/dashboard_provider.dart';
+import '../../../../features/inventory/presentation/providers/inventory_provider.dart';
+import '../../../../features/pos/presentation/providers/pos_provider.dart';
 import '../../../../shared/providers/navigation_loading_provider.dart';
 import '../../../../shared/widgets/logout_action.dart';
 import '../../data/models/shop_setup_model.dart';
@@ -166,6 +169,18 @@ class _BranchSelectionScreenState extends ConsumerState<BranchSelectionScreen> {
           .read(setupFlowRepositoryProvider)
           .selectBranch(userId: user.id, branchId: branchId);
       ref.invalidate(setupFlowStatusProvider);
+      ref.invalidate(selectedBranchIdProvider);
+      ref.invalidate(dashboardStatsProvider);
+      ref.invalidate(allProductsProvider);
+      ref.invalidate(productsProvider);
+      ref.invalidate(categoriesProvider);
+      ref.invalidate(salesHistoryProvider);
+      ref.invalidate(heldCartsProvider);
+      ref.invalidate(customersProvider);
+      ref.invalidate(pendingReturnsProvider);
+      ref.invalidate(approvedReturnsProvider);
+      ref.invalidate(returnDraftProvider);
+      ref.invalidate(returnControllerProvider);
 
       if (context.mounted) {
         ref.read(navigationLoadingProvider.notifier).showFor();

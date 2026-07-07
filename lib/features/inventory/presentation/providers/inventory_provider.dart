@@ -140,7 +140,7 @@ final selectedCategoryProvider = StateProvider<String?>((ref) => null);
 
 // Products list
 final allProductsProvider = FutureProvider<List<ProductModel>>((ref) async {
-  await ref.watch(setupFlowStatusProvider.future);
+  await ref.watch(selectedBranchIdProvider.future);
   return ref.read(inventoryRepositoryProvider).fetchProducts();
 });
 
@@ -150,7 +150,7 @@ final productsProvider = FutureProvider<List<ProductModel>>((ref) async {
     return ref.watch(allProductsProvider.future);
   }
 
-  await ref.watch(setupFlowStatusProvider.future);
+  await ref.watch(selectedBranchIdProvider.future);
   return ref
       .read(inventoryRepositoryProvider)
       .fetchProducts(categoryId: categoryId);
@@ -158,7 +158,7 @@ final productsProvider = FutureProvider<List<ProductModel>>((ref) async {
 
 // Categories list
 final categoriesProvider = FutureProvider<List<CategoryModel>>((ref) async {
-  await ref.watch(setupFlowStatusProvider.future);
+  await ref.watch(selectedBranchIdProvider.future);
   return ref.read(inventoryRepositoryProvider).fetchCategories();
 });
 

@@ -433,18 +433,12 @@ class OfflineStore {
     required String productId,
     required int quantity,
   }) async {
-    try {
-      await LocalStore.decrementStock(
-        branchId: branchId,
-        productId: productId,
-        quantity: quantity,
-      );
-    } catch (_) {}
-
     final products = await loadProducts(branchId);
+    var productFound = false;
     final updated =
         products.map((p) {
           if (p.id != productId) return p;
+          productFound = true;
           final newStock = ((p.stock - quantity).clamp(0, 999999)).toInt();
           return ProductModel(
             id: p.id,
@@ -465,7 +459,19 @@ class OfflineStore {
             categoryThreshold: p.categoryThreshold,
           );
         }).toList();
-    await saveProducts(branchId, updated);
+
+    if (productFound) {
+      await saveProducts(branchId, updated);
+      return;
+    }
+
+    try {
+      await LocalStore.decrementStock(
+        branchId: branchId,
+        productId: productId,
+        quantity: quantity,
+      );
+    } catch (_) {}
   }
 
   // ════════════════════════════════════════
@@ -477,18 +483,12 @@ class OfflineStore {
     required String productId,
     required int quantity,
   }) async {
-    try {
-      await LocalStore.incrementStock(
-        branchId: branchId,
-        productId: productId,
-        quantity: quantity,
-      );
-    } catch (_) {}
-
     final products = await loadProducts(branchId);
+    var productFound = false;
     final updated =
         products.map((p) {
           if (p.id != productId) return p;
+          productFound = true;
           final newStock = ((p.stock + quantity).clamp(0, 999999)).toInt();
           return ProductModel(
             id: p.id,
@@ -509,7 +509,19 @@ class OfflineStore {
             categoryThreshold: p.categoryThreshold,
           );
         }).toList();
-    await saveProducts(branchId, updated);
+
+    if (productFound) {
+      await saveProducts(branchId, updated);
+      return;
+    }
+
+    try {
+      await LocalStore.incrementStock(
+        branchId: branchId,
+        productId: productId,
+        quantity: quantity,
+      );
+    } catch (_) {}
   }
 
   static Future<void> saveHeldCart(HeldCartModel cart) async {

@@ -204,7 +204,28 @@ class CartPanel extends ConsumerWidget {
     if (sale != null && context.mounted) {
       // Sale complete screen pe jao
       context.go('/pos/complete', extra: sale);
+      return;
     }
+
+    if (context.mounted) {
+      final error = ref.read(checkoutControllerProvider).error;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _friendlyCheckoutError(error?.toString() ?? 'Checkout nahi hua'),
+          ),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  String _friendlyCheckoutError(String message) {
+    return message
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('PostgrestException(message: ', '')
+        .split(', code:')
+        .first;
   }
 }
 
@@ -271,6 +292,7 @@ class _PaymentSummary extends ConsumerWidget {
                 final payment =
                     cart.payments.where((p) => p.method == method).firstOrNull;
                 final isSelected = payment != null;
+                final color = _methodColor(method);
 
                 return Expanded(
                   child: GestureDetector(
@@ -281,12 +303,11 @@ class _PaymentSummary extends ConsumerWidget {
                       decoration: BoxDecoration(
                         color:
                             isSelected
-                                ? AppColors.primary.withValues(alpha: 0.1)
+                                ? color.withValues(alpha: 0.12)
                                 : AppColors.surfaceVariant,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color:
-                              isSelected ? AppColors.primary : AppColors.border,
+                          color: isSelected ? color : AppColors.border,
                         ),
                       ),
                       child: Column(
@@ -294,10 +315,7 @@ class _PaymentSummary extends ConsumerWidget {
                           Icon(
                             _methodIcon(method),
                             size: 18,
-                            color:
-                                isSelected
-                                    ? AppColors.primary
-                                    : AppColors.textHint,
+                            color: isSelected ? color : AppColors.textHint,
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -307,10 +325,7 @@ class _PaymentSummary extends ConsumerWidget {
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
-                              color:
-                                  isSelected
-                                      ? AppColors.primary
-                                      : AppColors.textHint,
+                              color: isSelected ? color : AppColors.textHint,
                             ),
                           ),
                         ],
@@ -396,6 +411,21 @@ class _PaymentSummary extends ConsumerWidget {
         return Icons.credit_card_rounded;
       case PaymentMethod.credit:
         return Icons.account_balance_wallet_rounded;
+    }
+  }
+
+  Color _methodColor(PaymentMethod method) {
+    switch (method) {
+      case PaymentMethod.cash:
+        return AppColors.success;
+      case PaymentMethod.easypaisa:
+        return AppColors.secondary;
+      case PaymentMethod.jazzcash:
+        return AppColors.warning;
+      case PaymentMethod.card:
+        return AppColors.primary;
+      case PaymentMethod.credit:
+        return AppColors.error;
     }
   }
 }

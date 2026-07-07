@@ -18,6 +18,22 @@ final setupFlowStatusProvider = FutureProvider<SetupFlowStatus>((ref) async {
   return ref.read(setupFlowRepositoryProvider).loadStatus(user.id);
 });
 
+final selectedBranchIdProvider = FutureProvider<String>((ref) async {
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) throw Exception('User not logged in');
+
+  final status = await ref.watch(setupFlowStatusProvider.future);
+  final cachedBranchId = await OfflineStore.loadSelectedBranchId(user.id);
+  final profileBranchId = status.profile?['branch_id'] as String?;
+  final singleBranchId =
+      status.branches.length == 1 ? status.branches.first.id : null;
+  final branchId = cachedBranchId ?? profileBranchId ?? singleBranchId;
+  if (branchId == null || branchId.isEmpty) {
+    throw Exception('Branch select karein');
+  }
+  return branchId;
+});
+
 enum SetupRouteTarget { setup, branchSelection, dashboard }
 
 class SetupFlowStatus {

@@ -955,28 +955,22 @@ class InventoryRepository {
     required double percentage,
     required String direction,
   }) async {
-    final productIds = products.map((product) => product.id).toList();
-
-    try {
-      final updatedCount = await _client
-          .rpc(
-            'bulk_update_product_prices',
-            params: {
-              'p_product_ids': productIds,
-              'p_percentage': percentage,
-              'p_direction': direction,
-            },
-          )
-          .timeout(_networkTimeout);
-
-      return (updatedCount as num).toInt();
-    } catch (_) {
-      return _bulkUpdateProductPricesDirectly(
-        products: products,
-        percentage: percentage,
-        direction: direction,
-      );
-    }
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    final branchProducts =
+        products
+            .where(
+              (product) =>
+                  product.branchId == branchId &&
+                  (product.tenantId.isEmpty || product.tenantId == tenantId),
+            )
+            .toList();
+    if (branchProducts.isEmpty) return 0;
+    return _bulkUpdateProductPricesDirectly(
+      products: branchProducts,
+      percentage: percentage,
+      direction: direction,
+    );
   }
 
   Future<int> _bulkUpdateProductPricesDirectly({
@@ -1041,10 +1035,12 @@ class InventoryRepository {
   Future<List<PriceHistoryModel>> fetchPriceHistory(String productId) async {
     try {
       final tenantId = await _currentTenantId();
+      final branchId = await _currentBranchId(tenantId);
       final data = await _client
           .from('product_price_history')
           .select()
           .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
           .eq('product_id', productId)
           .order('changed_at', ascending: false)
           .limit(50)
@@ -1058,6 +1054,7 @@ class InventoryRepository {
 
   Future<bool> productHasActiveImeiUnits(String productId) async {
     try {
+      await fetchProduct(productId);
       final hasUnits = await _client
           .rpc(
             'product_has_active_imei_units',

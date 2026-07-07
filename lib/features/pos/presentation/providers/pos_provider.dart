@@ -10,6 +10,8 @@ import '../../data/models/sale_model.dart';
 import '../../data/models/sale_payment_model.dart';
 import '../../data/models/sale_return_model.dart';
 import '../../data/repositories/pos_repository.dart';
+import '../../../inventory/presentation/providers/inventory_provider.dart';
+import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 
 // ── Repository Provider ──
 final posRepositoryProvider = Provider<PosRepository>((ref) {
@@ -90,6 +92,13 @@ final cartProvider = StateNotifierProvider<CartNotifier, CartState>((ref) {
 class CartNotifier extends StateNotifier<CartState> {
   CartNotifier() : super(const CartState());
 
+  int _stockSafeQuantity(CartItemModel item, int quantity) {
+    final availableStock = item.availableStock;
+    if (availableStock == null) return quantity;
+    if (availableStock <= 0) return 0;
+    return quantity.clamp(1, availableStock).toInt();
+  }
+
   // ── Item Operations ──────────────────────────────
 
   // Product add karo cart mein
@@ -101,11 +110,24 @@ class CartNotifier extends StateNotifier<CartState> {
     if (existing != -1) {
       // Already hai → quantity badha do
       final updated = List<CartItemModel>.from(state.items);
-      updated[existing] = updated[existing].incrementQty();
+      final current = updated[existing];
+      final stockAware = current.copyWith(
+        availableStock: current.availableStock ?? item.availableStock,
+      );
+      updated[existing] = stockAware.copyWith(
+        quantity: _stockSafeQuantity(
+          stockAware,
+          current.quantity + item.quantity,
+        ),
+      );
       state = state.copyWith(items: updated);
     } else {
       // Naya item add karo
-      state = state.copyWith(items: [...state.items, item]);
+      final safeQuantity = _stockSafeQuantity(item, item.quantity);
+      if (safeQuantity <= 0) return;
+      state = state.copyWith(
+        items: [...state.items, item.copyWith(quantity: safeQuantity)],
+      );
     }
   }
 
@@ -113,7 +135,11 @@ class CartNotifier extends StateNotifier<CartState> {
   void incrementItem(String productId) {
     final updated =
         state.items.map((item) {
-          return item.productId == productId ? item.incrementQty() : item;
+          return item.productId == productId
+              ? item.copyWith(
+                quantity: _stockSafeQuantity(item, item.quantity + 1),
+              )
+              : item;
         }).toList();
     state = state.copyWith(items: updated);
   }
@@ -165,7 +191,7 @@ class CartNotifier extends StateNotifier<CartState> {
     final updated =
         state.items.map((item) {
           return item.productId == productId
-              ? item.copyWith(quantity: quantity)
+              ? item.copyWith(quantity: _stockSafeQuantity(item, quantity))
               : item;
         }).toList();
     state = state.copyWith(items: updated);
@@ -303,6 +329,9 @@ class CheckoutController extends StateNotifier<AsyncValue<SaleModel?>> {
 
       // Sales history refresh
       _ref.invalidate(salesHistoryProvider);
+      _ref.invalidate(approvedReturnsProvider);
+      _ref.invalidate(allProductsProvider);
+      _ref.invalidate(productsProvider);
 
       state = AsyncData(sale);
       return sale;
@@ -362,12 +391,14 @@ class CheckoutController extends StateNotifier<AsyncValue<SaleModel?>> {
 }
 
 // ── Held Carts Provider ─────────────────────────────
-final heldCartsProvider = FutureProvider<List<HeldCartModel>>((ref) {
+final heldCartsProvider = FutureProvider<List<HeldCartModel>>((ref) async {
+  await ref.watch(selectedBranchIdProvider.future);
   return ref.read(posRepositoryProvider).fetchHeldCarts();
 });
 
 // ── Sales History Provider ──────────────────────────
-final salesHistoryProvider = FutureProvider<List<SaleModel>>((ref) {
+final salesHistoryProvider = FutureProvider<List<SaleModel>>((ref) async {
+  await ref.watch(selectedBranchIdProvider.future);
   return ref.read(posRepositoryProvider).fetchSales();
 });
 
@@ -441,20 +472,26 @@ class DiscountController extends StateNotifier<AsyncValue<void>> {
 final customerSearchQueryProvider = StateProvider<String>((ref) => '');
 
 final customerSearchProvider =
-    FutureProvider.family<List<CustomerModel>, String>((ref, query) {
+    FutureProvider.family<List<CustomerModel>, String>((ref, query) async {
       if (query.isEmpty) return Future.value([]);
+      await ref.watch(selectedBranchIdProvider.future);
       return ref.read(posRepositoryProvider).searchCustomers(query);
     });
 
 final customerListQueryProvider = StateProvider<String>((ref) => '');
 
-final customersProvider = FutureProvider<List<CustomerModel>>((ref) {
+final customersProvider = FutureProvider<List<CustomerModel>>((ref) async {
+  await ref.watch(selectedBranchIdProvider.future);
   final query = ref.watch(customerListQueryProvider);
   return ref.read(posRepositoryProvider).fetchCustomers(query: query);
 });
 
 final customerDashboardProvider =
-    FutureProvider.family<CustomerDashboardModel, String>((ref, customerId) {
+    FutureProvider.family<CustomerDashboardModel, String>((
+      ref,
+      customerId,
+    ) async {
+      await ref.watch(selectedBranchIdProvider.future);
       return ref.read(posRepositoryProvider).fetchCustomerDashboard(customerId);
     });
 
@@ -601,6 +638,7 @@ class ReturnDraftState {
 
 final returnDraftProvider =
     StateNotifierProvider<ReturnDraftNotifier, ReturnDraftState>((ref) {
+      ref.watch(selectedBranchIdProvider);
       return ReturnDraftNotifier(ref.read(posRepositoryProvider));
     });
 
@@ -648,11 +686,22 @@ final returnControllerProvider =
     StateNotifierProvider<ReturnController, AsyncValue<SaleReturnModel?>>((
       ref,
     ) {
+      ref.watch(selectedBranchIdProvider);
       return ReturnController(ref.read(posRepositoryProvider), ref);
     });
 
-final pendingReturnsProvider = FutureProvider<List<SaleReturnModel>>((ref) {
+final pendingReturnsProvider = FutureProvider<List<SaleReturnModel>>((
+  ref,
+) async {
+  await ref.watch(selectedBranchIdProvider.future);
   return ref.read(posRepositoryProvider).fetchPendingReturns();
+});
+
+final approvedReturnsProvider = FutureProvider<List<SaleReturnModel>>((
+  ref,
+) async {
+  await ref.watch(selectedBranchIdProvider.future);
+  return ref.read(posRepositoryProvider).fetchApprovedReturns();
 });
 
 class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
@@ -682,6 +731,10 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
       );
       _ref.invalidate(salesHistoryProvider);
       _ref.invalidate(pendingReturnsProvider);
+      _ref.invalidate(approvedReturnsProvider);
+      _ref.invalidate(allProductsProvider);
+      _ref.invalidate(productsProvider);
+      _ref.invalidate(returnDraftProvider);
       state = AsyncData(result);
       return result;
     } catch (e, st) {
@@ -696,6 +749,9 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
       final result = await _repository.approveReturn(pendingReturn);
       _ref.invalidate(salesHistoryProvider);
       _ref.invalidate(pendingReturnsProvider);
+      _ref.invalidate(approvedReturnsProvider);
+      _ref.invalidate(allProductsProvider);
+      _ref.invalidate(productsProvider);
       state = AsyncData(result);
       return result;
     } catch (e, st) {
