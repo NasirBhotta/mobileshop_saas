@@ -365,6 +365,171 @@ class LocalDatabase {
       expires_at TEXT
     )
   ''');
+    // ════════════════════════════════════════
+    // INVENTORY UNITS / IMEI UNITS
+    // ════════════════════════════════════════
+    //
+    // Yeh table aik physical mobile/device ko represent karti hai.
+    // Product table sirf "Samsung A15" batata hai.
+    // inventory_units table us Samsung A15 ke exact IMEI piece ko track karti hai.
+    //
+    // Repair module mein ticket create hote hi IMEI unit ka status "in_repair"
+    // local DB mein bhi update hoga.
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS inventory_units (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        imei TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'available',
+        sale_id TEXT,
+        customer_id TEXT,
+        warranty_start_at TEXT,
+        warranty_end_at TEXT,
+        current_repair_ticket_id TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        UNIQUE(branch_id, imei)
+      )
+    ''');
+
+    // ════════════════════════════════════════
+    // REPAIR TICKETS
+    // ════════════════════════════════════════
+    //
+    // Yeh main repair job/order table hai.
+    // Customer ne device chhori, issue bataya, technician assign hua,
+    // estimate diya gaya — sab yahan save hoga.
+    //
+    // Offline mode mein bhi ticket yahin save hoga.
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS repair_tickets (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        ticket_no TEXT,
+        customer_id TEXT,
+        customer_name TEXT NOT NULL,
+        customer_phone TEXT,
+        product_id TEXT,
+        inventory_unit_id TEXT,
+        device_brand TEXT NOT NULL,
+        device_model TEXT NOT NULL,
+        device_color TEXT,
+        imei TEXT,
+        fault_description TEXT NOT NULL,
+        technician_id TEXT,
+        status TEXT NOT NULL DEFAULT 'received',
+        estimated_cost REAL,
+        estimated_completion_at TEXT,
+        estimate_note TEXT,
+        parts_cost REAL,
+        labor_cost REAL,
+        total_cost REAL,
+        warranty_reference TEXT,
+        warranty_note TEXT,
+        is_warranty_repair INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL,
+        completed_at TEXT,
+        delivered_at TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        UNIQUE(branch_id, ticket_no)
+      )
+    ''');
+
+    // ════════════════════════════════════════
+    // REPAIR STATUS LOGS
+    // ════════════════════════════════════════
+    //
+    // Har status change ka permanent local audit trail.
+    // Example:
+    // null -> received
+    // received -> diagnosed
+    // diagnosed -> in_progress
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS repair_status_logs (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        old_status TEXT,
+        new_status TEXT NOT NULL,
+        changed_by TEXT NOT NULL,
+        note TEXT,
+        created_at TEXT NOT NULL
+      )
+    ''');
+
+    // ════════════════════════════════════════
+    // REPAIR INDEXES
+    // ════════════════════════════════════════
+    //
+    // Indexes searches ko fast karte hain.
+    // Example:
+    // branch ke tickets load karna
+    // status wise filter karna
+    // IMEI se ticket find karna
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_inventory_units_branch
+      ON inventory_units(branch_id)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_inventory_units_product
+      ON inventory_units(product_id)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_inventory_units_imei
+      ON inventory_units(imei)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_inventory_units_status
+      ON inventory_units(status)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_repair_tickets_branch
+      ON repair_tickets(branch_id)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_repair_tickets_status
+      ON repair_tickets(status)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_repair_tickets_customer
+      ON repair_tickets(customer_id)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_repair_tickets_technician
+      ON repair_tickets(technician_id)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_repair_tickets_imei
+      ON repair_tickets(imei)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_repair_tickets_created_at
+      ON repair_tickets(created_at)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_repair_status_logs_ticket
+      ON repair_status_logs(ticket_id, created_at)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_repair_status_logs_branch
+      ON repair_status_logs(branch_id)
+    ''');
 
     // Indexes
     await _db.customStatement('''
