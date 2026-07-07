@@ -1,3 +1,6 @@
+import 'dart:ui' show PointerDeviceKind;
+
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,11 +18,7 @@ class RepairsListScreen extends ConsumerWidget {
     final syncState = ref.watch(repairSyncControllerProvider);
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'Back',
-          onPressed: () => _leaveRepairs(context),
-          icon: const Icon(Icons.arrow_back),
-        ),
+        automaticallyImplyLeading: false,
         title: const Text('Repairs'),
         actions: [
           IconButton(
@@ -138,15 +137,6 @@ class RepairsListScreen extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  static void _leaveRepairs(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
-      return;
-    }
-
-    context.go('/dashboard');
   }
 
   static void _showTicketDetails(
@@ -269,6 +259,9 @@ class _RepairTicketDetailsState extends State<_RepairTicketDetails> {
   @override
   Widget build(BuildContext context) {
     final ticket = widget.ticket;
+    final imei = ticket.imei?.trim();
+    final estimatedCost = ticket.estimatedCost;
+    final totalCost = ticket.totalCost;
     final statuses = _nextStatuses(ticket.status);
     final selectedStatus = _selectedStatus;
     final needsAmount = selectedStatus == RepairTicketStatus.completed;
@@ -310,17 +303,17 @@ class _RepairTicketDetailsState extends State<_RepairTicketDetails> {
                     value: '${ticket.deviceBrand} ${ticket.deviceModel}',
                   ),
                   _DetailLine(label: 'Status', value: ticket.status.label),
-                  if (ticket.imei != null && ticket.imei!.trim().isNotEmpty)
-                    _DetailLine(label: 'IMEI', value: ticket.imei!),
-                  if (ticket.estimatedCost != null)
+                  if (imei != null && imei.isNotEmpty)
+                    _DetailLine(label: 'IMEI', value: imei),
+                  if (estimatedCost != null)
                     _DetailLine(
                       label: 'Estimate',
-                      value: 'Rs ${ticket.estimatedCost!.toStringAsFixed(0)}',
+                      value: 'Rs ${estimatedCost.toStringAsFixed(0)}',
                     ),
-                  if (ticket.totalCost != null)
+                  if (totalCost != null)
                     _DetailLine(
                       label: 'Final Amount',
-                      value: 'Rs ${ticket.totalCost!.toStringAsFixed(0)}',
+                      value: 'Rs ${totalCost.toStringAsFixed(0)}',
                     ),
                 ],
               ),
@@ -482,13 +475,28 @@ class _DetailLine extends StatelessWidget {
   }
 }
 
-class _RepairStatusFilterBar extends StatelessWidget {
+class _RepairStatusFilterBar extends StatefulWidget {
   final RepairTicketStatus? selectedStatus;
   final ValueChanged<RepairTicketStatus?> onChanged;
+
   const _RepairStatusFilterBar({
     required this.selectedStatus,
     required this.onChanged,
   });
+
+  @override
+  State<_RepairStatusFilterBar> createState() => _RepairStatusFilterBarState();
+}
+
+class _RepairStatusFilterBarState extends State<_RepairStatusFilterBar> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final statuses = <RepairTicketStatus?>[
@@ -503,24 +511,64 @@ class _RepairStatusFilterBar extends StatelessWidget {
     ];
     return SizedBox(
       height: 56,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        itemCount: statuses.length,
-        separatorBuilder: (_, _) {
-          return const SizedBox(width: 8);
-        },
-        itemBuilder: (context, index) {
-          final status = statuses[index];
-          final isSelected = selectedStatus == status;
-          return FilterChip(
-            selected: isSelected,
-            label: Text(status == null ? 'All' : status.label),
-            onSelected: (_) => onChanged(status),
+      child: Listener(
+        onPointerSignal: (event) {
+          if (event is! PointerScrollEvent || !_scrollController.hasClients) {
+            return;
+          }
+
+          final delta =
+              event.scrollDelta.dx == 0
+                  ? event.scrollDelta.dy
+                  : event.scrollDelta.dx;
+          final position = _scrollController.position;
+          final offset = (_scrollController.offset + delta).clamp(
+            position.minScrollExtent,
+            position.maxScrollExtent,
           );
+
+          _scrollController.jumpTo(offset);
         },
+        child: ScrollConfiguration(
+          behavior: const _StatusFilterScrollBehavior(),
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                for (final status in statuses) ...[
+                  FilterChip(
+                    selected: widget.selectedStatus == status,
+                    label: Text(status == null ? 'All' : status.label),
+                    onSelected: (_) => widget.onChanged(status),
+                  ),
+                  if (status != statuses.last) const SizedBox(width: 8),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
+  }
+}
+
+class _StatusFilterScrollBehavior extends MaterialScrollBehavior {
+  const _StatusFilterScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices {
+    return {
+      PointerDeviceKind.touch,
+      PointerDeviceKind.mouse,
+      PointerDeviceKind.stylus,
+      PointerDeviceKind.trackpad,
+      PointerDeviceKind.unknown,
+    };
   }
 }
 
@@ -531,10 +579,12 @@ class _RepairTicketCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final createdDate = _formatDate(ticket.createdAt);
+    final imei = ticket.imei?.trim();
+    final estimatedCost = ticket.estimatedCost;
     final estimate =
-        ticket.estimatedCost == null
+        estimatedCost == null
             ? null
-            : 'Est. Rs ${ticket.estimatedCost!.toStringAsFixed(0)}';
+            : 'Est. Rs ${estimatedCost.toStringAsFixed(0)}';
     return Card(
       elevation: 0,
       clipBehavior: Clip.antiAlias,
@@ -573,23 +623,21 @@ class _RepairTicketCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (ticket.imei != null && ticket.imei!.trim().isNotEmpty) ...[
+              if (imei != null && imei.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'IMEI: ${ticket.imei}',
+                  'IMEI: $imei',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
               const SizedBox(height: 8),
-              Expanded(
-                child: Text(
-                  ticket.faultDescription,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+              Text(
+                ticket.faultDescription,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 10),
               Row(
@@ -662,10 +710,11 @@ class _EmptyRepairsView extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) {
+    final status = selectedStatus;
     final text =
-        selectedStatus == null
+        status == null
             ? 'Abhi koi repair ticket nahi bana.'
-            : '${selectedStatus!.label} status mein koi repair ticket nahi hai.';
+            : '${status.label} status mein koi repair ticket nahi hai.';
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),

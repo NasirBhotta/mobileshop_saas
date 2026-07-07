@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
-import '../../../../shared/widgets/app_layout.dart';
 import '../providers/dashboard_provider.dart';
 import '../widgets/quick_action_button.dart';
 import '../widgets/stat_card.dart';
@@ -14,13 +13,9 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return AppLayout(
-      currentIndex: 0,
-      child:
-          Responsive.isDesktop(context)
-              ? const _DesktopDashboard()
-              : const _MobileDashboard(),
-    );
+    return Responsive.isDesktop(context)
+        ? const _DesktopDashboard()
+        : const _MobileDashboard();
   }
 }
 

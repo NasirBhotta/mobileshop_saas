@@ -502,12 +502,13 @@ class _DatePickerField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final selectedDate = value;
     final text =
-        value == null
+        selectedDate == null
             ? 'Select date'
-            : '${value!.day.toString().padLeft(2, '0')}-'
-                '${value!.month.toString().padLeft(2, '0')}-'
-                '${value!.year}';
+            : '${selectedDate.day.toString().padLeft(2, '0')}-'
+                '${selectedDate.month.toString().padLeft(2, '0')}-'
+                '${selectedDate.year}';
 
     return InkWell(
       onTap: enabled ? onTap : null,

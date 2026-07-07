@@ -11,7 +11,6 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../../../shared/providers/navigation_loading_provider.dart';
-import '../../../../shared/widgets/app_layout.dart';
 import '../providers/inventory_provider.dart';
 
 class InventoryScreen extends ConsumerWidget {
@@ -19,7 +18,7 @@ class InventoryScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return AppLayout(currentIndex: 2, child: _InventoryBody());
+    return _InventoryBody();
   }
 }
 

@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
-import '../../../../shared/widgets/app_layout.dart';
 import '../providers/pos_provider.dart';
 import '../widgets/cart_panel.dart';
 import '../widgets/product_search_panel.dart';
@@ -15,10 +14,7 @@ class PosScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return AppLayout(
-      currentIndex: 1, // POS tab
-      child: _PosBody(),
-    );
+    return _PosBody();
   }
 }
 

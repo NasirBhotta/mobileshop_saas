@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/utils/responsive.dart';
-import '../../../../shared/widgets/app_layout.dart';
 import '../../data/models/customer_model.dart';
 import '../providers/pos_provider.dart';
 
@@ -13,7 +12,7 @@ class CustomersScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return const AppLayout(currentIndex: 3, child: _CustomersBody());
+    return const _CustomersBody();
   }
 }
 
@@ -195,188 +194,185 @@ class CustomerDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dashboard = ref.watch(customerDashboardProvider(customer.id!));
-    return AppLayout(
-      currentIndex: 3,
-      child: Scaffold(
-        backgroundColor: AppColors.background,
-        appBar: AppBar(
-          title: Text(customer.fullName),
-          actions: [
-            IconButton(
-              onPressed:
-                  () => showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    showDragHandle: true,
-                    builder: (_) => _CreditLimitSheet(customerId: customer.id!),
-                  ),
-              icon: const Icon(Icons.account_balance_wallet_rounded),
-              tooltip: 'Credit limit',
-            ),
-          ],
-        ),
-        body: dashboard.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error:
-              (error, _) => Center(
-                child: Text(
-                  error.toString(),
-                  style: const TextStyle(color: AppColors.error),
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text(customer.fullName),
+        actions: [
+          IconButton(
+            onPressed:
+                () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  showDragHandle: true,
+                  builder: (_) => _CreditLimitSheet(customerId: customer.id!),
                 ),
+            icon: const Icon(Icons.account_balance_wallet_rounded),
+            tooltip: 'Credit limit',
+          ),
+        ],
+      ),
+      body: dashboard.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error:
+            (error, _) => Center(
+              child: Text(
+                error.toString(),
+                style: const TextStyle(color: AppColors.error),
               ),
-          data: (data) {
-            final limit = data.customer.creditLimit;
-            return RefreshIndicator(
-              onRefresh:
-                  () async =>
-                      ref.invalidate(customerDashboardProvider(customer.id!)),
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      _MetricCard(
-                        label: 'Lifetime Value',
-                        value: 'Rs ${data.lifetimeValue.toStringAsFixed(0)}',
-                        icon: Icons.trending_up_rounded,
-                      ),
-                      _MetricCard(
-                        label: 'Outstanding',
-                        value: 'Rs ${data.outstandingDues.toStringAsFixed(0)}',
-                        icon: Icons.payments_rounded,
-                        color:
-                            data.outstandingDues > 0
-                                ? AppColors.warning
-                                : AppColors.success,
-                      ),
-                      _MetricCard(
-                        label: 'Credit Limit',
-                        value:
-                            limit == null
-                                ? 'Not set'
-                                : 'Rs ${limit.toStringAsFixed(0)}',
-                        icon: Icons.speed_rounded,
-                      ),
-                      _MetricCard(
-                        label: 'Active Repairs',
-                        value: data.activeRepairTickets.toString(),
-                        icon: Icons.build_rounded,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.info.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: AppColors.info.withValues(alpha: 0.2),
-                      ),
+            ),
+        data: (data) {
+          final limit = data.customer.creditLimit;
+          return RefreshIndicator(
+            onRefresh:
+                () async =>
+                    ref.invalidate(customerDashboardProvider(customer.id!)),
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    _MetricCard(
+                      label: 'Lifetime Value',
+                      value: 'Rs ${data.lifetimeValue.toStringAsFixed(0)}',
+                      icon: Icons.trending_up_rounded,
                     ),
-                    child: const Text(
-                      'Credit limit max khata allowance hai. Khata sale checkout par outstanding mein add hoti hai; Settle Dues se customer ki payment record hoti hai aur outstanding kam hota hai.',
-                      style: TextStyle(
-                        color: AppColors.info,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    _MetricCard(
+                      label: 'Outstanding',
+                      value: 'Rs ${data.outstandingDues.toStringAsFixed(0)}',
+                      icon: Icons.payments_rounded,
+                      color:
+                          data.outstandingDues > 0
+                              ? AppColors.warning
+                              : AppColors.success,
+                    ),
+                    _MetricCard(
+                      label: 'Credit Limit',
+                      value:
+                          limit == null
+                              ? 'Not set'
+                              : 'Rs ${limit.toStringAsFixed(0)}',
+                      icon: Icons.speed_rounded,
+                    ),
+                    _MetricCard(
+                      label: 'Active Repairs',
+                      value: data.activeRepairTickets.toString(),
+                      icon: Icons.build_rounded,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: AppColors.info.withValues(alpha: 0.2),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed:
-                          data.outstandingDues <= 0
-                              ? null
-                              : () => showModalBottomSheet<void>(
-                                context: context,
-                                isScrollControlled: true,
-                                showDragHandle: true,
-                                builder:
-                                    (_) => _SettleDuesSheet(
-                                      customerId: customer.id!,
-                                      outstanding: data.outstandingDues,
-                                    ),
-                              ),
-                      icon: const Icon(Icons.task_alt_rounded, size: 18),
-                      label: const Text('Settle Dues'),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Purchase History',
+                  child: const Text(
+                    'Credit limit max khata allowance hai. Khata sale checkout par outstanding mein add hoti hai; Settle Dues se customer ki payment record hoti hai aur outstanding kam hota hai.',
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
+                      color: AppColors.info,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  if (data.purchases.isEmpty)
-                    const Text(
-                      'No purchases found',
-                      style: TextStyle(color: AppColors.textSecondary),
-                    )
-                  else
-                    ...data.purchases.map(
-                      (sale) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          title: Text('Invoice ${sale.id ?? ''}'),
-                          subtitle: Text(
-                            sale.createdAt
-                                    ?.toLocal()
-                                    .toString()
-                                    .split('.')
-                                    .first ??
-                                '',
-                          ),
-                          trailing: Text(
-                            'Rs ${sale.total.toStringAsFixed(0)}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed:
+                        data.outstandingDues <= 0
+                            ? null
+                            : () => showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              showDragHandle: true,
+                              builder:
+                                  (_) => _SettleDuesSheet(
+                                    customerId: customer.id!,
+                                    outstanding: data.outstandingDues,
+                                  ),
+                            ),
+                    icon: const Icon(Icons.task_alt_rounded, size: 18),
+                    label: const Text('Settle Dues'),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Purchase History',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (data.purchases.isEmpty)
+                  const Text(
+                    'No purchases found',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  )
+                else
+                  ...data.purchases.map(
+                    (sale) => Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        title: Text('Invoice ${sale.id ?? ''}'),
+                        subtitle: Text(
+                          sale.createdAt
+                                  ?.toLocal()
+                                  .toString()
+                                  .split('.')
+                                  .first ??
+                              '',
+                        ),
+                        trailing: Text(
+                          'Rs ${sale.total.toStringAsFixed(0)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Settlements',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
-                    ),
                   ),
-                  const SizedBox(height: 8),
-                  if (data.settlements.isEmpty)
-                    const Text(
-                      'No settlements yet',
-                      style: TextStyle(color: AppColors.textSecondary),
-                    )
-                  else
-                    ...data.settlements.map(
-                      (settlement) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: const Icon(Icons.receipt_long_rounded),
-                          title: Text(
-                            'Rs ${settlement.amount.toStringAsFixed(0)}',
-                          ),
-                          subtitle: Text(
-                            '${settlement.method} • ${settlement.createdAt.toLocal().toString().split('.').first}',
-                          ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Settlements',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (data.settlements.isEmpty)
+                  const Text(
+                    'No settlements yet',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  )
+                else
+                  ...data.settlements.map(
+                    (settlement) => Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: const Icon(Icons.receipt_long_rounded),
+                        title: Text(
+                          'Rs ${settlement.amount.toStringAsFixed(0)}',
+                        ),
+                        subtitle: Text(
+                          '${settlement.method} • ${settlement.createdAt.toLocal().toString().split('.').first}',
                         ),
                       ),
                     ),
-                ],
-              ),
-            );
-          },
-        ),
+                  ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

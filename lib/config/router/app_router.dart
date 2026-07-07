@@ -24,6 +24,7 @@ import 'package:mobileshop_saas/features/pos/presentation/screens/return_screen.
 import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repair_form_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repairs_list_screen.dart';
+import 'package:mobileshop_saas/shared/widgets/app_layout.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -123,12 +124,43 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/select-branch',
         builder: (context, state) => const BranchSelectionScreen(),
       ),
-      GoRoute(
-        path: '/dashboard',
-        builder: (context, state) => const DashboardScreen(),
+      ShellRoute(
+        builder: (context, state, child) {
+          return AppLayout(
+            currentIndex: _shellIndexForLocation(state.uri.path),
+            child: child,
+          );
+        },
+        routes: [
+          GoRoute(
+            path: '/dashboard',
+            builder: (context, state) => const DashboardScreen(),
+          ),
+          GoRoute(
+            path: '/inventory',
+            builder: (_, _) => const InventoryScreen(),
+          ),
+          GoRoute(path: '/pos', builder: (_, _) => const PosScreen()),
+          GoRoute(
+            path: '/customers',
+            builder: (_, _) => const CustomersScreen(),
+          ),
+          GoRoute(
+            path: '/customers/detail',
+            builder: (context, state) {
+              final customer = state.extra;
+              if (customer is! CustomerModel) return const CustomersScreen();
+              return CustomerDetailScreen(customer: customer);
+            },
+          ),
+          GoRoute(
+            path: '/repairs',
+            builder: (context, state) {
+              return const RepairsListScreen();
+            },
+          ),
+        ],
       ),
-
-      GoRoute(path: '/inventory', builder: (_, _) => const InventoryScreen()),
       GoRoute(
         path: '/inventory/add',
         builder: (_, _) => const ProductFormScreen(),
@@ -149,12 +181,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             (context, state) =>
                 StockAdjustmentScreen(product: state.extra as ProductModel),
       ),
-
       GoRoute(
         path: '/inventory/import',
         builder: (_, _) => const CsvImportScreen(),
       ),
-      GoRoute(path: '/pos', builder: (_, _) => const PosScreen()),
       GoRoute(path: '/pos/return', builder: (_, _) => const ReturnScreen()),
       GoRoute(
         path: '/pos/reprint',
@@ -169,21 +199,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(path: '/pos/held', builder: (_, _) => const HeldCartsScreen()),
-      GoRoute(path: '/customers', builder: (_, _) => const CustomersScreen()),
-      GoRoute(
-        path: '/customers/detail',
-        builder: (context, state) {
-          final customer = state.extra;
-          if (customer is! CustomerModel) return const CustomersScreen();
-          return CustomerDetailScreen(customer: customer);
-        },
-      ),
-      GoRoute(
-        path: '/repairs',
-        builder: (context, state) {
-          return const RepairsListScreen();
-        },
-      ),
 
       GoRoute(
         path: '/repairs/new',
@@ -194,3 +209,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+int _shellIndexForLocation(String location) {
+  if (location.startsWith('/pos')) return 1;
+  if (location.startsWith('/inventory')) return 2;
+  if (location.startsWith('/customers')) return 3;
+  if (location.startsWith('/repairs')) return 4;
+  return 0;
+}
