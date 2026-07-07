@@ -22,6 +22,8 @@ import 'package:mobileshop_saas/features/pos/presentation/screens/pos_screen.dar
 import 'package:mobileshop_saas/features/pos/presentation/screens/receipt_reprint_screen.dart';
 import 'package:mobileshop_saas/features/pos/presentation/screens/return_screen.dart';
 import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
+import 'package:mobileshop_saas/features/repairs/presentation/screens/repair_form_screen.dart';
+import 'package:mobileshop_saas/features/repairs/presentation/screens/repairs_list_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -174,6 +176,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final customer = state.extra;
           if (customer is! CustomerModel) return const CustomersScreen();
           return CustomerDetailScreen(customer: customer);
+        },
+      ),
+      GoRoute(
+        path: '/repairs',
+        builder: (context, state) {
+          return const RepairsListScreen();
+        },
+      ),
+
+      GoRoute(
+        path: '/repairs/new',
+        builder: (context, state) {
+          return const RepairFormScreen();
         },
       ),
     ],

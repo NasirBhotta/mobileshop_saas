@@ -2,9 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 
-import '../data/models/repair_status_log_model.dart';
-import '../data/models/repair_ticket_model.dart';
-import '../data/repositories/repair_repository.dart';
+import '../../data/models/repair_status_log_model.dart';
+import '../../data/models/repair_ticket_model.dart';
+import '../../data/repositories/repair_repository.dart';
 
 /// Repository provider.
 ///
