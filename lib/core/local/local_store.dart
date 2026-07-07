@@ -1,11 +1,15 @@
 import 'dart:convert';
 
+import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/features/pos/data/models/cart_item_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/customer_dashboard_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/customer_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/held_cart_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/inventory_unit_model.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/repair_status_log_model.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
 
 import '../../features/inventory/data/models/category_model.dart';
 import '../../features/inventory/data/models/product_model.dart';
@@ -889,5 +893,336 @@ class LocalStore {
               ? DateTime.parse(row['created_at'] as String)
               : null,
     );
+  }
+
+  // ════════════════════════════════════════
+  // REPAIR MODULE - LOCAL SQLITE METHODS
+  // ════════════════════════════════════════
+  //
+  // Important:
+  // LocalDatabase sirf SQL execute/select karta hai.
+  // LocalStore app ko clean functions deta hai:
+  //
+  // saveRepairTicket()
+  // loadRepairTickets()
+  // saveRepairStatusLog()
+  // markInventoryUnitInRepair()
+  //
+  // Isse RepairRepository clean rahegi.
+
+  static Future<void> saveRepairTicket(RepairTicketModel ticket) async {
+    // Yeh method repair ticket ko local SQLite mein save karta hai.
+    //
+    // INSERT OR REPLACE ka matlab:
+    // - agar id pehle se nahi hai -> insert
+    // - agar id already hai -> replace/update
+    //
+    // Offline mode mein ticket pehle local save hoga,
+    // phir mutation queue se Supabase sync hoga.
+    await LocalDatabase.execute(
+      '''
+      INSERT OR REPLACE INTO repair_tickets(
+        id,
+        tenant_id,
+        branch_id,
+        ticket_no,
+        customer_id,
+        customer_name,
+        customer_phone,
+        product_id,
+        inventory_unit_id,
+        device_brand,
+        device_model,
+        device_color,
+        imei,
+        fault_description,
+        technician_id,
+        status,
+        estimated_cost,
+        estimated_completion_at,
+        estimate_note,
+        parts_cost,
+        labor_cost,
+        total_cost,
+        warranty_reference,
+        warranty_note,
+        is_warranty_repair,
+        created_by,
+        completed_at,
+        delivered_at,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ''',
+      [
+        ticket.id,
+        ticket.tenantId,
+        ticket.branchId,
+        ticket.ticketNo,
+        ticket.customerId,
+        ticket.customerName,
+        ticket.customerPhone,
+        ticket.productId,
+        ticket.inventoryUnitId,
+        ticket.deviceBrand,
+        ticket.deviceModel,
+        ticket.deviceColor,
+        ticket.imei,
+        ticket.faultDescription,
+        ticket.technicianId,
+        ticket.status.code,
+        ticket.estimatedCost,
+        ticket.estimatedCompletionAt?.toIso8601String(),
+        ticket.estimateNote,
+        ticket.partsCost,
+        ticket.laborCost,
+        ticket.totalCost,
+        ticket.warrantyReference,
+        ticket.warrantyNote,
+        ticket.isWarrantyRepair ? 1 : 0,
+        ticket.createdBy,
+        ticket.completedAt?.toIso8601String(),
+        ticket.deliveredAt?.toIso8601String(),
+        ticket.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+        ticket.updatedAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+      ],
+    );
+  }
+
+  static Future<List<RepairTicketModel>> loadRepairTickets(
+    String branchId, {
+    RepairTicketStatus? status,
+    int limit = 100,
+  }) async {
+    // Branch ke repair tickets load karta hai.
+    //
+    // Agar status null hai:
+    //   saare tickets
+    //
+    // Agar status given hai:
+    //   sirf us status ke tickets
+    //
+    // Example:
+    // loadRepairTickets(branchId, status: RepairTicketStatus.received)
+    if (status == null) {
+      final rows = await LocalDatabase.select(
+        '''
+        SELECT *
+        FROM repair_tickets
+        WHERE branch_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        ''',
+        [branchId, limit],
+      );
+
+      return rows.map(RepairTicketModel.fromMap).toList();
+    }
+
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT *
+      FROM repair_tickets
+      WHERE branch_id = ?
+        AND status = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+      ''',
+      [branchId, status.code, limit],
+    );
+
+    return rows.map(RepairTicketModel.fromMap).toList();
+  }
+
+  static Future<RepairTicketModel?> loadRepairTicketById(
+    String ticketId,
+  ) async {
+    // Specific ticket detail screen ke liye.
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT *
+      FROM repair_tickets
+      WHERE id = ?
+      LIMIT 1
+      ''',
+      [ticketId],
+    );
+
+    return rows.isEmpty ? null : RepairTicketModel.fromMap(rows.first);
+  }
+
+  static Future<void> saveRepairStatusLog(RepairStatusLogModel log) async {
+    // Har status change ka audit log local SQLite mein save hota hai.
+    //
+    // Example:
+    // old_status = received
+    // new_status = diagnosed
+    await LocalDatabase.execute(
+      '''
+      INSERT OR REPLACE INTO repair_status_logs(
+        id,
+        ticket_id,
+        tenant_id,
+        branch_id,
+        old_status,
+        new_status,
+        changed_by,
+        note,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ''',
+      [
+        log.id,
+        log.ticketId,
+        log.tenantId,
+        log.branchId,
+        log.oldStatus?.code,
+        log.newStatus.code,
+        log.changedBy,
+        log.note,
+        log.createdAt.toIso8601String(),
+      ],
+    );
+  }
+
+  static Future<List<RepairStatusLogModel>> loadRepairStatusLogs(
+    String ticketId,
+  ) async {
+    // Ticket ki full timeline/history load karta hai.
+    //
+    // UI mein:
+    // Received -> Diagnosed -> In Progress ...
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT *
+      FROM repair_status_logs
+      WHERE ticket_id = ?
+      ORDER BY created_at DESC
+      ''',
+      [ticketId],
+    );
+
+    return rows.map(RepairStatusLogModel.fromMap).toList();
+  }
+
+  static Future<void> upsertInventoryUnit(InventoryUnitModel unit) async {
+    // IMEI/unit ko local DB mein save/update karta hai.
+    //
+    // Repair create hote waqt agar IMEI diya gaya hai,
+    // to local inventory unit ka status "in_repair" save hoga.
+    await LocalDatabase.execute(
+      '''
+      INSERT OR REPLACE INTO inventory_units(
+        id,
+        tenant_id,
+        branch_id,
+        product_id,
+        imei,
+        status,
+        sale_id,
+        customer_id,
+        warranty_start_at,
+        warranty_end_at,
+        current_repair_ticket_id,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ''',
+      [
+        unit.id,
+        unit.tenantId,
+        unit.branchId,
+        unit.productId,
+        unit.imei,
+        unit.status.code,
+        unit.saleId,
+        unit.customerId,
+        unit.warrantyStartAt?.toIso8601String(),
+        unit.warrantyEndAt?.toIso8601String(),
+        unit.currentRepairTicketId,
+        unit.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+        unit.updatedAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+      ],
+    );
+  }
+
+  static Future<InventoryUnitModel?> loadInventoryUnitByImei({
+    required String branchId,
+    required String imei,
+  }) async {
+    // IMEI se local unit find karta hai.
+    //
+    // Use case:
+    // customer IMEI deta hai -> app check karegi ke yeh unit pehle se known hai ya nahi.
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT *
+      FROM inventory_units
+      WHERE branch_id = ?
+        AND imei = ?
+      LIMIT 1
+      ''',
+      [branchId, imei],
+    );
+
+    return rows.isEmpty ? null : InventoryUnitModel.fromMap(rows.first);
+  }
+
+  static Future<void> markInventoryUnitInRepair({
+    required String branchId,
+    required String imei,
+    required String ticketId,
+  }) async {
+    // Agar IMEI unit local DB mein already exist karti hai,
+    // to uska status in_repair kar do.
+    //
+    // Agar unit exist nahi karti, repository later new unit create karegi.
+    await LocalDatabase.execute(
+      '''
+      UPDATE inventory_units
+      SET status = ?,
+          current_repair_ticket_id = ?,
+          updated_at = ?
+      WHERE branch_id = ?
+        AND imei = ?
+      ''',
+      [
+        InventoryUnitStatus.inRepair.code,
+        ticketId,
+        DateTime.now().toIso8601String(),
+        branchId,
+        imei,
+      ],
+    );
+  }
+
+  static Future<void> saveRepairTicketWithInitialLog({
+    required RepairTicketModel ticket,
+    required RepairStatusLogModel log,
+    InventoryUnitModel? inventoryUnit,
+  }) async {
+    // Yeh helper create ticket flow ke liye hai.
+    //
+    // Create repair ticket mein 3 local actions ek saath hoti hain:
+    // 1. ticket save
+    // 2. initial status log save
+    // 3. optional IMEI unit save/update
+    //
+    // Isse repository mein code clean rahega.
+    await saveRepairTicket(ticket);
+    await saveRepairStatusLog(log);
+
+    if (inventoryUnit != null) {
+      await upsertInventoryUnit(inventoryUnit);
+    } else if (ticket.imei != null && ticket.imei!.trim().isNotEmpty) {
+      await markInventoryUnitInRepair(
+        branchId: ticket.branchId,
+        imei: ticket.imei!.trim(),
+        ticketId: ticket.id,
+      );
+    }
   }
 }

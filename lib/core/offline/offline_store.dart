@@ -1,10 +1,14 @@
 import 'dart:convert';
 
+import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/features/pos/data/models/cart_item_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/customer_dashboard_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/customer_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/held_cart_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_model.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/inventory_unit_model.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/repair_status_log_model.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/inventory/data/models/category_model.dart';
@@ -60,6 +64,18 @@ class OfflineStore {
   static String _heldCartsKey(String branchId) =>
       'offline.held_carts.$branchId';
 
+  // Repair module cache keys.
+  //
+  // Branch based keys isliye hain kyunki har branch ke repair tickets
+  // alag-alag dikhne chahiye.
+  static String _repairTicketsKey(String branchId) =>
+      'offline.repair_tickets.$branchId';
+
+  static String _repairStatusLogsKey(String ticketId) =>
+      'offline.repair_status_logs.$ticketId';
+
+  static String _inventoryUnitsKey(String branchId) =>
+      'offline.inventory_units.$branchId';
   static Future<void> saveProfile(
     String userId,
     Map<String, dynamic> profile,
@@ -734,4 +750,256 @@ class OfflineStore {
     'sale_items': sale.items.map((i) => i.toMap()).toList(),
     'sale_payments': sale.payments.map((p) => p.toMap()).toList(),
   };
+
+  // ════════════════════════════════════════
+  // REPAIR MODULE
+  // ════════════════════════════════════════
+  //
+  // OfflineStore ka role:
+  // 1. SQLite mein save/load try karo.
+  // 2. SharedPreferences fallback maintain karo.
+  // 3. Repository ko simple methods do.
+  //
+  // Important:
+  // Offline mutation queue already generic hai:
+  // enqueueMutation(userId, type, payload)
+  //
+  // RepairRepository later type use karegi:
+  // type: 'upsert_repair_ticket'
+
+  static Future<void> saveRepairTicket(RepairTicketModel ticket) async {
+    // Step 1: SQLite mein save karne ki koshish.
+    //
+    // Agar SQLite available hai to yahi main local source hoga.
+    try {
+      await LocalStore.saveRepairTicket(ticket);
+    } catch (_) {}
+
+    // Step 2: SharedPreferences fallback update karo.
+    //
+    // Yeh backup hai. Agar local DB mein issue ho jaye,
+    // phir bhi app cached repair tickets dikha sakti hai.
+    final tickets = await loadRepairTickets(ticket.branchId);
+
+    final updated = [
+      for (final item in tickets)
+        if (item.id != ticket.id) item,
+      ticket,
+    ]..sort((a, b) {
+      final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bDate.compareTo(aDate);
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _repairTicketsKey(ticket.branchId),
+      jsonEncode(updated.map((ticket) => ticket.toCacheMap()).toList()),
+    );
+  }
+
+  static Future<List<RepairTicketModel>> loadRepairTickets(
+    String branchId, {
+    RepairTicketStatus? status,
+    int limit = 100,
+  }) async {
+    // Step 1: SQLite se load karo.
+    try {
+      final tickets = await LocalStore.loadRepairTickets(
+        branchId,
+        status: status,
+        limit: limit,
+      );
+
+      if (tickets.isNotEmpty) {
+        return tickets;
+      }
+    } catch (_) {}
+
+    // Step 2: SharedPreferences fallback.
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_repairTicketsKey(branchId));
+
+    if (raw == null) return [];
+
+    final tickets =
+        (jsonDecode(raw) as List)
+            .map(
+              (row) => RepairTicketModel.fromMap(
+                Map<String, dynamic>.from(row as Map),
+              ),
+            )
+            .toList();
+
+    if (status == null) {
+      return tickets.take(limit).toList();
+    }
+
+    return tickets
+        .where((ticket) => ticket.status == status)
+        .take(limit)
+        .toList();
+  }
+
+  static Future<RepairTicketModel?> loadRepairTicketById(
+    String ticketId,
+  ) async {
+    // Detail screen ke liye direct SQLite lookup.
+    try {
+      final ticket = await LocalStore.loadRepairTicketById(ticketId);
+      if (ticket != null) return ticket;
+    } catch (_) {}
+
+    // SharedPreferences fallback mein branchId ke bina specific ticket
+    // dhoondhna mushkil hota hai, isliye repository normally list se detail
+    // pass karegi. Later agar zaroorat hui to branchId wala overload bana lenge.
+    return null;
+  }
+
+  static Future<void> saveRepairStatusLog(RepairStatusLogModel log) async {
+    // Status log SQLite mein save karo.
+    try {
+      await LocalStore.saveRepairStatusLog(log);
+    } catch (_) {}
+
+    // SharedPreferences fallback update.
+    final logs = await loadRepairStatusLogs(log.ticketId);
+
+    final updated = [
+      for (final item in logs)
+        if (item.id != log.id) item,
+      log,
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _repairStatusLogsKey(log.ticketId),
+      jsonEncode(updated.map((log) => log.toCacheMap()).toList()),
+    );
+  }
+
+  static Future<List<RepairStatusLogModel>> loadRepairStatusLogs(
+    String ticketId,
+  ) async {
+    // Pehle SQLite.
+    try {
+      final logs = await LocalStore.loadRepairStatusLogs(ticketId);
+      if (logs.isNotEmpty) return logs;
+    } catch (_) {}
+
+    // Phir SharedPreferences fallback.
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_repairStatusLogsKey(ticketId));
+
+    if (raw == null) return [];
+
+    return (jsonDecode(raw) as List)
+        .map(
+          (row) => RepairStatusLogModel.fromMap(
+            Map<String, dynamic>.from(row as Map),
+          ),
+        )
+        .toList();
+  }
+
+  static Future<void> upsertInventoryUnit(InventoryUnitModel unit) async {
+    // IMEI unit SQLite mein save/update.
+    try {
+      await LocalStore.upsertInventoryUnit(unit);
+    } catch (_) {}
+
+    // SharedPreferences fallback mein branch ke units list update.
+    final units = await loadInventoryUnits(unit.branchId);
+
+    final updated = [
+      for (final item in units)
+        if (item.id != unit.id && item.imei != unit.imei) item,
+      unit,
+    ];
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _inventoryUnitsKey(unit.branchId),
+      jsonEncode(updated.map((unit) => unit.toCacheMap()).toList()),
+    );
+  }
+
+  static Future<List<InventoryUnitModel>> loadInventoryUnits(
+    String branchId,
+  ) async {
+    // Abhi LocalStore mein full units list method nahi banaya,
+    // isliye fallback list SharedPreferences se load kar rahe hain.
+    //
+    // Future mein agar IMEI units screen banani hui to LocalStore.loadInventoryUnits()
+    // bhi add kar lenge.
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_inventoryUnitsKey(branchId));
+
+    if (raw == null) return [];
+
+    return (jsonDecode(raw) as List)
+        .map(
+          (row) =>
+              InventoryUnitModel.fromMap(Map<String, dynamic>.from(row as Map)),
+        )
+        .toList();
+  }
+
+  static Future<InventoryUnitModel?> loadInventoryUnitByImei({
+    required String branchId,
+    required String imei,
+  }) async {
+    // Step 1: SQLite mein IMEI find karo.
+    try {
+      final unit = await LocalStore.loadInventoryUnitByImei(
+        branchId: branchId,
+        imei: imei,
+      );
+      if (unit != null) return unit;
+    } catch (_) {}
+
+    // Step 2: SharedPreferences fallback.
+    final units = await loadInventoryUnits(branchId);
+    final normalizedImei = imei.trim();
+
+    for (final unit in units) {
+      if (unit.imei.trim() == normalizedImei) {
+        return unit;
+      }
+    }
+
+    return null;
+  }
+
+  static Future<void> saveRepairTicketWithInitialLog({
+    required RepairTicketModel ticket,
+    required RepairStatusLogModel log,
+    InventoryUnitModel? inventoryUnit,
+  }) async {
+    // Yeh create repair ticket ka local/offline bundle hai.
+    //
+    // Ismein 3 cheezen ek saath hoti hain:
+    //
+    // 1. repair ticket save
+    // 2. initial status log save
+    // 3. optional IMEI unit status in_repair save
+    //
+    // Supabase online mode mein trigger yeh kaam karega,
+    // lekin offline mode mein app ko khud local state maintain karni hoti hai.
+
+    try {
+      await LocalStore.saveRepairTicketWithInitialLog(
+        ticket: ticket,
+        log: log,
+        inventoryUnit: inventoryUnit,
+      );
+    } catch (_) {}
+
+    await saveRepairTicket(ticket);
+    await saveRepairStatusLog(log);
+
+    if (inventoryUnit != null) {
+      await upsertInventoryUnit(inventoryUnit);
+    }
+  }
 }
