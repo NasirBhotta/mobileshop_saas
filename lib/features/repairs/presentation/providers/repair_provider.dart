@@ -55,6 +55,13 @@ final repairTicketsProvider =
       return repository.fetchRepairTickets(status: status);
     });
 
+final allRepairTicketsProvider =
+    FutureProvider.autoDispose<List<RepairTicketModel>>((ref) async {
+      final repository = ref.read(repairRepositoryProvider);
+
+      return repository.fetchRepairTickets();
+    });
+
 /// Ticket status logs provider.
 ///
 /// Family provider isliye use kiya kyunki har ticket ke logs alag hain.
@@ -145,8 +152,40 @@ class RepairTicketController
       ///
       /// Warna UI old cached list dikha sakti hai.
       _ref.invalidate(repairTicketsProvider);
+      _ref.invalidate(allRepairTicketsProvider);
 
       return ticket;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return null;
+    }
+  }
+
+  Future<RepairTicketModel?> updateStatus({
+    required RepairTicketModel ticket,
+    required RepairTicketStatus status,
+    String? note,
+    double? totalCost,
+  }) async {
+    state = const AsyncLoading();
+
+    try {
+      final repository = _ref.read(repairRepositoryProvider);
+
+      final updatedTicket = await repository.updateRepairTicketStatus(
+        ticket: ticket,
+        status: status,
+        note: note,
+        totalCost: totalCost,
+      );
+
+      state = AsyncData(updatedTicket);
+
+      _ref.invalidate(repairTicketsProvider);
+      _ref.invalidate(allRepairTicketsProvider);
+      _ref.invalidate(repairStatusLogsProvider(ticket.id));
+
+      return updatedTicket;
     } catch (e, st) {
       state = AsyncError(e, st);
       return null;

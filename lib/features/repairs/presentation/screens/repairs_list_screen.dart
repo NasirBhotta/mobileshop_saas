@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
+import 'package:mobileshop_saas/core/utils/responsive.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/providers/repair_provider.dart';
 import '../../data/models/repair_ticket_model.dart';
 
@@ -14,6 +15,11 @@ class RepairsListScreen extends ConsumerWidget {
     final syncState = ref.watch(repairSyncControllerProvider);
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back',
+          onPressed: () => _leaveRepairs(context),
+          icon: const Icon(Icons.arrow_back),
+        ),
         title: const Text('Repairs'),
         actions: [
           IconButton(
@@ -99,7 +105,7 @@ class RepairsListScreen extends ConsumerWidget {
                               return _RepairTicketCard(
                                 ticket: ticket,
                                 onTap: () {
-                                  _showTicketPreview(context, ticket);
+                                  _showTicketDetails(context, ref, ticket);
                                 },
                               );
                             },
@@ -117,7 +123,7 @@ class RepairsListScreen extends ConsumerWidget {
                             return _RepairTicketCard(
                               ticket: ticket,
                               onTap: () {
-                                _showTicketPreview(context, ticket);
+                                _showTicketDetails(context, ref, ticket);
                               },
                             );
                           },
@@ -134,49 +140,344 @@ class RepairsListScreen extends ConsumerWidget {
     );
   }
 
-  static void _showTicketPreview(
+  static void _leaveRepairs(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+
+    context.go('/dashboard');
+  }
+
+  static void _showTicketDetails(
     BuildContext context,
+    WidgetRef ref,
     RepairTicketModel ticket,
   ) {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  ticket.ticketNo ?? 'Repair Ticket',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                Text('Customer: ${ticket.customerName}'),
-                Text('Device: ${ticket.deviceBrand} ${ticket.deviceModel}'),
-                Text('Status: ${ticket.status.label}'),
-                if (ticket.imei != null && ticket.imei!.trim().isNotEmpty)
-                  Text('IMEI: ${ticket.imei}'),
-                const SizedBox(height: 12),
-                Text(
-                  ticket.faultDescription,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close'),
-                ),
-              ],
+    final details = _RepairTicketDetails(
+      ticket: ticket,
+      onStatusChanged: ({required status, note, totalCost}) async {
+        final updatedTicket = await ref
+            .read(repairTicketControllerProvider.notifier)
+            .updateStatus(
+              ticket: ticket,
+              status: status,
+              note: note,
+              totalCost: totalCost,
+            );
+
+        if (updatedTicket == null) {
+          final state = ref.read(repairTicketControllerProvider);
+          final error =
+              state.asError?.error.toString() ?? 'Status update nahi ho saka';
+          if (context.mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(error)));
+          }
+          return false;
+        }
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Status ${status.label} ho gaya')),
+          );
+        }
+        return true;
+      },
+    );
+
+    if (Responsive.isDesktop(context)) {
+      showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return Dialog(
+            insetPadding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: details,
             ),
+          );
+        },
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
           ),
+          child: details,
         );
       },
+    );
+  }
+}
+
+typedef _StatusChanged =
+    Future<bool> Function({
+      required RepairTicketStatus status,
+      String? note,
+      double? totalCost,
+    });
+
+class _RepairTicketDetails extends StatefulWidget {
+  final RepairTicketModel ticket;
+  final _StatusChanged onStatusChanged;
+
+  const _RepairTicketDetails({
+    required this.ticket,
+    required this.onStatusChanged,
+  });
+
+  @override
+  State<_RepairTicketDetails> createState() => _RepairTicketDetailsState();
+}
+
+class _RepairTicketDetailsState extends State<_RepairTicketDetails> {
+  final _formKey = GlobalKey<FormState>();
+  final _noteController = TextEditingController();
+  final _totalCostController = TextEditingController();
+
+  RepairTicketStatus? _selectedStatus;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final statuses = _nextStatuses(widget.ticket.status);
+    _selectedStatus = statuses.isEmpty ? null : statuses.first;
+
+    final amount = widget.ticket.totalCost ?? widget.ticket.estimatedCost;
+    if (amount != null) {
+      _totalCostController.text = amount.toStringAsFixed(0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    _totalCostController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ticket = widget.ticket;
+    final statuses = _nextStatuses(ticket.status);
+    final selectedStatus = _selectedStatus;
+    final needsAmount = selectedStatus == RepairTicketStatus.completed;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      ticket.ticketNo ?? 'Repair Ticket',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed:
+                        _isSaving ? null : () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                runSpacing: 6,
+                children: [
+                  _DetailLine(label: 'Customer', value: ticket.customerName),
+                  _DetailLine(
+                    label: 'Device',
+                    value: '${ticket.deviceBrand} ${ticket.deviceModel}',
+                  ),
+                  _DetailLine(label: 'Status', value: ticket.status.label),
+                  if (ticket.imei != null && ticket.imei!.trim().isNotEmpty)
+                    _DetailLine(label: 'IMEI', value: ticket.imei!),
+                  if (ticket.estimatedCost != null)
+                    _DetailLine(
+                      label: 'Estimate',
+                      value: 'Rs ${ticket.estimatedCost!.toStringAsFixed(0)}',
+                    ),
+                  if (ticket.totalCost != null)
+                    _DetailLine(
+                      label: 'Final Amount',
+                      value: 'Rs ${ticket.totalCost!.toStringAsFixed(0)}',
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                ticket.faultDescription,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 20),
+              if (statuses.isEmpty)
+                Text(
+                  'Is ticket ka status ab change nahi ho sakta.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                )
+              else ...[
+                DropdownButtonFormField<RepairTicketStatus>(
+                  initialValue: selectedStatus,
+                  decoration: const InputDecoration(
+                    labelText: 'Next status',
+                    border: OutlineInputBorder(),
+                  ),
+                  items:
+                      statuses
+                          .map(
+                            (status) => DropdownMenuItem(
+                              value: status,
+                              child: Text(status.label),
+                            ),
+                          )
+                          .toList(),
+                  onChanged:
+                      _isSaving
+                          ? null
+                          : (status) {
+                            setState(() {
+                              _selectedStatus = status;
+                            });
+                          },
+                ),
+                if (needsAmount) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _totalCostController,
+                    enabled: !_isSaving,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Final amount received',
+                      prefixText: 'Rs ',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: _amountValidator,
+                  ),
+                ],
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _noteController,
+                  enabled: !_isSaving,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Status note optional',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed:
+                      _isSaving || selectedStatus == null
+                          ? null
+                          : () => _submit(selectedStatus),
+                  icon:
+                      _isSaving
+                          ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(Icons.done),
+                  label: Text(_isSaving ? 'Updating...' : 'Update Status'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit(RepairTicketStatus status) async {
+    final isValid = _formKey.currentState?.validate() ?? false;
+    if (!isValid) return;
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    final updated = await widget.onStatusChanged(
+      status: status,
+      note: _noteController.text,
+      totalCost:
+          status == RepairTicketStatus.completed
+              ? double.tryParse(_totalCostController.text.trim())
+              : null,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _isSaving = false;
+    });
+
+    if (updated) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  String? _amountValidator(String? value) {
+    final amount = double.tryParse(value?.trim() ?? '');
+    if (amount == null) {
+      return 'Final amount enter karo';
+    }
+    if (amount < 0) {
+      return 'Amount negative nahi ho sakta';
+    }
+    return null;
+  }
+
+  static List<RepairTicketStatus> _nextStatuses(RepairTicketStatus current) {
+    return RepairTicketStatus.values
+        .where((status) => current.canMoveTo(status))
+        .toList();
+  }
+}
+
+class _DetailLine extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DetailLine({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: RichText(
+        text: TextSpan(
+          style: Theme.of(context).textTheme.bodyMedium,
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            TextSpan(text: value),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -445,6 +445,85 @@ class RepairRepository {
     }
   }
 
+  Future<RepairTicketModel> updateRepairTicketStatus({
+    required RepairTicketModel ticket,
+    required RepairTicketStatus status,
+    String? note,
+    double? totalCost,
+  }) async {
+    if (ticket.status == status) return ticket;
+
+    if (!ticket.status.canMoveTo(status)) {
+      throw Exception(
+        'Status ${ticket.status.label} se ${status.label} par move nahi ho sakta',
+      );
+    }
+
+    final now = DateTime.now();
+    final userId = _currentUser.id;
+
+    final updatedTicket = ticket.copyWith(
+      status: status,
+      totalCost: totalCost ?? ticket.totalCost,
+      completedAt:
+          status == RepairTicketStatus.completed
+              ? ticket.completedAt ?? now
+              : ticket.completedAt,
+      deliveredAt:
+          status == RepairTicketStatus.delivered
+              ? ticket.deliveredAt ?? now
+              : ticket.deliveredAt,
+      updatedAt: now,
+    );
+
+    final statusLog = RepairStatusLogModel(
+      id: const Uuid().v4(),
+      ticketId: ticket.id,
+      tenantId: ticket.tenantId,
+      branchId: ticket.branchId,
+      oldStatus: ticket.status,
+      newStatus: status,
+      changedBy: userId,
+      note: note?.trim().isEmpty == true ? null : note?.trim(),
+      createdAt: now,
+    );
+
+    await OfflineStore.saveRepairTicket(updatedTicket);
+    await OfflineStore.saveRepairStatusLog(statusLog);
+
+    try {
+      final data = await _client
+          .from('repair_tickets')
+          .update(_remoteTicketStatusMap(updatedTicket))
+          .eq('id', ticket.id)
+          .select()
+          .single()
+          .timeout(_networkTimeout);
+
+      final savedTicket = RepairTicketModel.fromMap(data);
+      await OfflineStore.saveRepairTicket(savedTicket);
+
+      await _client
+          .from('repair_status_logs')
+          .upsert(statusLog.toCacheMap(), onConflict: 'id')
+          .timeout(_networkTimeout);
+
+      return savedTicket;
+    } catch (e) {
+      await OfflineStore.enqueueMutation(
+        userId: userId,
+        type: 'update_repair_ticket_status',
+        payload: {
+          'ticket': updatedTicket.toCacheMap(),
+          'status_log': statusLog.toCacheMap(),
+        },
+      );
+
+      debugPrint('Repair status update saved offline: $e');
+      return updatedTicket;
+    }
+  }
+
   Future<void> _refreshStatusLogsCache(String ticketId) async {
     try {
       final data = await _client
@@ -489,6 +568,9 @@ class RepairRepository {
           case 'upsert_repair_ticket':
             await _syncUpsertRepairTicket(mutation.payload);
             break;
+          case 'update_repair_ticket_status':
+            await _syncUpdateRepairTicketStatus(mutation.payload);
+            break;
           default:
             remaining.add(mutation);
         }
@@ -522,6 +604,31 @@ class RepairRepository {
     // Initial log usually Supabase trigger create karega.
     // Agar ticket already existed ho aur trigger na chale,
     // to next status-log fetch remote se cache align kar dega.
+  }
+
+  Future<void> _syncUpdateRepairTicketStatus(
+    Map<String, dynamic> payload,
+  ) async {
+    final ticket = RepairTicketModel.fromMap(
+      Map<String, dynamic>.from(payload['ticket'] as Map),
+    );
+    final log = RepairStatusLogModel.fromMap(
+      Map<String, dynamic>.from(payload['status_log'] as Map),
+    );
+
+    final data =
+        await _client
+            .from('repair_tickets')
+            .update(_remoteTicketStatusMap(ticket))
+            .eq('id', ticket.id)
+            .select()
+            .single();
+
+    await OfflineStore.saveRepairTicket(RepairTicketModel.fromMap(data));
+
+    await _client
+        .from('repair_status_logs')
+        .upsert(log.toCacheMap(), onConflict: 'id');
   }
 
   // ════════════════════════════════════════
@@ -574,6 +681,15 @@ class RepairRepository {
     // lekin inventory_unit_id null hi rehne do.
     // Trigger IMEI + product_id se link handle karega.
     return map;
+  }
+
+  Map<String, dynamic> _remoteTicketStatusMap(RepairTicketModel ticket) {
+    return {
+      'status': ticket.status.code,
+      'total_cost': ticket.totalCost,
+      'completed_at': ticket.completedAt?.toIso8601String(),
+      'delivered_at': ticket.deliveredAt?.toIso8601String(),
+    };
   }
 
   String _generateTicketNo(String ticketId, DateTime now) {

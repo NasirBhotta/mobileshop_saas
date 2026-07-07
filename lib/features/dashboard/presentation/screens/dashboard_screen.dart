@@ -43,6 +43,11 @@ class _MobileDashboard extends ConsumerWidget {
       loading: () => '...',
       orElse: () => '0',
     );
+    final activeRepairs = dashboardStats.maybeWhen(
+      data: (stats) => stats.activeRepairCount.toString(),
+      loading: () => '...',
+      orElse: () => '0',
+    );
     final todaySales = dashboardStats.maybeWhen(
       data: (stats) => 'Rs ${stats.todaySalesTotal.toStringAsFixed(0)}',
       loading: () => '...',
@@ -115,9 +120,9 @@ class _MobileDashboard extends ConsumerWidget {
                     color: AppColors.primary,
                     isCompact: true,
                   ),
-                  const StatCard(
+                  StatCard(
                     title: AppStrings.dashboardActiveRepairs,
-                    value: '0',
+                    value: activeRepairs,
                     icon: Icons.build_rounded,
                     color: AppColors.warning,
                     isCompact: true,
@@ -210,6 +215,11 @@ class _DesktopDashboard extends ConsumerWidget {
       loading: () => '...',
       orElse: () => '0',
     );
+    final activeRepairs = dashboardStats.maybeWhen(
+      data: (stats) => stats.activeRepairCount.toString(),
+      loading: () => '...',
+      orElse: () => '0',
+    );
     final todaySales = dashboardStats.maybeWhen(
       data: (stats) => 'Rs ${stats.todaySalesTotal.toStringAsFixed(0)}',
       loading: () => '...',
@@ -297,10 +307,10 @@ class _DesktopDashboard extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 16),
-                const Expanded(
+                Expanded(
                   child: StatCard(
                     title: AppStrings.dashboardActiveRepairs,
-                    value: '0',
+                    value: activeRepairs,
                     icon: Icons.build_rounded,
                     color: AppColors.warning,
                   ),

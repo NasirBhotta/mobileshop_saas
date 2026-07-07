@@ -63,7 +63,14 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
     final isSaving = createState.isLoading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Repair Ticket')),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back',
+          onPressed: isSaving ? null : _closeForm,
+          icon: const Icon(Icons.arrow_back),
+        ),
+        title: const Text('Create Repair Ticket'),
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
