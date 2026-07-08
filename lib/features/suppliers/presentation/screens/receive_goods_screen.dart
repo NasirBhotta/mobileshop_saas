@@ -52,7 +52,14 @@ class _ReceiveGoodsScreenState extends ConsumerState<ReceiveGoodsScreen> {
     final saving = state.isLoading;
 
     return Scaffold(
-      appBar: AppBar(title: Text('Receive ${widget.po.poNo}')),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back to purchase orders',
+          onPressed: saving ? null : () => context.go('/purchase-orders'),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        title: Text('Receive ${widget.po.poNo}'),
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

@@ -45,9 +45,18 @@ class _PurchaseOrderFormScreenState
     final productsAsync = ref.watch(productsProvider);
     final state = ref.watch(purchaseOrderControllerProvider);
     final saving = state.isLoading;
+    final backRoute =
+        widget.initialSupplier == null ? '/purchase-orders' : '/suppliers';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Purchase Order')),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back',
+          onPressed: saving ? null : () => context.go(backRoute),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        title: const Text('Create Purchase Order'),
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

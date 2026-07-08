@@ -172,6 +172,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               return const SuppliersScreen();
             },
           ),
+          GoRoute(
+            path: '/purchase-orders',
+            builder: (context, state) {
+              return const PurchaseOrdersScreen();
+            },
+          ),
         ],
       ),
       GoRoute(
@@ -228,13 +234,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
 
       GoRoute(
-        path: '/purchase-orders',
-        builder: (context, state) {
-          return const PurchaseOrdersScreen();
-        },
-      ),
-
-      GoRoute(
         path: '/purchase-orders/new',
         builder: (context, state) {
           final supplier =
@@ -273,5 +272,6 @@ int _shellIndexForLocation(String location) {
   if (location.startsWith('/customers')) return 3;
   if (location.startsWith('/repairs')) return 4;
   if (location.startsWith('/suppliers')) return 5;
+  if (location.startsWith('/purchase-orders')) return 5;
   return 0;
 }

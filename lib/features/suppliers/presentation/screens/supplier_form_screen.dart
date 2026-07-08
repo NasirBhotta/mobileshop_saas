@@ -41,7 +41,14 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
     final saving = state.isLoading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Supplier')),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back to suppliers',
+          onPressed: saving ? null : () => context.go('/suppliers'),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        title: const Text('Add Supplier'),
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

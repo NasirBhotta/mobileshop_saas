@@ -15,6 +15,11 @@ class PurchaseOrdersScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back to suppliers',
+          onPressed: () => context.go('/suppliers'),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
         title: const Text('Purchase Orders'),
         actions: [
           IconButton(
@@ -132,6 +137,7 @@ class _POCard extends ConsumerWidget {
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -150,7 +156,7 @@ class _POCard extends ConsumerWidget {
             Text('Items: ${po.items.length}'),
             Text('Expected: Rs ${po.totalExpectedCost.toStringAsFixed(0)}'),
             Text('Received: Rs ${po.totalReceivedCost.toStringAsFixed(0)}'),
-            const Spacer(),
+            const SizedBox(height: 14),
             Wrap(
               spacing: 8,
               runSpacing: 8,

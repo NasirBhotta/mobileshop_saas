@@ -65,6 +65,15 @@ class _SuppliersBody extends ConsumerWidget {
                     color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed:
+                        syncState.isLoading
+                            ? null
+                            : () => context.go('/purchase-orders'),
+                    icon: const Icon(Icons.receipt_long_rounded, size: 18),
+                    label: const Text('POs'),
+                  ),
+                  const SizedBox(width: 8),
                   FilledButton.icon(
                     onPressed:
                         syncState.isLoading
@@ -303,18 +312,18 @@ class _SupplierCard extends ConsumerWidget {
     );
   }
 
-  void _showPaymentDialog(
+  Future<void> _showPaymentDialog(
     BuildContext context,
     WidgetRef ref,
     SupplierModel supplier,
-  ) {
+  ) async {
     final amountController = TextEditingController();
     final methodController = TextEditingController(text: 'Cash');
     final noteController = TextEditingController();
 
-    showDialog(
+    await showDialog<void>(
       context: context,
-      builder: (_) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Record Supplier Payment'),
           content: Column(
@@ -339,7 +348,7 @@ class _SupplierCard extends ConsumerWidget {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -359,7 +368,7 @@ class _SupplierCard extends ConsumerWidget {
                 if (!context.mounted) return;
 
                 if (ok) {
-                  Navigator.pop(context);
+                  Navigator.of(dialogContext).pop();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Payment recorded')),
                   );
@@ -371,5 +380,9 @@ class _SupplierCard extends ConsumerWidget {
         );
       },
     );
+
+    amountController.dispose();
+    methodController.dispose();
+    noteController.dispose();
   }
 }
