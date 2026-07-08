@@ -1,9 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mobileshop_saas/features/accounts/presentation/screens/accounts_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/signup_screen.dart';
 import 'package:mobileshop_saas/features/dashboard/presentation/screens/dashboard_screen.dart';
+import 'package:mobileshop_saas/features/expenses/presentation/screens/expense_form_screen.dart';
+import 'package:mobileshop_saas/features/expenses/presentation/screens/expense_report_screen.dart';
+import 'package:mobileshop_saas/features/expenses/presentation/screens/expenses_screen.dart';
+import 'package:mobileshop_saas/features/expenses/presentation/screens/recurring_expense_form_screen.dart';
+import 'package:mobileshop_saas/features/expenses/presentation/screens/recurring_expenses_screen.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/categories_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/csv_import_screen.dart';
@@ -24,6 +30,7 @@ import 'package:mobileshop_saas/features/pos/presentation/screens/return_screen.
 import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repair_form_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repairs_list_screen.dart';
+import 'package:mobileshop_saas/features/settings/presentation/screens/account_settings_screen.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/po_document_screen.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/purchase_order_form_screen.dart';
@@ -178,8 +185,51 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               return const PurchaseOrdersScreen();
             },
           ),
+          GoRoute(
+            path: '/accounts',
+            builder: (context, state) {
+              return const AccountsScreen();
+            },
+          ),
+          GoRoute(
+            path: '/expenses',
+            builder: (context, state) {
+              return const ExpensesScreen();
+            },
+          ),
+          GoRoute(
+            path: '/expenses/new',
+            builder: (context, state) {
+              return const ExpenseFormScreen();
+            },
+          ),
+          GoRoute(
+            path: '/expenses/report',
+            builder: (context, state) {
+              return const ExpenseReportScreen();
+            },
+          ),
+          GoRoute(
+            path: '/expenses/recurring',
+            builder: (context, state) {
+              return const RecurringExpensesScreen();
+            },
+          ),
+          GoRoute(
+            path: '/expenses/recurring/new',
+            builder: (context, state) {
+              return const RecurringExpenseFormScreen();
+            },
+          ),
+          GoRoute(
+            path: '/settings',
+            builder: (context, state) {
+              return const AccountSettingsScreen();
+            },
+          ),
         ],
       ),
+      GoRoute(path: '/expenses/add', redirect: (_, _) => '/expenses/new'),
       GoRoute(
         path: '/inventory/add',
         builder: (_, _) => const ProductFormScreen(),
@@ -273,5 +323,9 @@ int _shellIndexForLocation(String location) {
   if (location.startsWith('/repairs')) return 4;
   if (location.startsWith('/suppliers')) return 5;
   if (location.startsWith('/purchase-orders')) return 5;
+  if (location.startsWith('/expenses')) return 6;
+  if (location.startsWith('/reports')) return 7;
+  if (location.startsWith('/settings')) return 8;
+  if (location.startsWith('/accounts')) return 9;
   return 0;
 }

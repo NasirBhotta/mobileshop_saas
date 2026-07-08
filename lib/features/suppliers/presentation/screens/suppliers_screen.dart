@@ -30,19 +30,9 @@ class _SuppliersBody extends ConsumerWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Suppliers',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                  IconButton(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final syncButton = IconButton(
                     tooltip: 'Sync',
                     onPressed:
                         syncState.isLoading
@@ -63,26 +53,57 @@ class _SuppliersBody extends ConsumerWidget {
                             )
                             : const Icon(Icons.sync_rounded),
                     color: AppColors.textSecondary,
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
+                  );
+                  final purchaseOrdersButton = OutlinedButton.icon(
                     onPressed:
                         syncState.isLoading
                             ? null
                             : () => context.go('/purchase-orders'),
                     icon: const Icon(Icons.receipt_long_rounded, size: 18),
                     label: const Text('POs'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
+                  );
+                  final addButton = FilledButton.icon(
                     onPressed:
                         syncState.isLoading
                             ? null
                             : () => context.go('/suppliers/new'),
                     icon: const Icon(Icons.add_rounded, size: 18),
                     label: const Text('Add'),
-                  ),
-                ],
+                  );
+
+                  if (constraints.maxWidth < 390) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            const Expanded(child: _SuppliersTitle()),
+                            syncButton,
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(child: purchaseOrdersButton),
+                            const SizedBox(width: 8),
+                            Expanded(child: addButton),
+                          ],
+                        ),
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    children: [
+                      const Expanded(child: _SuppliersTitle()),
+                      syncButton,
+                      const SizedBox(width: 8),
+                      purchaseOrdersButton,
+                      const SizedBox(width: 8),
+                      addButton,
+                    ],
+                  );
+                },
               ),
             ),
             Expanded(
@@ -110,16 +131,20 @@ class _SuppliersBody extends ConsumerWidget {
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final isWide = constraints.maxWidth >= 800;
+                        final textScale = MediaQuery.textScalerOf(
+                          context,
+                        ).scale(1.0).clamp(1.0, 1.3);
+                        final gridCardExtent = 226.0 * textScale;
 
                         if (isWide) {
                           return GridView.builder(
                             padding: const EdgeInsets.all(16),
                             gridDelegate:
-                                const SliverGridDelegateWithMaxCrossAxisExtent(
+                                SliverGridDelegateWithMaxCrossAxisExtent(
                                   maxCrossAxisExtent: 420,
                                   mainAxisSpacing: 12,
                                   crossAxisSpacing: 12,
-                                  childAspectRatio: 1.75,
+                                  mainAxisExtent: gridCardExtent,
                                 ),
                             itemCount: suppliers.length,
                             itemBuilder: (_, index) {
@@ -152,6 +177,22 @@ class _SuppliersBody extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SuppliersTitle extends StatelessWidget {
+  const _SuppliersTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Text(
+      'Suppliers',
+      style: TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        color: AppColors.textPrimary,
       ),
     );
   }
@@ -267,44 +308,34 @@ class _SupplierCard extends ConsumerWidget {
           children: [
             Text(
               supplier.name,
-              maxLines: 1,
+              maxLines: compact ? 2 : 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(
                 context,
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
-            if (supplier.contactPerson != null)
-              Text('Contact: ${supplier.contactPerson}'),
-            if (supplier.phone != null) Text('Phone: ${supplier.phone}'),
-            if (supplier.paymentTerms != null)
-              Text('Terms: ${supplier.paymentTerms}'),
+            _SupplierDetailLine(
+              label: 'Contact',
+              value: supplier.contactPerson,
+            ),
+            _SupplierDetailLine(label: 'Phone', value: supplier.phone),
+            _SupplierDetailLine(label: 'Terms', value: supplier.paymentTerms),
             SizedBox(height: compact ? 12 : 18),
             Text(
               'Payable: Rs ${supplier.outstandingBalance.toStringAsFixed(0)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(
                 context,
               ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _showPaymentDialog(context, ref, supplier),
-                    child: const Text('Payment'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton(
-                    onPressed:
-                        () =>
-                            context.go('/purchase-orders/new', extra: supplier),
-                    child: const Text('New PO'),
-                  ),
-                ),
-              ],
+            _SupplierCardActions(
+              compact: compact,
+              onPayment: () => _showPaymentDialog(context, ref, supplier),
+              onNewPo:
+                  () => context.go('/purchase-orders/new', extra: supplier),
             ),
           ],
         ),
@@ -384,5 +415,67 @@ class _SupplierCard extends ConsumerWidget {
     amountController.dispose();
     methodController.dispose();
     noteController.dispose();
+  }
+}
+
+class _SupplierDetailLine extends StatelessWidget {
+  final String label;
+  final String? value;
+
+  const _SupplierDetailLine({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Text('$label: $text', maxLines: 1, overflow: TextOverflow.ellipsis);
+  }
+}
+
+class _SupplierCardActions extends StatelessWidget {
+  final bool compact;
+  final VoidCallback onPayment;
+  final VoidCallback onNewPo;
+
+  const _SupplierCardActions({
+    required this.compact,
+    required this.onPayment,
+    required this.onNewPo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stackButtons = compact || constraints.maxWidth < 320;
+
+        final paymentButton = OutlinedButton(
+          onPressed: onPayment,
+          child: const Text('Payment', overflow: TextOverflow.ellipsis),
+        );
+        final poButton = FilledButton(
+          onPressed: onNewPo,
+          child: const Text('New PO', overflow: TextOverflow.ellipsis),
+        );
+
+        if (stackButtons) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [paymentButton, const SizedBox(height: 8), poButton],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(child: paymentButton),
+            const SizedBox(width: 8),
+            Expanded(child: poButton),
+          ],
+        );
+      },
+    );
   }
 }

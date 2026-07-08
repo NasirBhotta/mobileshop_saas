@@ -159,6 +159,7 @@ class AppStrings {
   static const String navSettings = 'Settings';
   static const String navSuppliers = 'Suppliers';
   static const String navExpenses = 'Expenses';
+  static const String navAccounts = 'Accounts';
 
   static const String dashboardTitle = 'Dashboard';
   static const String dashboardWelcome = 'Khush Aamdeed';
@@ -178,6 +179,7 @@ class AppStrings {
   static const String actionAddProduct = 'Product Add Karo';
   static const String actionNewRepair = 'Naya Repair';
   static const String actionAddExpense = 'Expense Add Karo';
+  static const String actionAccountEntry = 'Account Entry';
 
   static const String fieldBranchName = 'Branch Ka Naam';
   static const String setupStep4Title = 'Sab Theek Hai?';

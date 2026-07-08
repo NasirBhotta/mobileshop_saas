@@ -39,9 +39,13 @@ class LocalDatabase {
     'goods_receipts',
     'goods_receipt_items',
     'supplier_payments',
+    'accounts',
+    'account_transactions',
   };
 
   static const List<String> _deleteOrder = [
+    'account_transactions',
+    'accounts',
     'goods_receipt_items',
     'goods_receipts',
     'supplier_payments',
@@ -721,6 +725,167 @@ class LocalDatabase {
       )
     ''');
 
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS accounts (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        account_type TEXT NOT NULL DEFAULT 'cash',
+        opening_balance REAL NOT NULL DEFAULT 0,
+        current_balance REAL NOT NULL DEFAULT 0,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        note TEXT,
+        created_by TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS account_transactions (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        related_account_id TEXT,
+        transfer_group_id TEXT,
+        transaction_type TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        amount REAL NOT NULL,
+        description TEXT,
+        reference_type TEXT,
+        reference_id TEXT,
+        transaction_at TEXT NOT NULL,
+        created_by TEXT,
+        created_at TEXT
+      )
+    ''');
+    // ════════════════════════════════════════
+    // EXPENSE MANAGEMENT
+    // ════════════════════════════════════════
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS expense_categories (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT,
+        name TEXT NOT NULL,
+        description TEXT,
+        is_system INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS expenses (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        category_id TEXT,
+        category_name TEXT,
+        title TEXT NOT NULL,
+        expense_date TEXT NOT NULL,
+        amount REAL NOT NULL DEFAULT 0,
+        payment_mode TEXT NOT NULL DEFAULT 'cash',
+        payee TEXT,
+        notes TEXT,
+        receipt_photo_path TEXT,
+        local_receipt_path TEXT,
+        status TEXT NOT NULL DEFAULT 'confirmed',
+        source TEXT NOT NULL DEFAULT 'manual',
+        recurring_rule_id TEXT,
+        recurring_due_date TEXT,
+        created_by TEXT,
+        confirmed_by TEXT,
+        voided_by TEXT,
+        confirmed_at TEXT,
+        voided_at TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS recurring_expense_rules (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        category_id TEXT,
+        category_name TEXT NOT NULL,
+        title TEXT NOT NULL,
+        estimated_amount REAL NOT NULL DEFAULT 0,
+        payment_mode TEXT NOT NULL DEFAULT 'cash',
+        payee TEXT,
+        note TEXT,
+        frequency TEXT NOT NULL DEFAULT 'monthly',
+        interval_count INTEGER NOT NULL DEFAULT 1,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        next_due_date TEXT NOT NULL,
+        reminder_days_before INTEGER NOT NULL DEFAULT 3,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_by TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_expense_categories_tenant ON expense_categories(tenant_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_expense_categories_branch ON expense_categories(branch_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_expenses_tenant ON expenses(tenant_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_expenses_branch ON expenses(branch_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_expenses_category ON expenses(category_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_expenses_date ON expenses(expense_date)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_expenses_status ON expenses(status)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_expenses_source ON expenses(source)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_expenses_recurring_rule ON expenses(recurring_rule_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_recurring_expense_rules_tenant ON recurring_expense_rules(tenant_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_recurring_expense_rules_branch ON recurring_expense_rules(branch_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_recurring_expense_rules_next_due ON recurring_expense_rules(next_due_date)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_recurring_expense_rules_status ON recurring_expense_rules(status)',
+    );
     // Indexes searches ko fast karte hain.
     // Example:
     // branch ke tickets load karna
@@ -847,6 +1012,18 @@ class LocalDatabase {
     await _db.customStatement('''
       CREATE INDEX IF NOT EXISTS idx_tenant_settings_tenant
       ON tenant_settings(tenant_id);
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_accounts_branch
+      ON accounts(branch_id);
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_account_transactions_branch
+      ON account_transactions(branch_id, transaction_at);
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_account_transactions_account
+      ON account_transactions(account_id, transaction_at);
     ''');
   }
 

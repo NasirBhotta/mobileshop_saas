@@ -290,7 +290,7 @@ class _QuickActions extends StatelessWidget {
       const QuickActionButton(
         label: AppStrings.actionAddExpense,
         icon: Icons.receipt_rounded,
-        route: '/expenses/add',
+        route: '/expenses/new',
       ),
     ];
 

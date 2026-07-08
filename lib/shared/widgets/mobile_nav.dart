@@ -121,6 +121,66 @@ class MobileNav extends ConsumerWidget {
                       context.go('/customers');
                     },
                   ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.local_shipping_rounded,
+                      color: AppColors.primary,
+                    ),
+                    title: const Text(
+                      AppStrings.navSuppliers,
+                      style: TextStyle(color: AppColors.primary),
+                    ),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/suppliers');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.receipt_long_rounded,
+                      color: AppColors.primary,
+                    ),
+                    title: const Text(
+                      AppStrings.navExpenses,
+                      style: TextStyle(color: AppColors.primary),
+                    ),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/expenses');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: AppColors.primary,
+                    ),
+                    title: const Text(
+                      AppStrings.navAccounts,
+                      style: TextStyle(color: AppColors.primary),
+                    ),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/accounts');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.settings_rounded,
+                      color: AppColors.primary,
+                    ),
+                    title: const Text(
+                      AppStrings.navSettings,
+                      style: TextStyle(color: AppColors.primary),
+                    ),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/settings');
+                    },
+                  ),
                   if (hasMultipleBranches)
                     ListTile(
                       leading: const Icon(
