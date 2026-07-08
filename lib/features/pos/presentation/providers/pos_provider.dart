@@ -318,6 +318,7 @@ class CheckoutController extends StateNotifier<AsyncValue<SaleModel?>> {
         customerName: cart.customer?.fullName,
         discountApprovals: cart.discountApprovals,
       );
+      final customerId = cart.customer?.id;
 
       // Held cart tha → delete karo
       if (cart.heldCartId != null) {
@@ -329,9 +330,15 @@ class CheckoutController extends StateNotifier<AsyncValue<SaleModel?>> {
 
       // Sales history refresh
       _ref.invalidate(salesHistoryProvider);
+      _ref.invalidate(allSalesProvider);
       _ref.invalidate(approvedReturnsProvider);
       _ref.invalidate(allProductsProvider);
       _ref.invalidate(productsProvider);
+      _ref.invalidate(customersProvider);
+      _ref.invalidate(allCustomersProvider);
+      if (customerId != null) {
+        _ref.invalidate(customerDashboardProvider(customerId));
+      }
 
       state = AsyncData(sale);
       return sale;
@@ -400,6 +407,11 @@ final heldCartsProvider = FutureProvider<List<HeldCartModel>>((ref) async {
 final salesHistoryProvider = FutureProvider<List<SaleModel>>((ref) async {
   await ref.watch(selectedBranchIdProvider.future);
   return ref.read(posRepositoryProvider).fetchSales();
+});
+
+final allSalesProvider = FutureProvider<List<SaleModel>>((ref) async {
+  await ref.watch(selectedBranchIdProvider.future);
+  return ref.read(posRepositoryProvider).fetchSales(limit: 1000);
 });
 
 final receiptFooterProvider = FutureProvider<String?>((ref) {
@@ -486,6 +498,11 @@ final customersProvider = FutureProvider<List<CustomerModel>>((ref) async {
   return ref.read(posRepositoryProvider).fetchCustomers(query: query);
 });
 
+final allCustomersProvider = FutureProvider<List<CustomerModel>>((ref) async {
+  await ref.watch(selectedBranchIdProvider.future);
+  return ref.read(posRepositoryProvider).fetchCustomers();
+});
+
 final customerDashboardProvider =
     FutureProvider.family<CustomerDashboardModel, String>((
       ref,
@@ -525,6 +542,7 @@ class CustomerController extends StateNotifier<AsyncValue<void>> {
         creditLimit: creditLimit,
       );
       _ref.invalidate(customersProvider);
+      _ref.invalidate(allCustomersProvider);
       state = const AsyncData(null);
       return customer;
     } catch (e, st) {
@@ -546,6 +564,7 @@ class CustomerController extends StateNotifier<AsyncValue<void>> {
         clearCreditLimit: clearCreditLimit,
       );
       _ref.invalidate(customersProvider);
+      _ref.invalidate(allCustomersProvider);
       _ref.invalidate(customerDashboardProvider(customerId));
       state = const AsyncData(null);
       return customer;
@@ -585,6 +604,8 @@ class CustomerSettlementController extends StateNotifier<AsyncValue<void>> {
         notes: notes,
       );
       _ref.invalidate(customersProvider);
+      _ref.invalidate(allCustomersProvider);
+      _ref.invalidate(allCustomerSettlementsProvider);
       _ref.invalidate(customerDashboardProvider(customerId));
       state = const AsyncData(null);
       return true;
@@ -704,6 +725,19 @@ final approvedReturnsProvider = FutureProvider<List<SaleReturnModel>>((
   return ref.read(posRepositoryProvider).fetchApprovedReturns();
 });
 
+final allApprovedReturnsProvider = FutureProvider<List<SaleReturnModel>>((
+  ref,
+) async {
+  await ref.watch(selectedBranchIdProvider.future);
+  return ref.read(posRepositoryProvider).fetchApprovedReturns(limit: 1000);
+});
+
+final allCustomerSettlementsProvider =
+    FutureProvider<List<CustomerSettlementModel>>((ref) async {
+      await ref.watch(selectedBranchIdProvider.future);
+      return ref.read(posRepositoryProvider).fetchCustomerSettlements();
+    });
+
 class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
   final PosRepository _repository;
   final Ref _ref;
@@ -730,8 +764,10 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
         overrideReason: overrideReason,
       );
       _ref.invalidate(salesHistoryProvider);
+      _ref.invalidate(allSalesProvider);
       _ref.invalidate(pendingReturnsProvider);
       _ref.invalidate(approvedReturnsProvider);
+      _ref.invalidate(allApprovedReturnsProvider);
       _ref.invalidate(allProductsProvider);
       _ref.invalidate(productsProvider);
       _ref.invalidate(returnDraftProvider);
@@ -748,8 +784,10 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
     try {
       final result = await _repository.approveReturn(pendingReturn);
       _ref.invalidate(salesHistoryProvider);
+      _ref.invalidate(allSalesProvider);
       _ref.invalidate(pendingReturnsProvider);
       _ref.invalidate(approvedReturnsProvider);
+      _ref.invalidate(allApprovedReturnsProvider);
       _ref.invalidate(allProductsProvider);
       _ref.invalidate(productsProvider);
       state = AsyncData(result);

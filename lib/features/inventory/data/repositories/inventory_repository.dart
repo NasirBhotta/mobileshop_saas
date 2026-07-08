@@ -397,7 +397,13 @@ class InventoryRepository {
   Future<String> _currentBranchId(String tenantId) async {
     final profile = await _currentProfile();
     final selectedBranchId = profile['branch_id'] as String?;
-    if (selectedBranchId != null) return selectedBranchId;
+    if (selectedBranchId != null &&
+        await _branchBelongsToTenant(
+          tenantId: tenantId,
+          branchId: selectedBranchId,
+        )) {
+      return selectedBranchId;
+    }
 
     final cachedBranches = await OfflineStore.loadBranches(tenantId);
     if (cachedBranches.isNotEmpty && cachedBranches.first.id != null) {
@@ -419,6 +425,27 @@ class InventoryRepository {
   }
 
   // ── Products ──
+  Future<bool> _branchBelongsToTenant({
+    required String tenantId,
+    required String branchId,
+  }) async {
+    final cachedBranches = await OfflineStore.loadBranches(tenantId);
+    if (cachedBranches.any((branch) => branch.id == branchId)) return true;
+
+    try {
+      final branch = await _client
+          .from('branches')
+          .select('id')
+          .eq('id', branchId)
+          .eq('tenant_id', tenantId)
+          .maybeSingle()
+          .timeout(_networkTimeout);
+      return branch != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<List<ProductModel>> fetchProducts({String? categoryId}) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
@@ -847,6 +874,7 @@ class InventoryRepository {
   }
 
   // Helper: Category naam se find karo ya create karo
+  // ignore: unused_element
   Future<String> _findOrCreateCategory({
     required String name,
     required String tenantId,

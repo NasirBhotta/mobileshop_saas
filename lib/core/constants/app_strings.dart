@@ -162,12 +162,17 @@ class AppStrings {
 
   static const String dashboardTitle = 'Dashboard';
   static const String dashboardWelcome = 'Khush Aamdeed';
-  static const String dashboardTodaySales = 'Aaj Ki Sales';
+  static const String dashboardTodaySales = 'Aaj Cash Received';
   static const String dashboardTotalStock = 'Total Stock';
   static const String dashboardActiveRepairs = 'Active Repairs';
   static const String dashboardLowStock = 'Low Stock Items';
   static const String dashboardQuickActions = 'Quick Actions';
   static const String dashboardRecentSales = 'Recent Sales';
+  static const String dashboardOverallSales = 'Cash Received';
+  static const String dashboardOverallProfit = 'Realized Profit';
+  static const String dashboardTotalUdhar = 'Total Udhar';
+  static const String dashboardUdharCustomers = 'Udhar Customers';
+  static const String dashboardSendReminder = 'Send Reminder';
 
   static const String actionNewSale = 'Naya Sale';
   static const String actionAddProduct = 'Product Add Karo';

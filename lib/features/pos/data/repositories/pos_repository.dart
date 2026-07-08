@@ -90,7 +90,13 @@ class PosRepository {
   Future<String> _currentBranchId(String tenantId) async {
     final profile = await _currentProfile();
     final selectedBranchId = profile['branch_id'] as String?;
-    if (selectedBranchId != null) return selectedBranchId;
+    if (selectedBranchId != null &&
+        await _branchBelongsToTenant(
+          tenantId: tenantId,
+          branchId: selectedBranchId,
+        )) {
+      return selectedBranchId;
+    }
 
     final cachedBranches = await OfflineStore.loadBranches(tenantId);
     if (cachedBranches.isNotEmpty && cachedBranches.first.id != null) {
@@ -109,6 +115,27 @@ class PosRepository {
     final branchId = branch?['id'] as String?;
     if (branchId == null) throw Exception('Branch not found');
     return branchId;
+  }
+
+  Future<bool> _branchBelongsToTenant({
+    required String tenantId,
+    required String branchId,
+  }) async {
+    final cachedBranches = await OfflineStore.loadBranches(tenantId);
+    if (cachedBranches.any((branch) => branch.id == branchId)) return true;
+
+    try {
+      final branch = await _client
+          .from('branches')
+          .select('id')
+          .eq('id', branchId)
+          .eq('tenant_id', tenantId)
+          .maybeSingle()
+          .timeout(Network.networkTimeout);
+      return branch != null;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ════════════════════════════════════════
@@ -1862,6 +1889,46 @@ class PosRepository {
       return settlements
           .where((settlement) => settlement.branchId == branchId)
           .toList();
+    }
+  }
+
+  Future<List<CustomerSettlementModel>> fetchCustomerSettlements({
+    int limit = 1000,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    try {
+      final data = await _client
+          .from('customer_settlements')
+          .select()
+          .eq('branch_id', branchId)
+          .order('created_at', ascending: false)
+          .limit(limit)
+          .timeout(Network.networkTimeout);
+      final settlements =
+          (data as List)
+              .map(
+                (e) =>
+                    CustomerSettlementModel.fromMap(e as Map<String, dynamic>),
+              )
+              .toList();
+      for (final settlement in settlements) {
+        await OfflineStore.saveCustomerSettlement(settlement, synced: true);
+      }
+      return settlements;
+    } catch (_) {
+      final customers = await OfflineStore.loadCustomers(branchId: branchId);
+      final settlements = <CustomerSettlementModel>[];
+      for (final customer in customers) {
+        final customerId = customer.id;
+        if (customerId == null) continue;
+        settlements.addAll(
+          await OfflineStore.loadCustomerSettlements(customerId),
+        );
+      }
+      settlements.removeWhere((settlement) => settlement.branchId != branchId);
+      settlements.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return settlements.take(limit).toList();
     }
   }
 

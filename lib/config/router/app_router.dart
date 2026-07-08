@@ -24,6 +24,13 @@ import 'package:mobileshop_saas/features/pos/presentation/screens/return_screen.
 import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repair_form_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repairs_list_screen.dart';
+import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
+import 'package:mobileshop_saas/features/suppliers/presentation/screens/po_document_screen.dart';
+import 'package:mobileshop_saas/features/suppliers/presentation/screens/purchase_order_form_screen.dart';
+import 'package:mobileshop_saas/features/suppliers/presentation/screens/purchase_orders_screen.dart';
+import 'package:mobileshop_saas/features/suppliers/presentation/screens/receive_goods_screen.dart';
+import 'package:mobileshop_saas/features/suppliers/presentation/screens/supplier_form_screen.dart';
+import 'package:mobileshop_saas/features/suppliers/presentation/screens/suppliers_screen.dart';
 import 'package:mobileshop_saas/shared/widgets/app_layout.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -204,6 +211,57 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/repairs/new',
         builder: (context, state) {
           return const RepairFormScreen();
+        },
+      ),
+
+      GoRoute(
+        path: '/suppliers',
+        builder: (context, state) {
+          return const SuppliersScreen();
+        },
+      ),
+
+      GoRoute(
+        path: '/suppliers/new',
+        builder: (context, state) {
+          return const SupplierFormScreen();
+        },
+      ),
+
+      GoRoute(
+        path: '/purchase-orders',
+        builder: (context, state) {
+          return const PurchaseOrdersScreen();
+        },
+      ),
+
+      GoRoute(
+        path: '/purchase-orders/new',
+        builder: (context, state) {
+          final supplier =
+              state.extra is SupplierModel
+                  ? state.extra as SupplierModel
+                  : null;
+
+          return PurchaseOrderFormScreen(initialSupplier: supplier);
+        },
+      ),
+
+      GoRoute(
+        path: '/purchase-orders/receive',
+        builder: (context, state) {
+          final po = state.extra as PurchaseOrderModel;
+
+          return ReceiveGoodsScreen(po: po);
+        },
+      ),
+
+      GoRoute(
+        path: '/purchase-orders/export',
+        builder: (context, state) {
+          final po = state.extra as PurchaseOrderModel;
+
+          return PODocumentScreen(po: po);
         },
       ),
     ],

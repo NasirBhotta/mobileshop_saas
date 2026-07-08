@@ -115,7 +115,13 @@ class RepairRepository {
 
     // Sab se pehle selected/current branch profile se lo.
     final selectedBranchId = profile['branch_id'] as String?;
-    if (selectedBranchId != null) return selectedBranchId;
+    if (selectedBranchId != null &&
+        await _branchBelongsToTenant(
+          tenantId: tenantId,
+          branchId: selectedBranchId,
+        )) {
+      return selectedBranchId;
+    }
 
     // Phir offline branches se fallback.
     final cachedBranches = await OfflineStore.loadBranches(tenantId);
@@ -155,6 +161,27 @@ class RepairRepository {
   // 4. local save hota hai
   // 5. Supabase insert try hota hai
   // 6. fail ho to mutation queue mein save hota hai
+
+  Future<bool> _branchBelongsToTenant({
+    required String tenantId,
+    required String branchId,
+  }) async {
+    final cachedBranches = await OfflineStore.loadBranches(tenantId);
+    if (cachedBranches.any((branch) => branch.id == branchId)) return true;
+
+    try {
+      final branch = await _client
+          .from('branches')
+          .select('id')
+          .eq('id', branchId)
+          .eq('tenant_id', tenantId)
+          .maybeSingle()
+          .timeout(_networkTimeout);
+      return branch != null;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<RepairTicketModel> createRepairTicket({
     String? customerId,

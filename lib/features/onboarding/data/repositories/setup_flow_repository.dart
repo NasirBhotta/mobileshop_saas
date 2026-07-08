@@ -27,7 +27,20 @@ final selectedBranchIdProvider = FutureProvider<String>((ref) async {
   final profileBranchId = status.profile?['branch_id'] as String?;
   final singleBranchId =
       status.branches.length == 1 ? status.branches.first.id : null;
-  final branchId = cachedBranchId ?? profileBranchId ?? singleBranchId;
+  final branchIds = {
+    for (final branch in status.branches)
+      if (branch.id != null) branch.id!,
+  };
+  final validCachedBranchId =
+      cachedBranchId != null && branchIds.contains(cachedBranchId)
+          ? cachedBranchId
+          : null;
+  final validProfileBranchId =
+      profileBranchId != null && branchIds.contains(profileBranchId)
+          ? profileBranchId
+          : null;
+  final branchId =
+      validCachedBranchId ?? validProfileBranchId ?? singleBranchId;
   if (branchId == null || branchId.isEmpty) {
     throw Exception('Branch select karein');
   }
