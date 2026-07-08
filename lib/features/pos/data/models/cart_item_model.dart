@@ -77,6 +77,7 @@ class CartItemModel {
     'quantity': quantity,
     'discount_amount': discountAmount,
     'tax_rate': taxRate,
+    'line_total': lineTotal,
     'available_stock': availableStock,
   };
 

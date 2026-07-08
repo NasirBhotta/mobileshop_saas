@@ -82,6 +82,24 @@ class CustomerModel {
     );
   }
 
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'tenant_id': tenantId,
+      'branch_id': branchId,
+      'full_name': fullName,
+      'phone': phone,
+      'email': email,
+      'notes': notes,
+      'credit_limit': creditLimit,
+      'outstanding_balance': outstandingBalance,
+      'created_at': createdAt?.toIso8601String(),
+    };
+  }
+
+  @override
+  String toString() => toJson().toString();
+
   // Search ke liye
   bool matchesQuery(String query) {
     final q = query.toLowerCase();

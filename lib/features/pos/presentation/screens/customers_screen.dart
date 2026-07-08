@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -152,6 +154,8 @@ class _CustomerTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final due = customer.outstandingBalance;
+
+    debugPrint("custome data is: ${customer.toJson()}");
     return Material(
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(8),

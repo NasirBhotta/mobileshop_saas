@@ -20,6 +20,19 @@ import '../models/sale_return_model.dart';
 class PosRepository {
   final SupabaseClient _client = Supabase.instance.client;
 
+  double _saleItemLineTotal(Map<String, dynamic> item) {
+    final storedLineTotal = (item['line_total'] as num?)?.toDouble();
+    if (storedLineTotal != null) return storedLineTotal;
+
+    final unitPrice = (item['unit_price'] as num?)?.toDouble() ?? 0;
+    final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
+    final discountAmount = (item['discount_amount'] as num?)?.toDouble() ?? 0;
+    final taxRate = (item['tax_rate'] as num?)?.toDouble() ?? 0;
+    final discountedPrice = unitPrice - discountAmount;
+    final taxAmount = discountedPrice * quantity * (taxRate / 100);
+    return (discountedPrice * quantity) + taxAmount;
+  }
+
   User get _currentUser {
     final user = _client.auth.currentUser;
     if (user == null) throw Exception('User not logged in');
@@ -2134,7 +2147,7 @@ class PosRepository {
                             'unit_price': item['unit_price'],
                             'discount_amount': item['discount_amount'],
                             'tax_rate': item['tax_rate'],
-                            'line_total': item['line_total'],
+                            'line_total': _saleItemLineTotal(item),
                           },
                         )
                         .toList(),

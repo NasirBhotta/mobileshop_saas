@@ -129,8 +129,40 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
     0,
     (sum, sale) => sum + sale.creditAmount,
   );
+  final computedOutstandingByCustomer = <String, double>{};
+  for (final sale in completedSales) {
+    final customerId = sale.customerId;
+    if (customerId == null) continue;
+    final creditAmount = sale.creditAmount;
+    if (creditAmount <= 0) continue;
+    computedOutstandingByCustomer.update(
+      customerId,
+      (amount) => amount + creditAmount,
+      ifAbsent: () => creditAmount,
+    );
+  }
+  for (final settlement in settlements) {
+    computedOutstandingByCustomer.update(
+      settlement.customerId,
+      (amount) => amount - settlement.amount,
+      ifAbsent: () => -settlement.amount,
+    );
+  }
   final creditCustomers =
       customers
+          .map((customer) {
+            final customerId = customer.id;
+            if (customerId == null) return customer;
+            final computed =
+                (computedOutstandingByCustomer[customerId] ?? 0)
+                    .clamp(0, double.infinity)
+                    .toDouble();
+            final effectiveOutstanding =
+                computed > customer.outstandingBalance
+                    ? computed
+                    : customer.outstandingBalance;
+            return customer.copyWith(outstandingBalance: effectiveOutstanding);
+          })
           .where((customer) => customer.outstandingBalance > 0.01)
           .map(DashboardCreditCustomer.fromCustomer)
           .toList()

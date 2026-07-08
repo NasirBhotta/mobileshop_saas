@@ -24,7 +24,7 @@ class ProcurementRepository {
 
     final profile = await _client
         .from('users')
-        .select('id, tenant_id, branch_id, role')
+        .select('id, tenant_id, branch_id')
         .eq('id', _currentUser.id)
         .maybeSingle()
         .timeout(_networkTimeout);
@@ -70,20 +70,6 @@ class ProcurementRepository {
     return id;
   }
 
-  Future<void> _ensureEnabled(String tenantId) async {
-    try {
-      final enabled = await _client
-          .rpc('tenant_procurement_enabled', params: {'p_tenant_id': tenantId})
-          .timeout(_networkTimeout);
-
-      if (enabled != true) {
-        throw Exception('Supplier & Procurement is Business/Enterprise only.');
-      }
-    } catch (e) {
-      if (e.toString().contains('Business/Enterprise')) rethrow;
-    }
-  }
-
   Future<SupplierModel> createSupplier({
     required String name,
     String? contactPerson,
@@ -96,7 +82,6 @@ class ProcurementRepository {
   }) async {
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
-    await _ensureEnabled(tenantId);
 
     final now = DateTime.now();
 
@@ -143,7 +128,6 @@ class ProcurementRepository {
 
   Future<List<SupplierModel>> fetchSuppliers() async {
     final tenantId = await _tenantId();
-    await _ensureEnabled(tenantId);
 
     final cached = await ProcurementLocalStore.loadSuppliers(tenantId);
     if (cached.isNotEmpty) {
@@ -193,7 +177,6 @@ class ProcurementRepository {
 
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
-    await _ensureEnabled(tenantId);
 
     final now = DateTime.now();
     final poId = const Uuid().v4();
@@ -275,7 +258,6 @@ class ProcurementRepository {
   }) async {
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
-    await _ensureEnabled(tenantId);
 
     final cached = await ProcurementLocalStore.loadPurchaseOrders(
       branchId,
