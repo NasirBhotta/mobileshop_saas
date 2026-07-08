@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../inventory/presentation/providers/inventory_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
+import '../../../pos/data/models/cart_item_model.dart';
 import '../../../pos/data/models/customer_dashboard_model.dart';
 import '../../../pos/data/models/customer_model.dart';
 import '../../../pos/data/models/sale_model.dart';
@@ -96,8 +97,7 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final returnProfit = returns.fold<double>(0, (sum, saleReturn) {
     if (saleReturn.refundMethod != RefundMethod.cash) return sum;
     final itemsProfit = saleReturn.items.fold<double>(0, (itemSum, item) {
-      final cost = costByProductId[item.productId] ?? 0;
-      return itemSum + (item.refundAmount - (cost * item.quantity));
+      return itemSum + _returnedItemProfit(item, costByProductId);
     });
     return sum + itemsProfit;
   });
@@ -193,10 +193,27 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
 
 double _saleProfit(SaleModel sale, Map<String, double> costByProductId) {
   return sale.items.fold<double>(0, (sum, item) {
-    final cost = costByProductId[item.productId] ?? 0;
-    final revenuePerUnit = item.unitPrice - item.discountAmount;
-    return sum + ((revenuePerUnit - cost) * item.quantity);
+    return sum + _saleItemProfit(item, costByProductId);
   });
+}
+
+double _saleItemProfit(
+  CartItemModel item,
+  Map<String, double> costByProductId,
+) {
+  final revenuePerUnit = item.unitPrice - item.discountAmount;
+  final cost = costByProductId[item.productId];
+  if (cost == null) return 0;
+  return (revenuePerUnit - cost) * item.quantity;
+}
+
+double _returnedItemProfit(
+  SaleReturnItemModel item,
+  Map<String, double> costByProductId,
+) {
+  final cost = costByProductId[item.productId];
+  if (cost == null) return 0;
+  return item.refundAmount - (cost * item.quantity);
 }
 
 double _realizedCheckoutProfit(

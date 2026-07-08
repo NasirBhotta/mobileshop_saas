@@ -45,6 +45,8 @@ class OfflineMutation {
 class OfflineStore {
   const OfflineStore._();
 
+  static const String _offlinePrefix = 'offline.';
+
   static String _profileKey(String userId) => 'offline.profile.$userId';
   static String _tenantKey(String tenantId) => 'offline.tenant.$tenantId';
   static String _branchesKey(String tenantId) => 'offline.branches.$tenantId';
@@ -76,6 +78,15 @@ class OfflineStore {
 
   static String _inventoryUnitsKey(String branchId) =>
       'offline.inventory_units.$branchId';
+
+  static Future<void> clearOfflinePreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where((key) => key.startsWith(_offlinePrefix));
+    for (final key in keys.toList()) {
+      await prefs.remove(key);
+    }
+  }
+
   static Future<void> saveProfile(
     String userId,
     Map<String, dynamic> profile,

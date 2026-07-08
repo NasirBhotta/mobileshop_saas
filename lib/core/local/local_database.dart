@@ -8,6 +8,70 @@ import 'package:path_provider/path_provider.dart';
 class LocalDatabase {
   LocalDatabase._();
 
+  static final RegExp _identifierPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+
+  static const Set<String> managedTables = {
+    'users',
+    'tenants',
+    'branches',
+    'categories',
+    'products',
+    'inventory',
+    'stock_adjustments',
+    'tenant_settings',
+    'customers',
+    'sales',
+    'sale_items',
+    'sale_payments',
+    'customer_settlements',
+    'sale_returns',
+    'sale_return_items',
+    'discount_audit_logs',
+    'receipt_delivery_logs',
+    'held_carts',
+    'inventory_units',
+    'repair_tickets',
+    'repair_status_logs',
+    'suppliers',
+    'supplier_products',
+    'purchase_orders',
+    'purchase_order_items',
+    'goods_receipts',
+    'goods_receipt_items',
+    'supplier_payments',
+  };
+
+  static const List<String> _deleteOrder = [
+    'goods_receipt_items',
+    'goods_receipts',
+    'supplier_payments',
+    'purchase_order_items',
+    'purchase_orders',
+    'supplier_products',
+    'suppliers',
+    'repair_status_logs',
+    'repair_tickets',
+    'inventory_units',
+    'receipt_delivery_logs',
+    'discount_audit_logs',
+    'sale_return_items',
+    'sale_returns',
+    'customer_settlements',
+    'sale_payments',
+    'sale_items',
+    'sales',
+    'held_carts',
+    'stock_adjustments',
+    'inventory',
+    'products',
+    'categories',
+    'tenant_settings',
+    'customers',
+    'branches',
+    'tenants',
+    'users',
+  ];
+
   static final QueryExecutor _executor = LazyDatabase(() async {
     final directory = await getApplicationSupportDirectory();
     final file = File(path.join(directory.path, 'mobileshop_saas.sqlite'));
@@ -41,6 +105,77 @@ class LocalDatabase {
   ]) async {
     await initialize();
     await _db.customStatement(sql, variables);
+  }
+
+  static Future<void> deleteRows({
+    required String table,
+    required String whereColumn,
+    required Object? equals,
+  }) async {
+    await initialize();
+    _requireManagedTable(table);
+    _requireSafeIdentifier(whereColumn);
+    await _db.customStatement('DELETE FROM $table WHERE $whereColumn = ?', [
+      equals,
+    ]);
+  }
+
+  static Future<void> deleteRowById({
+    required String table,
+    required Object? id,
+    String idColumn = 'id',
+  }) {
+    return deleteRows(table: table, whereColumn: idColumn, equals: id);
+  }
+
+  static Future<void> clearTable(String table) async {
+    await initialize();
+    _requireManagedTable(table);
+    await _db.customStatement('DELETE FROM $table');
+  }
+
+  static Future<void> clearAllTables({Set<String> except = const {}}) async {
+    await initialize();
+    for (final table in except) {
+      _requireManagedTable(table);
+    }
+    await _db.customStatement('PRAGMA foreign_keys = OFF');
+    try {
+      for (final table in _deleteOrder) {
+        if (!except.contains(table)) {
+          await _db.customStatement('DELETE FROM $table');
+        }
+      }
+    } finally {
+      await _db.customStatement('PRAGMA foreign_keys = ON');
+    }
+  }
+
+  static Future<void> dropTable(String table, {bool recreate = true}) async {
+    await initialize();
+    _requireManagedTable(table);
+    await _db.customStatement('DROP TABLE IF EXISTS $table');
+    if (recreate) {
+      _initialized = false;
+      await initialize();
+    }
+  }
+
+  static void _requireManagedTable(String table) {
+    _requireSafeIdentifier(table);
+    if (!managedTables.contains(table)) {
+      throw ArgumentError.value(
+        table,
+        'table',
+        'Table is not managed locally.',
+      );
+    }
+  }
+
+  static void _requireSafeIdentifier(String identifier) {
+    if (!_identifierPattern.hasMatch(identifier)) {
+      throw ArgumentError.value(identifier, 'identifier', 'Unsafe identifier.');
+    }
   }
 
   static Future<void> _createTables() async {
@@ -463,9 +598,129 @@ class LocalDatabase {
     ''');
 
     // ════════════════════════════════════════
-    // REPAIR INDEXES
+    // SUPPLIER TABLES + INDEXES
     // ════════════════════════════════════════
     //
+    // Supplier/procurement local tables.
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT,
+        name TEXT NOT NULL,
+        contact_person TEXT,
+        phone TEXT,
+        email TEXT,
+        address TEXT,
+        city TEXT,
+        payment_terms TEXT,
+        outstanding_balance REAL NOT NULL DEFAULT 0,
+        notes TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS supplier_products (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        supplier_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        supplier_sku TEXT,
+        last_cost REAL,
+        created_at TEXT,
+        UNIQUE(supplier_id, product_id)
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS purchase_orders (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        supplier_id TEXT NOT NULL,
+        po_no TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        expected_delivery_at TEXT,
+        notes TEXT,
+        total_expected_cost REAL NOT NULL DEFAULT 0,
+        total_received_cost REAL NOT NULL DEFAULT 0,
+        created_by TEXT,
+        sent_at TEXT,
+        cancelled_at TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        UNIQUE(branch_id, po_no)
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS purchase_order_items (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        purchase_order_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        product_sku TEXT,
+        ordered_quantity INTEGER NOT NULL,
+        received_quantity INTEGER NOT NULL DEFAULT 0,
+        negotiated_unit_cost REAL NOT NULL DEFAULT 0,
+        actual_unit_cost REAL,
+        line_total REAL NOT NULL DEFAULT 0,
+        created_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS goods_receipts (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        purchase_order_id TEXT NOT NULL,
+        supplier_id TEXT NOT NULL,
+        receipt_no TEXT NOT NULL,
+        note TEXT,
+        total_received_value REAL NOT NULL DEFAULT 0,
+        received_by TEXT,
+        received_at TEXT,
+        UNIQUE(branch_id, receipt_no)
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS goods_receipt_items (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        goods_receipt_id TEXT NOT NULL,
+        purchase_order_id TEXT NOT NULL,
+        purchase_order_item_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        received_quantity INTEGER NOT NULL,
+        actual_unit_cost REAL NOT NULL DEFAULT 0,
+        update_product_cost INTEGER NOT NULL DEFAULT 0,
+        line_total REAL NOT NULL DEFAULT 0,
+        created_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS supplier_payments (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        supplier_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        method TEXT,
+        note TEXT,
+        paid_by TEXT,
+        paid_at TEXT,
+        created_at TEXT
+      )
+    ''');
+
     // Indexes searches ko fast karte hain.
     // Example:
     // branch ke tickets load karna

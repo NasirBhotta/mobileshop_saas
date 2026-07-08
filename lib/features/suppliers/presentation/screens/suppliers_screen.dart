@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/providers/procurement_provider.dart';
 
+import '../../../../core/constants/app_colors.dart';
 import '../../data/models/procurement_models.dart';
 
 class SuppliersScreen extends ConsumerWidget {
@@ -10,70 +11,229 @@ class SuppliersScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    return const _SuppliersBody();
+  }
+}
+
+class _SuppliersBody extends ConsumerWidget {
+  const _SuppliersBody();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final suppliersAsync = ref.watch(suppliersProvider);
+    final syncState = ref.watch(procurementSyncControllerProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Suppliers'),
-        actions: [
-          IconButton(
-            onPressed:
-                () =>
-                    ref.read(procurementSyncControllerProvider.notifier).sync(),
-            icon: const Icon(Icons.sync),
-          ),
-        ],
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Suppliers',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Sync',
+                    onPressed:
+                        syncState.isLoading
+                            ? null
+                            : () async {
+                              await ref
+                                  .read(
+                                    procurementSyncControllerProvider.notifier,
+                                  )
+                                  .sync();
+                            },
+                    icon:
+                        syncState.isLoading
+                            ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.sync_rounded),
+                    color: AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed:
+                        syncState.isLoading
+                            ? null
+                            : () => context.go('/suppliers/new'),
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: const Text('Add'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: suppliersAsync.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error:
+                    (error, _) => _SupplierErrorView(
+                      message: error.toString(),
+                      onRetry: () => ref.invalidate(suppliersProvider),
+                    ),
+                data: (suppliers) {
+                  if (suppliers.isEmpty) {
+                    return _EmptySuppliersView(
+                      onCreate: () => context.go('/suppliers/new'),
+                    );
+                  }
+
+                  return RefreshIndicator(
+                    onRefresh: () async {
+                      await ref
+                          .read(procurementSyncControllerProvider.notifier)
+                          .sync();
+                      ref.invalidate(suppliersProvider);
+                    },
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isWide = constraints.maxWidth >= 800;
+
+                        if (isWide) {
+                          return GridView.builder(
+                            padding: const EdgeInsets.all(16),
+                            gridDelegate:
+                                const SliverGridDelegateWithMaxCrossAxisExtent(
+                                  maxCrossAxisExtent: 420,
+                                  mainAxisSpacing: 12,
+                                  crossAxisSpacing: 12,
+                                  childAspectRatio: 1.75,
+                                ),
+                            itemCount: suppliers.length,
+                            itemBuilder: (_, index) {
+                              return _SupplierCard(
+                                supplier: suppliers[index],
+                                compact: false,
+                              );
+                            },
+                          );
+                        }
+
+                        return ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(12),
+                          itemCount: suppliers.length,
+                          separatorBuilder:
+                              (_, _) => const SizedBox(height: 10),
+                          itemBuilder: (_, index) {
+                            return _SupplierCard(
+                              supplier: suppliers[index],
+                              compact: true,
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go('/suppliers/new'),
-        icon: const Icon(Icons.add),
-        label: const Text('Add Supplier'),
-      ),
-      body: suppliersAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e.toString())),
-        data: (suppliers) {
-          if (suppliers.isEmpty) {
-            return Center(
-              child: FilledButton.icon(
-                onPressed: () => context.go('/suppliers/new'),
-                icon: const Icon(Icons.add),
+    );
+  }
+}
+
+class _EmptySuppliersView extends StatelessWidget {
+  final VoidCallback onCreate;
+
+  const _EmptySuppliersView({required this.onCreate});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.local_shipping_outlined,
+                size: 56,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'No Suppliers',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Abhi koi supplier add nahi hua.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onCreate,
+                icon: const Icon(Icons.add_rounded),
                 label: const Text('Add First Supplier'),
               ),
-            );
-          }
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 800;
+class _SupplierErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
 
-              if (isWide) {
-                return GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 420,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 1.55,
-                  ),
-                  itemCount: suppliers.length,
-                  itemBuilder: (_, index) {
-                    return _SupplierCard(supplier: suppliers[index]);
-                  },
-                );
-              }
+  const _SupplierErrorView({required this.message, required this.onRetry});
 
-              return ListView.separated(
-                padding: const EdgeInsets.all(12),
-                itemCount: suppliers.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (_, index) {
-                  return _SupplierCard(supplier: suppliers[index]);
-                },
-              );
-            },
-          );
-        },
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline_rounded,
+                size: 52,
+                color: AppColors.error,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Suppliers load nahi ho sake',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -81,16 +241,19 @@ class SuppliersScreen extends ConsumerWidget {
 
 class _SupplierCard extends ConsumerWidget {
   final SupplierModel supplier;
+  final bool compact;
 
-  const _SupplierCard({required this.supplier});
+  const _SupplierCard({required this.supplier, required this.compact});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       elevation: 0,
+      clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
@@ -107,7 +270,7 @@ class _SupplierCard extends ConsumerWidget {
             if (supplier.phone != null) Text('Phone: ${supplier.phone}'),
             if (supplier.paymentTerms != null)
               Text('Terms: ${supplier.paymentTerms}'),
-            const Spacer(),
+            SizedBox(height: compact ? 12 : 18),
             Text(
               'Payable: Rs ${supplier.outstandingBalance.toStringAsFixed(0)}',
               style: Theme.of(

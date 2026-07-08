@@ -166,6 +166,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               return const RepairsListScreen();
             },
           ),
+          GoRoute(
+            path: '/suppliers',
+            builder: (context, state) {
+              return const SuppliersScreen();
+            },
+          ),
         ],
       ),
       GoRoute(
@@ -211,13 +217,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/repairs/new',
         builder: (context, state) {
           return const RepairFormScreen();
-        },
-      ),
-
-      GoRoute(
-        path: '/suppliers',
-        builder: (context, state) {
-          return const SuppliersScreen();
         },
       ),
 
@@ -273,5 +272,6 @@ int _shellIndexForLocation(String location) {
   if (location.startsWith('/inventory')) return 2;
   if (location.startsWith('/customers')) return 3;
   if (location.startsWith('/repairs')) return 4;
+  if (location.startsWith('/suppliers')) return 5;
   return 0;
 }
