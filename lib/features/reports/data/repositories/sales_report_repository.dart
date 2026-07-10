@@ -156,39 +156,8 @@ class SalesReportRepository {
     final plan = await _tenantPlan(tenantId);
     final exportAllowed = _exportAllowedByPlan(plan);
 
-    final cached = await SalesReportLocalStore.loadReportCache(
-      tenantId: tenantId,
-      branchId: branchId,
-      dateFrom: dateFrom,
-      dateTo: dateTo,
-    );
-
-    if (cached != null) {
-      unawaited(
-        _refreshSalesReport(
-          tenantId: tenantId,
-          branchId: branchId,
-          dateFrom: dateFrom,
-          dateTo: dateTo,
-        ),
-      );
-
-      unawaited(syncOfflineMutations());
-
-      return cached;
-    }
-
     try {
-      return await _fetchRemoteSalesReport(
-        tenantId: tenantId,
-        branchId: branchId,
-        dateFrom: dateFrom,
-        dateTo: dateTo,
-      ).timeout(_networkTimeout);
-    } catch (e) {
-      debugPrint('Remote sales report failed, using local fallback: $e');
-
-      return SalesReportLocalStore.buildLocalReport(
+      final report = await SalesReportLocalStore.buildLocalReport(
         tenantId: tenantId,
         branchId: branchId,
         dateFrom: dateFrom,
@@ -196,23 +165,29 @@ class SalesReportRepository {
         plan: plan,
         exportAllowed: exportAllowed,
       );
-    }
-  }
 
-  Future<void> _refreshSalesReport({
-    required String tenantId,
-    required String? branchId,
-    required DateTime dateFrom,
-    required DateTime dateTo,
-  }) async {
-    try {
-      await _fetchRemoteSalesReport(
+      unawaited(syncOfflineMutations());
+
+      return report;
+    } catch (e) {
+      debugPrint('Local sales report failed, using cache/remote fallback: $e');
+
+      final cached = await SalesReportLocalStore.loadReportCache(
+        tenantId: tenantId,
+        branchId: branchId,
+        dateFrom: dateFrom,
+        dateTo: dateTo,
+      );
+
+      if (cached != null) return cached;
+
+      return _fetchRemoteSalesReport(
         tenantId: tenantId,
         branchId: branchId,
         dateFrom: dateFrom,
         dateTo: dateTo,
       ).timeout(_networkTimeout);
-    } catch (_) {}
+    }
   }
 
   Future<SalesAnalyticsReportModel> _fetchRemoteSalesReport({
@@ -254,7 +229,6 @@ class SalesReportRepository {
       await _ensureAllBranchesAccess();
     }
 
-    final branchId = allBranches ? null : await _branchId(tenantId);
     final plan = await _tenantPlan(tenantId);
 
     if (!_exportAllowedByPlan(plan)) {
@@ -263,36 +237,11 @@ class SalesReportRepository {
       );
     }
 
-    SalesAnalyticsReportModel report;
-
-    try {
-      final data = await _client
-          .rpc(
-            'get_sales_report_export_dataset',
-            params: {
-              'p_tenant_id': tenantId,
-              'p_branch_id': branchId,
-              'p_date_from': _dateOnly(dateFrom),
-              'p_date_to': _dateOnly(dateTo),
-              'p_export_format': SalesReportExportFormat.csv.code,
-            },
-          )
-          .timeout(_networkTimeout);
-
-      report = SalesAnalyticsReportModel.fromMap(
-        Map<String, dynamic>.from(data as Map),
-      );
-
-      await SalesReportLocalStore.saveReportCache(report);
-    } catch (e) {
-      debugPrint('Remote export dataset failed, using report fallback: $e');
-
-      report = await fetchSalesReport(
-        dateFrom: dateFrom,
-        dateTo: dateTo,
-        allBranches: allBranches,
-      );
-    }
+    final report = await fetchSalesReport(
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      allBranches: allBranches,
+    );
 
     return _buildCsvFromReport(report);
   }
@@ -320,6 +269,11 @@ class SalesReportRepository {
     buffer.writeln(
       'Gross Margin %,${report.summary.grossMarginPercent.toStringAsFixed(2)}',
     );
+    buffer.writeln('Returned Units,${report.summary.returnedUnits}');
+    buffer.writeln(
+      'Returns,${report.summary.returnsAmount.toStringAsFixed(2)}',
+    );
+    buffer.writeln('Net Sales,${report.summary.netRevenue.toStringAsFixed(2)}');
     buffer.writeln('');
 
     buffer.writeln('Product Breakdown');

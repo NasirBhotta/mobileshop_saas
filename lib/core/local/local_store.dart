@@ -156,14 +156,81 @@ class LocalStore {
     return rows.map(_productFromRow).toList();
   }
 
+  static Future<List<ProductModel>> searchProducts({
+    required String branchId,
+    required String query,
+    String? categoryId,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final normalizedQuery = query.trim();
+    final safeLimit = limit.clamp(1, 100);
+    final safeOffset = offset < 0 ? 0 : offset;
+    final categorySql = categoryId == null ? '' : 'AND p.category_id = ?';
+    final args = <Object?>[branchId, if (categoryId != null) categoryId];
+
+    var searchSql = '';
+    if (normalizedQuery.isNotEmpty) {
+      final escaped = _escapeLike(normalizedQuery);
+      final prefix = '$escaped%';
+      final contains = '%$escaped%';
+      searchSql = '''
+        AND (
+          p.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+          OR p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE
+          OR p.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+          OR p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE
+        )
+      ''';
+      args.addAll([prefix, prefix, contains, contains]);
+    }
+
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT
+        p.*,
+        c.name AS category_name,
+        c.default_reorder_threshold AS category_threshold,
+        COALESCE(i.quantity, 0) AS stock,
+        COALESCE(i.reorder_threshold, 0) AS branch_threshold
+      FROM products p
+      LEFT JOIN categories c ON c.id = p.category_id
+      LEFT JOIN inventory i ON i.product_id = p.id AND i.branch_id = p.branch_id
+      WHERE p.branch_id = ?
+        AND COALESCE(p.is_active, 1) = 1
+        $categorySql
+        $searchSql
+      ORDER BY
+        CASE
+          WHEN p.sku = ? COLLATE NOCASE THEN 0
+          WHEN p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 1
+          WHEN p.name LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 2
+          ELSE 3
+        END,
+        p.name COLLATE NOCASE ASC
+      LIMIT ? OFFSET ?
+      ''',
+      [
+        ...args,
+        normalizedQuery,
+        '${_escapeLike(normalizedQuery)}%',
+        '${_escapeLike(normalizedQuery)}%',
+        safeLimit,
+        safeOffset,
+      ],
+    );
+    return rows.map(_productFromRow).toList();
+  }
+
   static Future<void> upsertProduct(ProductModel product) async {
+    final now = DateTime.now().toIso8601String();
     await LocalDatabase.execute(
       '''
       INSERT OR REPLACE INTO products(
         id, tenant_id, branch_id, category_id, name, sku, description,
         sale_price, cost_price, reorder_threshold, imei_tracked, is_active,
-        created_at
-      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, updated_at
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         product.id,
@@ -178,7 +245,8 @@ class LocalStore {
         product.reorderThreshold,
         product.imeiTracked ? 1 : 0,
         product.isActive ? 1 : 0,
-        DateTime.now().toIso8601String(),
+        now,
+        now,
       ],
     );
     await LocalDatabase.execute(
@@ -265,6 +333,13 @@ class LocalStore {
       'cost_price': row['cost_price'] ?? 0,
       'stock': row['stock'] ?? 0,
     });
+  }
+
+  static String _escapeLike(String value) {
+    return value
+        .replaceAll(r'\', r'\\')
+        .replaceAll('%', r'\%')
+        .replaceAll('_', r'\_');
   }
 
   static Future<void> saveTenantSettings(Map<String, dynamic> settings) async {

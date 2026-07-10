@@ -157,43 +157,10 @@ class BusinessReportRepository {
     }
 
     final branchId = allBranches ? null : await _branchId(tenantId);
-
-    final cached = await BusinessReportLocalStore.loadReportCache(
-      reportType: reportType,
-      tenantId: tenantId,
-      branchId: branchId,
-      dateFrom: dateFrom,
-      dateTo: dateTo,
-    );
-
-    if (cached != null) {
-      unawaited(
-        _refreshRawReport(
-          reportType: reportType,
-          tenantId: tenantId,
-          branchId: branchId,
-          dateFrom: dateFrom,
-          dateTo: dateTo,
-        ),
-      );
-
-      unawaited(syncOfflineMutations());
-
-      return cached;
-    }
+    final plan = await _tenantPlan(tenantId);
 
     try {
-      return await _fetchRemoteRawReport(
-        reportType: reportType,
-        tenantId: tenantId,
-        branchId: branchId,
-        dateFrom: dateFrom,
-        dateTo: dateTo,
-      ).timeout(_networkTimeout);
-    } catch (e) {
-      debugPrint('Remote business report failed, using local fallback: $e');
-      final plan = await _tenantPlan(tenantId);
-      return BusinessReportLocalStore.buildLocalReport(
+      final report = await BusinessReportLocalStore.buildLocalReport(
         reportType: reportType,
         tenantId: tenantId,
         branchId: branchId,
@@ -202,25 +169,33 @@ class BusinessReportRepository {
         plan: plan,
         exportAllowed: _exportAllowedByPlan(plan),
       );
-    }
-  }
 
-  Future<void> _refreshRawReport({
-    required BusinessReportType reportType,
-    required String tenantId,
-    required String? branchId,
-    required DateTime dateFrom,
-    required DateTime dateTo,
-  }) async {
-    try {
-      await _fetchRemoteRawReport(
+      unawaited(syncOfflineMutations());
+
+      return report;
+    } catch (e) {
+      debugPrint(
+        'Local business report failed, using cache/remote fallback: $e',
+      );
+
+      final cached = await BusinessReportLocalStore.loadReportCache(
+        reportType: reportType,
+        tenantId: tenantId,
+        branchId: branchId,
+        dateFrom: dateFrom,
+        dateTo: dateTo,
+      );
+
+      if (cached != null) return cached;
+
+      return _fetchRemoteRawReport(
         reportType: reportType,
         tenantId: tenantId,
         branchId: branchId,
         dateFrom: dateFrom,
         dateTo: dateTo,
       ).timeout(_networkTimeout);
-    } catch (_) {}
+    }
   }
 
   Future<Map<String, dynamic>> _fetchRemoteRawReport({
@@ -388,7 +363,6 @@ class BusinessReportRepository {
       await _ensureAllBranchesAccess();
     }
 
-    final branchId = allBranches ? null : await _branchId(tenantId);
     final plan = await _tenantPlan(tenantId);
 
     if (!_exportAllowedByPlan(plan)) {
@@ -397,43 +371,12 @@ class BusinessReportRepository {
       );
     }
 
-    Map<String, dynamic> map;
-
-    try {
-      final data = await _client
-          .rpc(
-            'get_business_report_export_dataset',
-            params: {
-              'p_tenant_id': tenantId,
-              'p_branch_id': branchId,
-              'p_date_from': _dateOnly(dateFrom),
-              'p_date_to': _dateOnly(dateTo),
-              'p_report_type': reportType.code,
-              'p_export_format': 'csv',
-            },
-          )
-          .timeout(_networkTimeout);
-
-      map = Map<String, dynamic>.from(data as Map);
-
-      await BusinessReportLocalStore.saveReportCache(
-        reportType: reportType,
-        tenantId: tenantId,
-        branchId: branchId,
-        dateFrom: dateFrom,
-        dateTo: dateTo,
-        report: map,
-      );
-    } catch (e) {
-      debugPrint('Remote business export failed, using report cache: $e');
-
-      map = await fetchRawReport(
-        reportType: reportType,
-        dateFrom: dateFrom,
-        dateTo: dateTo,
-        allBranches: allBranches,
-      );
-    }
+    final map = await fetchRawReport(
+      reportType: reportType,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      allBranches: allBranches,
+    );
 
     return _buildGenericCsv(title: reportType.label, map: map);
   }

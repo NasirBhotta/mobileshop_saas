@@ -501,6 +501,21 @@ class _SummaryGrid extends StatelessWidget {
         value: '${report.summary.grossMarginPercent.toStringAsFixed(1)}%',
         icon: Icons.percent,
       ),
+      _SummaryItem(
+        title: 'Returns',
+        value: 'Rs ${report.summary.returnsAmount.toStringAsFixed(0)}',
+        icon: Icons.assignment_return_outlined,
+      ),
+      _SummaryItem(
+        title: 'Returned Units',
+        value: report.summary.returnedUnits.toString(),
+        icon: Icons.keyboard_return_outlined,
+      ),
+      _SummaryItem(
+        title: 'Net Sales',
+        value: 'Rs ${report.summary.netRevenue.toStringAsFixed(0)}',
+        icon: Icons.receipt_long_outlined,
+      ),
     ];
 
     return LayoutBuilder(

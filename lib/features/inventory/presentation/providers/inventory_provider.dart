@@ -156,6 +156,51 @@ final productsProvider = FutureProvider<List<ProductModel>>((ref) async {
       .fetchProducts(categoryId: categoryId);
 });
 
+class ProductSearchRequest {
+  final String query;
+  final String? categoryId;
+  final int limit;
+  final int offset;
+
+  const ProductSearchRequest({
+    required this.query,
+    this.categoryId,
+    this.limit = 50,
+    this.offset = 0,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    return other is ProductSearchRequest &&
+        other.query == query &&
+        other.categoryId == categoryId &&
+        other.limit == limit &&
+        other.offset == offset;
+  }
+
+  @override
+  int get hashCode => Object.hash(query, categoryId, limit, offset);
+}
+
+final productSearchProvider =
+    FutureProvider.family<List<ProductModel>, ProductSearchRequest>((
+      ref,
+      request,
+    ) async {
+      await ref.watch(selectedBranchIdProvider.future);
+      final query = request.query.trim();
+      if (query.length < 2) return const <ProductModel>[];
+
+      return ref
+          .read(inventoryRepositoryProvider)
+          .searchProducts(
+            query: query,
+            categoryId: request.categoryId,
+            limit: request.limit,
+            offset: request.offset,
+          );
+    });
+
 // Categories list
 final categoriesProvider = FutureProvider<List<CategoryModel>>((ref) async {
   await ref.watch(selectedBranchIdProvider.future);

@@ -225,6 +225,42 @@ class OfflineStore {
         .toList();
   }
 
+  static Future<List<ProductModel>> searchProducts({
+    required String branchId,
+    required String query,
+    String? categoryId,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    try {
+      final products = await LocalStore.searchProducts(
+        branchId: branchId,
+        query: query,
+        categoryId: categoryId,
+        limit: limit,
+        offset: offset,
+      );
+      if (products.isNotEmpty || query.trim().isNotEmpty) return products;
+    } catch (_) {}
+
+    final products = await loadProducts(branchId);
+    final normalizedQuery = query.toLowerCase().trim();
+    final filtered =
+        products.where((product) {
+            final categoryMatches =
+                categoryId == null || product.categoryId == categoryId;
+            if (!categoryMatches) return false;
+            if (normalizedQuery.isEmpty) return true;
+            return product.name.toLowerCase().contains(normalizedQuery) ||
+                (product.sku?.toLowerCase().contains(normalizedQuery) ?? false);
+          }).toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+
+    final start = offset < 0 ? 0 : offset;
+    if (start >= filtered.length) return [];
+    return filtered.skip(start).take(limit.clamp(1, 100)).toList();
+  }
+
   static Future<void> upsertCachedProduct(ProductModel product) async {
     try {
       await LocalStore.upsertProduct(product);

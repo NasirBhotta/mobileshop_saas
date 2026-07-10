@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,37 +19,41 @@ class ProductSearchPanel extends ConsumerStatefulWidget {
 
 class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
   final _searchCtrl = TextEditingController();
+  Timer? _debounce;
   String _query = '';
+  String _debouncedQuery = '';
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  // Local filter — already loaded products mein se search karo
-  List<ProductModel> _filtered(List<ProductModel> products) {
-    if (_query.isEmpty) return products;
-    final q = _query.toLowerCase();
-    return products.where((p) {
-      return p.name.toLowerCase().contains(q) ||
-          (p.sku?.toLowerCase().contains(q) ?? false);
-    }).toList();
+  void _setQuery(String value) {
+    setState(() => _query = value);
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      setState(() => _debouncedQuery = value.trim());
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // allProductsProvider → branch ke sab active products
-    final productsAsync = ref.watch(allProductsProvider);
+    final productsAsync = ref.watch(
+      productSearchProvider(
+        ProductSearchRequest(query: _debouncedQuery, limit: 50),
+      ),
+    );
 
     return Column(
       children: [
-        // ── Search Bar ──
         Padding(
           padding: const EdgeInsets.all(12),
           child: TextField(
             controller: _searchCtrl,
-            onChanged: (val) => setState(() => _query = val),
+            onChanged: _setQuery,
             decoration: InputDecoration(
               hintText: AppStrings.searchProductsPos,
               prefixIcon: const Icon(
@@ -61,7 +67,11 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
                         icon: const Icon(Icons.close_rounded, size: 18),
                         onPressed: () {
                           _searchCtrl.clear();
-                          setState(() => _query = '');
+                          _debounce?.cancel();
+                          setState(() {
+                            _query = '';
+                            _debouncedQuery = '';
+                          });
                         },
                       )
                       : null,
@@ -89,31 +99,45 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
             ),
           ),
         ),
-
-        // ── Products List ──
         Expanded(
           child: productsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text(e.toString())),
             data: (products) {
-              final filtered = _filtered(products);
-
-              if (filtered.isEmpty) {
-                return Center(
+              if (_debouncedQuery.length < 2) {
+                return const Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
+                        Icons.search_rounded,
+                        size: 48,
+                        color: AppColors.textHint,
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'Product name ya SKU search karein',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              if (products.isEmpty) {
+                return const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
                         Icons.search_off_rounded,
                         size: 48,
                         color: AppColors.textHint,
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12),
                       Text(
-                        _query.isEmpty
-                            ? AppStrings.cartEmptyDesc
-                            : AppStrings.noProductsFound,
-                        style: const TextStyle(color: AppColors.textSecondary),
+                        AppStrings.noProductsFound,
+                        style: TextStyle(color: AppColors.textSecondary),
                       ),
                     ],
                   ),
@@ -125,10 +149,10 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
                   horizontal: 12,
                   vertical: 4,
                 ),
-                itemCount: filtered.length,
+                itemCount: products.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 6),
                 itemBuilder: (context, index) {
-                  final product = filtered[index];
+                  final product = products[index];
                   return _ProductTile(product: product);
                 },
               );
@@ -140,7 +164,6 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
   }
 }
 
-// ── Product Tile ─────────────────────────────────────
 class _ProductTile extends ConsumerWidget {
   final ProductModel product;
 
@@ -148,10 +171,9 @@ class _ProductTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Is product ki quantity cart mein kitni hai?
     final cartItems = ref.watch(cartProvider).items;
     final cartItem =
-        cartItems.where((e) => e.productId == product.id).firstOrNull;
+        cartItems.where((item) => item.productId == product.id).firstOrNull;
     final inCart = cartItem != null;
 
     final isOutOfStock = product.isOutOfStock;
@@ -161,7 +183,7 @@ class _ProductTile extends ConsumerWidget {
     return InkWell(
       onTap:
           isOutOfStock || isAtStockLimit
-              ? null // out of stock → tap disable
+              ? null
               : () {
                 ref
                     .read(cartProvider.notifier)
@@ -183,7 +205,6 @@ class _ProductTile extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            // Product icon
             Container(
               width: 40,
               height: 40,
@@ -201,8 +222,6 @@ class _ProductTile extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 10),
-
-            // Name + SKU + stock
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,7 +242,6 @@ class _ProductTile extends ConsumerWidget {
                   const SizedBox(height: 2),
                   Row(
                     children: [
-                      // Stock badge
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 6,
@@ -255,13 +273,11 @@ class _ProductTile extends ConsumerWidget {
                 ],
               ),
             ),
-
-            // Price + cart indicator
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '₨ ${product.salePrice.toStringAsFixed(0)}',
+                  'Rs ${product.salePrice.toStringAsFixed(0)}',
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,

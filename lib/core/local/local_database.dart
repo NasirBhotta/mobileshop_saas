@@ -251,7 +251,8 @@ class LocalDatabase {
         reorder_threshold INTEGER NOT NULL DEFAULT 0,
         imei_tracked INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT
+        created_at TEXT,
+        updated_at TEXT
       )
     ''');
 
@@ -264,6 +265,11 @@ class LocalDatabase {
       table: 'products',
       column: 'reorder_threshold',
       definition: 'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      table: 'products',
+      column: 'updated_at',
+      definition: 'TEXT',
     );
 
     await _db.customStatement('''
@@ -1183,6 +1189,26 @@ class LocalDatabase {
     await _db.customStatement('''
       CREATE INDEX IF NOT EXISTS idx_products_branch
       ON products(branch_id)
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_products_branch_active_name
+      ON products(branch_id, is_active, name COLLATE NOCASE)
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_products_branch_active_sku
+      ON products(branch_id, is_active, sku COLLATE NOCASE)
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_products_branch_category_active_name
+      ON products(branch_id, category_id, is_active, name COLLATE NOCASE)
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_products_branch_updated
+      ON products(branch_id, updated_at)
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_inventory_branch_quantity
+      ON inventory(branch_id, quantity)
     ''');
     await _db.customStatement('''
       CREATE INDEX IF NOT EXISTS idx_categories_branch

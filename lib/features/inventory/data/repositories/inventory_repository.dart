@@ -480,6 +480,9 @@ class InventoryRepository {
     required String tenantId,
     required String branchId,
     String? categoryId,
+    String? queryText,
+    int? limit,
+    int offset = 0,
   }) async {
     var query = _client
         .from('products')
@@ -495,11 +498,66 @@ class InventoryRepository {
       query = query.eq('category_id', categoryId);
     }
 
-    final data = await query.order('name');
+    final normalizedQuery = queryText?.trim();
+    if (normalizedQuery != null && normalizedQuery.isNotEmpty) {
+      final escaped = _escapePostgrestPattern(normalizedQuery);
+      query = query.or('name.ilike.$escaped%,sku.ilike.$escaped%');
+    }
+
+    var ordered = query.order('name');
+    if (limit != null) {
+      final safeLimit = limit.clamp(1, 100).toInt();
+      final safeOffset = offset < 0 ? 0 : offset;
+      ordered = ordered.range(safeOffset, safeOffset + safeLimit - 1);
+    }
+
+    final data = await ordered;
     final products =
         (data as List).map((e) => ProductModel.fromMap(e)).toList();
-    await OfflineStore.saveProducts(branchId, products);
+    if (categoryId == null && normalizedQuery?.isNotEmpty != true) {
+      await OfflineStore.saveProducts(branchId, products);
+    } else {
+      for (final product in products) {
+        await OfflineStore.upsertCachedProduct(product);
+      }
+    }
     return products;
+  }
+
+  Future<List<ProductModel>> searchProducts({
+    required String query,
+    String? categoryId,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    final normalizedQuery = query.trim();
+
+    final localProducts = await OfflineStore.searchProducts(
+      branchId: branchId,
+      query: normalizedQuery,
+      categoryId: categoryId,
+      limit: limit,
+      offset: offset,
+    );
+    if (localProducts.isNotEmpty) {
+      unawaited(syncOfflineMutations());
+      return localProducts;
+    }
+
+    try {
+      return await _fetchRemoteProducts(
+        tenantId: tenantId,
+        branchId: branchId,
+        categoryId: categoryId,
+        queryText: normalizedQuery,
+        limit: limit,
+        offset: offset,
+      ).timeout(_networkTimeout);
+    } catch (_) {
+      return localProducts;
+    }
   }
 
   Future<void> _refreshProductsCache({
@@ -1257,6 +1315,13 @@ class InventoryRepository {
     'adjustment_value_threshold': 50000.0,
     'updated_at': DateTime.now().toIso8601String(),
   };
+
+  String _escapePostgrestPattern(String value) {
+    return value
+        .replaceAll(',', ' ')
+        .replaceAll('%', r'\%')
+        .replaceAll('_', r'\_');
+  }
 
   Map<String, dynamic> _stockAdjustmentMap({
     required String id,

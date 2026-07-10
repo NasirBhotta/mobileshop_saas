@@ -109,6 +109,9 @@ class SalesReportSummaryModel {
   final double cogs;
   final double grossProfit;
   final double grossMarginPercent;
+  final int returnedUnits;
+  final double returnsAmount;
+  final double netRevenue;
 
   const SalesReportSummaryModel({
     required this.totalOrders,
@@ -119,6 +122,9 @@ class SalesReportSummaryModel {
     required this.cogs,
     required this.grossProfit,
     required this.grossMarginPercent,
+    required this.returnedUnits,
+    required this.returnsAmount,
+    required this.netRevenue,
   });
 
   factory SalesReportSummaryModel.empty() {
@@ -131,19 +137,30 @@ class SalesReportSummaryModel {
       cogs: 0,
       grossProfit: 0,
       grossMarginPercent: 0,
+      returnedUnits: 0,
+      returnsAmount: 0,
+      netRevenue: 0,
     );
   }
 
   factory SalesReportSummaryModel.fromMap(Map<String, dynamic> map) {
+    final revenue = _double(map['revenue']);
+    final returnsAmount = _double(map['returns_amount']);
     return SalesReportSummaryModel(
       totalOrders: _int(map['total_orders']),
       totalUnits: _int(map['total_units']),
-      revenue: _double(map['revenue']),
+      revenue: revenue,
       discount: _double(map['discount']),
       tax: _double(map['tax']),
       cogs: _double(map['cogs']),
       grossProfit: _double(map['gross_profit']),
       grossMarginPercent: _double(map['gross_margin_percent']),
+      returnedUnits: _int(map['returned_units']),
+      returnsAmount: returnsAmount,
+      netRevenue:
+          map.containsKey('net_revenue')
+              ? _double(map['net_revenue'])
+              : revenue - returnsAmount,
     );
   }
 
@@ -157,6 +174,9 @@ class SalesReportSummaryModel {
       'cogs': cogs,
       'gross_profit': grossProfit,
       'gross_margin_percent': grossMarginPercent,
+      'returned_units': returnedUnits,
+      'returns_amount': returnsAmount,
+      'net_revenue': netRevenue,
     };
   }
 }

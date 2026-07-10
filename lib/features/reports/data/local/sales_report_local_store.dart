@@ -83,6 +83,7 @@ class SalesReportLocalStore {
     required DateTime dateTo,
     String plan = 'starter',
     bool exportAllowed = false,
+    bool netReturns = false,
   }) async {
     final from = _dateOnly(dateFrom);
     final to = _dateOnly(dateTo);
@@ -96,6 +97,8 @@ class SalesReportLocalStore {
        AND tenant_branch.tenant_id = ?
       ''';
     final reportArgs = <Object?>[tenantId, ...branchArg, from, to];
+    final reportArgsWithReturns =
+        netReturns ? <Object?>[...reportArgs, ...reportArgs] : reportArgs;
     const saleItemCogs = '''
       COALESCE(
         si.cogs_total,
@@ -135,8 +138,7 @@ class SalesReportLocalStore {
         AND substr(s.created_at, 1, 10) BETWEEN ? AND ?
       ''', reportArgs);
 
-    final itemSummaryRows = await LocalDatabase.select(
-      '''
+    final itemSummaryRows = await LocalDatabase.select('''
       SELECT
         COALESCE(SUM(quantity), 0) AS total_units,
         COALESCE(SUM(cogs), 0) AS cogs,
@@ -153,6 +155,7 @@ class SalesReportLocalStore {
         WHERE s.status = 'completed'
           $branchFilter
           AND substr(s.created_at, 1, 10) BETWEEN ? AND ?
+        ${netReturns ? '''
         UNION ALL
         SELECT
           -ri.quantity AS quantity,
@@ -170,13 +173,14 @@ class SalesReportLocalStore {
         WHERE r.status = 'approved'
           ${branchId == null ? '' : 'AND r.branch_id = ?'}
           AND substr(r.created_at, 1, 10) BETWEEN ? AND ?
+        ''' : ''}
       )
-      ''',
-      [...reportArgs, ...reportArgs],
-    );
+      ''', reportArgsWithReturns);
 
     final returnSummaryRows = await LocalDatabase.select('''
-      SELECT COALESCE(SUM(ri.refund_amount), 0) AS refund
+      SELECT
+        COALESCE(SUM(ri.quantity), 0) AS returned_units,
+        COALESCE(SUM(ri.refund_amount), 0) AS refund
       FROM sale_return_items ri
       JOIN sale_returns r ON r.id = ri.return_id
       JOIN branches tenant_branch
@@ -187,9 +191,10 @@ class SalesReportLocalStore {
         AND substr(r.created_at, 1, 10) BETWEEN ? AND ?
       ''', reportArgs);
 
-    final revenue =
-        _double(summaryRows.first['revenue']) -
-        _double(returnSummaryRows.first['refund']);
+    final grossRevenue = _double(summaryRows.first['revenue']);
+    final returnsAmount = _double(returnSummaryRows.first['refund']);
+    final netRevenue = grossRevenue - returnsAmount;
+    final revenue = netReturns ? netRevenue : grossRevenue;
     final cogs = _double(itemSummaryRows.first['cogs']);
     final grossProfit = _double(itemSummaryRows.first['gross_profit']);
 
@@ -202,10 +207,12 @@ class SalesReportLocalStore {
       cogs: cogs,
       grossProfit: grossProfit,
       grossMarginPercent: revenue > 0 ? (grossProfit / revenue) * 100 : 0,
+      returnedUnits: _int(returnSummaryRows.first['returned_units']),
+      returnsAmount: returnsAmount,
+      netRevenue: netRevenue,
     );
 
-    final productRows = await LocalDatabase.select(
-      '''
+    final productRows = await LocalDatabase.select('''
       SELECT
         product_id,
         product_name,
@@ -229,6 +236,7 @@ class SalesReportLocalStore {
         WHERE s.status = 'completed'
           $branchFilter
           AND substr(s.created_at, 1, 10) BETWEEN ? AND ?
+        ${netReturns ? '''
         UNION ALL
         SELECT
           ri.product_id AS product_id,
@@ -249,15 +257,13 @@ class SalesReportLocalStore {
         WHERE r.status = 'approved'
           ${branchId == null ? '' : 'AND r.branch_id = ?'}
           AND substr(r.created_at, 1, 10) BETWEEN ? AND ?
+        ''' : ''}
       )
       GROUP BY product_id, product_name, sku
       ORDER BY gross_profit DESC
-      ''',
-      [...reportArgs, ...reportArgs],
-    );
+      ''', reportArgsWithReturns);
 
-    final customerRows = await LocalDatabase.select(
-      '''
+    final customerRows = await LocalDatabase.select('''
       SELECT
         customer_id,
         customer_name,
@@ -279,6 +285,7 @@ class SalesReportLocalStore {
         WHERE s.status = 'completed'
           $branchFilter
           AND substr(s.created_at, 1, 10) BETWEEN ? AND ?
+        ${netReturns ? '''
         UNION ALL
         SELECT
           r.original_sale_id AS sale_id,
@@ -300,15 +307,13 @@ class SalesReportLocalStore {
         WHERE r.status = 'approved'
           ${branchId == null ? '' : 'AND r.branch_id = ?'}
           AND substr(r.created_at, 1, 10) BETWEEN ? AND ?
+        ''' : ''}
       )
       GROUP BY customer_id, customer_name
       ORDER BY revenue DESC
-      ''',
-      [...reportArgs, ...reportArgs],
-    );
+      ''', reportArgsWithReturns);
 
-    final branchRows = await LocalDatabase.select(
-      '''
+    final branchRows = await LocalDatabase.select('''
       SELECT
         branch_id,
         branch_name,
@@ -331,6 +336,7 @@ class SalesReportLocalStore {
         WHERE s.status = 'completed'
           $branchFilter
           AND substr(s.created_at, 1, 10) BETWEEN ? AND ?
+        ${netReturns ? '''
         UNION ALL
         SELECT
           r.original_sale_id AS sale_id,
@@ -351,15 +357,13 @@ class SalesReportLocalStore {
         WHERE r.status = 'approved'
           ${branchId == null ? '' : 'AND r.branch_id = ?'}
           AND substr(r.created_at, 1, 10) BETWEEN ? AND ?
+        ''' : ''}
       )
       GROUP BY branch_id, branch_name
       ORDER BY revenue DESC
-      ''',
-      [...reportArgs, ...reportArgs],
-    );
+      ''', reportArgsWithReturns);
 
-    final categoryRows = await LocalDatabase.select(
-      '''
+    final categoryRows = await LocalDatabase.select('''
       SELECT
         category_id,
         category_name,
@@ -382,6 +386,7 @@ class SalesReportLocalStore {
         WHERE s.status = 'completed'
           $branchFilter
           AND substr(s.created_at, 1, 10) BETWEEN ? AND ?
+        ${netReturns ? '''
         UNION ALL
         SELECT
           p.category_id AS category_id,
@@ -402,15 +407,13 @@ class SalesReportLocalStore {
         WHERE r.status = 'approved'
           ${branchId == null ? '' : 'AND r.branch_id = ?'}
           AND substr(r.created_at, 1, 10) BETWEEN ? AND ?
+        ''' : ''}
       )
       GROUP BY category_id, category_name
       ORDER BY gross_profit DESC
-      ''',
-      [...reportArgs, ...reportArgs],
-    );
+      ''', reportArgsWithReturns);
 
-    final dailyRows = await LocalDatabase.select(
-      '''
+    final dailyRows = await LocalDatabase.select('''
       SELECT
         date,
         COUNT(DISTINCT sale_id) AS orders,
@@ -430,6 +433,7 @@ class SalesReportLocalStore {
         WHERE s.status = 'completed'
           $branchFilter
           AND substr(s.created_at, 1, 10) BETWEEN ? AND ?
+        ${netReturns ? '''
         UNION ALL
         SELECT
           substr(r.created_at, 1, 10) AS date,
@@ -448,12 +452,11 @@ class SalesReportLocalStore {
         WHERE r.status = 'approved'
           ${branchId == null ? '' : 'AND r.branch_id = ?'}
           AND substr(r.created_at, 1, 10) BETWEEN ? AND ?
+        ''' : ''}
       )
       GROUP BY date
       ORDER BY date ASC
-      ''',
-      [...reportArgs, ...reportArgs],
-    );
+      ''', reportArgsWithReturns);
 
     final report = SalesAnalyticsReportModel(
       tenantId: tenantId,

@@ -366,6 +366,7 @@ class BusinessReportLocalStore {
       dateTo: dateTo,
       plan: plan,
       exportAllowed: exportAllowed,
+      netReturns: true,
     );
     return report.toMap();
   }
@@ -385,6 +386,7 @@ class BusinessReportLocalStore {
       dateTo: dateTo,
       plan: plan,
       exportAllowed: exportAllowed,
+      netReturns: true,
     );
     final repairs = await _repairRevenue(
       tenantId: tenantId,
@@ -1023,6 +1025,7 @@ class BusinessReportLocalStore {
       branchId: branchId,
       dateFrom: dateFrom,
       dateTo: dateTo,
+      netReturns: true,
     );
     return report.productBreakdown
         .where((item) => item.quantity > 0)
@@ -1050,6 +1053,7 @@ class BusinessReportLocalStore {
       branchId: branchId,
       dateFrom: dateFrom,
       dateTo: dateTo,
+      netReturns: true,
     );
     return report.customerBreakdown
         .take(10)
