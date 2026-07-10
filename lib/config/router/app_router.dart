@@ -30,6 +30,9 @@ import 'package:mobileshop_saas/features/pos/presentation/screens/return_screen.
 import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repair_form_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repairs_list_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_schedule_form_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_schedules_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_screen.dart';
 import 'package:mobileshop_saas/features/settings/presentation/screens/account_settings_screen.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/po_document_screen.dart';
@@ -312,6 +315,27 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return PODocumentScreen(po: po);
         },
       ),
+
+      GoRoute(
+        path: '/reports/sales',
+        builder: (context, state) {
+          return const SalesReportScreen();
+        },
+      ),
+
+      GoRoute(
+        path: '/reports/sales/schedules',
+        builder: (context, state) {
+          return const SalesReportSchedulesScreen();
+        },
+      ),
+
+      GoRoute(
+        path: '/reports/sales/schedules/new',
+        builder: (context, state) {
+          return const SalesReportScheduleFormScreen();
+        },
+      ),
     ],
   );
 });
@@ -324,7 +348,7 @@ int _shellIndexForLocation(String location) {
   if (location.startsWith('/suppliers')) return 5;
   if (location.startsWith('/purchase-orders')) return 5;
   if (location.startsWith('/expenses')) return 6;
-  if (location.startsWith('/reports')) return 7;
+  if (location.startsWith('/reports/sales')) return 7;
   if (location.startsWith('/settings')) return 8;
   if (location.startsWith('/accounts')) return 9;
   return 0;

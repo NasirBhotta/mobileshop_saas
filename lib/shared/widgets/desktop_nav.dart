@@ -27,7 +27,7 @@ class DesktopNav extends ConsumerWidget {
     '/repairs',
     '/suppliers',
     '/expenses',
-    '/reports',
+    '/reports/sales',
     '/settings',
   ];
 
