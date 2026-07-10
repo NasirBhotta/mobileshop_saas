@@ -19,12 +19,12 @@ class ExpensesScreen extends ConsumerWidget {
         actions: [
           IconButton(
             tooltip: 'Report',
-            onPressed: () => context.go('/expenses/report'),
+            onPressed: () => context.push('/expenses/report'),
             icon: const Icon(Icons.analytics_outlined),
           ),
           IconButton(
             tooltip: 'Recurring Expenses',
-            onPressed: () => context.go('/expenses/recurring'),
+            onPressed: () => context.push('/expenses/recurring'),
             icon: const Icon(Icons.repeat),
           ),
           IconButton(
@@ -65,7 +65,7 @@ class ExpensesScreen extends ConsumerWidget {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go('/expenses/new'),
+        onPressed: () => context.push('/expenses/new'),
         icon: const Icon(Icons.add),
         label: const Text('Add Expense'),
       ),
@@ -715,7 +715,7 @@ class _EmptyExpensesView extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: () => context.go('/expenses/new'),
+                onPressed: () => context.push('/expenses/new'),
                 icon: const Icon(Icons.add),
                 label: const Text('Add Expense'),
               ),

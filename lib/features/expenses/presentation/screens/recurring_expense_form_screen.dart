@@ -527,7 +527,11 @@ class _RecurringExpenseFormScreenState
       context,
     ).showSnackBar(const SnackBar(content: Text('Recurring rule created')));
 
-    context.go('/expenses/recurring');
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/expenses/recurring');
+    }
   }
 }
 

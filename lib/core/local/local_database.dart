@@ -834,6 +834,89 @@ class LocalDatabase {
         updated_at TEXT
       )
     ''');
+    // ════════════════════════════════════════
+    // REPORTING & ANALYTICS
+    // ════════════════════════════════════════
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS sales_report_schedules (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT,
+        name TEXT NOT NULL,
+        cadence TEXT NOT NULL DEFAULT 'daily',
+        report_scope TEXT NOT NULL DEFAULT 'branch',
+        export_format TEXT NOT NULL DEFAULT 'csv',
+        send_to_email TEXT NOT NULL,
+        include_product_breakdown INTEGER NOT NULL DEFAULT 1,
+        include_customer_breakdown INTEGER NOT NULL DEFAULT 1,
+        include_branch_breakdown INTEGER NOT NULL DEFAULT 1,
+        include_category_breakdown INTEGER NOT NULL DEFAULT 1,
+        next_run_at TEXT NOT NULL,
+        last_run_at TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_by TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS sales_report_delivery_jobs (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        schedule_id TEXT,
+        branch_id TEXT,
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        export_format TEXT NOT NULL,
+        send_to_email TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        error_message TEXT,
+        created_at TEXT,
+        processed_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS sales_report_cache (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT,
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        report_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_sales_report_schedules_tenant ON sales_report_schedules(tenant_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_sales_report_schedules_branch ON sales_report_schedules(branch_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_sales_report_schedules_status ON sales_report_schedules(status)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_sales_report_schedules_next_run ON sales_report_schedules(next_run_at)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_sales_report_jobs_tenant ON sales_report_delivery_jobs(tenant_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_sales_report_jobs_status ON sales_report_delivery_jobs(status)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_sales_report_cache_lookup ON sales_report_cache(tenant_id, branch_id, date_from, date_to)',
+    );
 
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_local_expense_categories_tenant ON expense_categories(tenant_id)',

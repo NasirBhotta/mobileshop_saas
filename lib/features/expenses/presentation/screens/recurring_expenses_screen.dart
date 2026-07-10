@@ -52,7 +52,7 @@ class RecurringExpensesScreen extends ConsumerWidget {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go('/expenses/recurring/new'),
+        onPressed: () => context.push('/expenses/recurring/new'),
         icon: const Icon(Icons.add),
         label: const Text('New Rule'),
       ),
@@ -345,7 +345,7 @@ class _EmptyRecurringView extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: () => context.go('/expenses/recurring/new'),
+                onPressed: () => context.push('/expenses/recurring/new'),
                 icon: const Icon(Icons.add),
                 label: const Text('Create Rule'),
               ),

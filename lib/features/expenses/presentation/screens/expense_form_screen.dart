@@ -290,7 +290,11 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
     }
 
     _message('Expense saved');
-    context.go('/expenses');
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/expenses');
+    }
   }
 
   void _showCreateCategoryDialog() {
