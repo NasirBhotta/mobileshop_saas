@@ -431,13 +431,23 @@ class LocalStore {
 
     // Sale items
     for (final item in sale.items) {
+      final unitCostAtSale =
+          item.unitCost ??
+          await _loadProductCostAtSale(
+            branchId: sale.branchId,
+            productId: item.productId,
+          );
+      final cogsTotal =
+          unitCostAtSale == null ? null : unitCostAtSale * item.quantity;
+
       await LocalDatabase.execute(
         '''
       INSERT OR REPLACE INTO sale_items(
         id, sale_id, product_id, product_name,
         product_sku, quantity, unit_price,
-        discount_amount, tax_rate, line_total
-      ) VALUES(?,?,?,?,?,?,?,?,?,?)
+        unit_cost_at_sale, discount_amount, tax_rate,
+        cogs_total, line_total
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
     ''',
         [
           '${sale.id}_${item.productId}', // composite id
@@ -447,8 +457,10 @@ class LocalStore {
           item.productSku,
           item.quantity,
           item.unitPrice,
+          unitCostAtSale,
           item.discountAmount,
           item.taxRate,
+          cogsTotal,
           item.lineTotal,
         ],
       );
@@ -527,6 +539,7 @@ class LocalStore {
                       productName: r['product_name'] as String,
                       productSku: r['product_sku'] as String?,
                       unitPrice: (r['unit_price'] as num).toDouble(),
+                      unitCost: (r['unit_cost_at_sale'] as num?)?.toDouble(),
                       quantity: (r['quantity'] as num).toInt(),
                       discountAmount: (r['discount_amount'] as num).toDouble(),
                       taxRate: (r['tax_rate'] as num).toDouble(),
@@ -551,6 +564,28 @@ class LocalStore {
     }
 
     return sales;
+  }
+
+  static Future<double?> _loadProductCostAtSale({
+    required String branchId,
+    required String productId,
+  }) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT cost_price
+      FROM products
+      WHERE branch_id = ? AND id = ?
+      LIMIT 1
+      ''',
+      [branchId, productId],
+    );
+
+    if (rows.isEmpty) return null;
+
+    final cost = rows.first['cost_price'];
+    if (cost is num) return cost.toDouble();
+
+    return double.tryParse(cost?.toString() ?? '');
   }
 
   static Future<void> markSaleSynced(String saleId) async {

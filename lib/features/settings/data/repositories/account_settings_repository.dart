@@ -27,6 +27,39 @@ class AccountSettingsData {
   String get shopName => tenant['shop_name'] as String? ?? '';
   String get businessType => tenant['business_type'] as String? ?? '';
   int get branchCount => (tenant['branch_count'] as num?)?.toInt() ?? 1;
+  String get plan => tenant['plan'] as String? ?? 'starter';
+  String get status => tenant['status'] as String? ?? 'active';
+
+  bool get isStarterPlan => plan.toLowerCase() == 'starter';
+  bool get isBusinessPlan => plan.toLowerCase() == 'business';
+  bool get isEnterprisePlan => plan.toLowerCase() == 'enterprise';
+
+  bool get canExportReports => isBusinessPlan || isEnterprisePlan;
+  bool get canScheduleReports => isBusinessPlan || isEnterprisePlan;
+  bool get canUseMultiBranchAnalytics => isBusinessPlan || isEnterprisePlan;
+  bool get canUseAdvancedReports => isBusinessPlan || isEnterprisePlan;
+
+  String get planLabel {
+    switch (plan.toLowerCase()) {
+      case 'business':
+        return 'Business';
+      case 'enterprise':
+        return 'Enterprise';
+      case 'starter':
+      default:
+        return 'Starter';
+    }
+  }
+
+  String get statusLabel {
+    switch (status.toLowerCase()) {
+      case 'suspended':
+        return 'Suspended';
+      case 'active':
+      default:
+        return 'Active';
+    }
+  }
 }
 
 class AccountSettingsRepository {

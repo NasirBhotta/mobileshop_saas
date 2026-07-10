@@ -24,8 +24,15 @@ class StatCard extends StatelessWidget {
       padding: EdgeInsets.all(isCompact ? 14 : 20),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.025),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: isCompact ? _compactLayout() : _fullLayout(),
     );
@@ -35,10 +42,18 @@ class StatCard extends StatelessWidget {
   Widget _compactLayout() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(height: 8),
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 19),
+        ),
+        const SizedBox(height: 10),
         FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
@@ -54,6 +69,8 @@ class StatCard extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
         ),
       ],
@@ -65,10 +82,11 @@ class StatCard extends StatelessWidget {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(12),
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: color, size: 24),
         ),

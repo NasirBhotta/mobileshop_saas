@@ -63,12 +63,12 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
         : sum;
   });
   final todayRepairTotal = repairTickets.fold<double>(0, (sum, ticket) {
-    final completedAt = ticket.completedAt;
+    final revenueAt = ticket.deliveredAt ?? ticket.completedAt;
     final isToday =
-        completedAt != null &&
-        completedAt.year == today.year &&
-        completedAt.month == today.month &&
-        completedAt.day == today.day;
+        revenueAt != null &&
+        revenueAt.year == today.year &&
+        revenueAt.month == today.month &&
+        revenueAt.day == today.day;
     final isRevenueStatus =
         ticket.status == RepairTicketStatus.completed ||
         ticket.status == RepairTicketStatus.delivered;
@@ -94,10 +94,19 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
             ? sum + saleReturn.refundAmount
             : sum,
   );
+  final saleById = {
+    for (final sale in completedSales)
+      if (sale.id != null) sale.id!: sale,
+  };
   final returnProfit = returns.fold<double>(0, (sum, saleReturn) {
     if (saleReturn.refundMethod != RefundMethod.cash) return sum;
     final itemsProfit = saleReturn.items.fold<double>(0, (itemSum, item) {
-      return itemSum + _returnedItemProfit(item, costByProductId);
+      return itemSum +
+          _returnedItemProfit(
+            item,
+            saleById[saleReturn.originalSaleId],
+            costByProductId,
+          );
     });
     return sum + itemsProfit;
   });
@@ -202,16 +211,22 @@ double _saleItemProfit(
   Map<String, double> costByProductId,
 ) {
   final revenuePerUnit = item.unitPrice - item.discountAmount;
-  final cost = costByProductId[item.productId];
+  final cost = item.unitCost ?? costByProductId[item.productId];
   if (cost == null) return 0;
   return (revenuePerUnit - cost) * item.quantity;
 }
 
 double _returnedItemProfit(
   SaleReturnItemModel item,
+  SaleModel? originalSale,
   Map<String, double> costByProductId,
 ) {
-  final cost = costByProductId[item.productId];
+  final originalItem = originalSale?.items.where(
+    (saleItem) => saleItem.productId == item.productId,
+  );
+  final matchedOriginalItem =
+      originalItem == null || originalItem.isEmpty ? null : originalItem.first;
+  final cost = matchedOriginalItem?.unitCost ?? costByProductId[item.productId];
   if (cost == null) return 0;
   return item.refundAmount - (cost * item.quantity);
 }

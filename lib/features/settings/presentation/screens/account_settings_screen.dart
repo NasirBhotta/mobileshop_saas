@@ -53,6 +53,7 @@ class _SettingsContent extends ConsumerWidget {
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 920;
         final header = _SettingsHeader(
+          title: isWide ? 'Settings' : 'Account & Settings',
           saving: saving,
           onSync:
               saving
@@ -66,6 +67,10 @@ class _SettingsContent extends ConsumerWidget {
             _ProfileSection(settings: settings, saving: saving),
             const SizedBox(height: 12),
             _ShopSection(settings: settings, saving: saving),
+            const SizedBox(height: 12),
+            _PlanBillingSection(settings: settings),
+            const SizedBox(height: 12),
+            _DataSyncSection(settings: settings, saving: saving),
           ],
         );
         final branches = _BranchesSection(settings: settings, saving: saving);
@@ -106,19 +111,24 @@ class _SettingsContent extends ConsumerWidget {
 }
 
 class _SettingsHeader extends StatelessWidget {
+  final String title;
   final bool saving;
   final VoidCallback? onSync;
 
-  const _SettingsHeader({required this.saving, required this.onSync});
+  const _SettingsHeader({
+    required this.title,
+    required this.saving,
+    required this.onSync,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Expanded(
+        Expanded(
           child: Text(
-            'Settings',
-            style: TextStyle(
+            title,
+            style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
               color: AppColors.textPrimary,
@@ -320,7 +330,27 @@ class _ShopSectionState extends State<_ShopSection> {
                 enabled: !widget.saving,
                 decoration: const InputDecoration(labelText: 'Business type'),
               ),
+
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Chip(
+                    avatar: const Icon(
+                      Icons.workspace_premium_rounded,
+                      size: 16,
+                    ),
+                    label: Text('Plan: ${widget.settings.planLabel}'),
+                  ),
+                  Chip(
+                    avatar: const Icon(Icons.verified_rounded, size: 16),
+                    label: Text('Status: ${widget.settings.statusLabel}'),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
+
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -350,6 +380,322 @@ class _ShopSectionState extends State<_ShopSection> {
           ),
         );
       },
+    );
+  }
+}
+
+class _PlanBillingSection extends StatelessWidget {
+  final AccountSettingsData settings;
+
+  const _PlanBillingSection({required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    final isPaid = settings.canExportReports;
+
+    return _SettingsCard(
+      title: 'Plan & Billing',
+      subtitle: 'Current plan and locked features',
+      icon: Icons.workspace_premium_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _PlanHeader(settings: settings),
+          const SizedBox(height: 12),
+          _FeatureRow(
+            title: 'CSV / PDF Report Export',
+            subtitle: 'Business and Enterprise only',
+            enabled: settings.canExportReports,
+          ),
+          _FeatureRow(
+            title: 'Scheduled Reports',
+            subtitle: 'Daily, weekly, monthly email reports',
+            enabled: settings.canScheduleReports,
+          ),
+          _FeatureRow(
+            title: 'All Branches Analytics',
+            subtitle: 'Combined analytics across branches',
+            enabled: settings.canUseMultiBranchAnalytics,
+          ),
+          _FeatureRow(
+            title: 'Advanced Business Reports',
+            subtitle: 'P&L, cash flow, inventory, customer credit',
+            enabled: settings.canUseAdvancedReports,
+          ),
+          const SizedBox(height: 12),
+          if (!isPaid)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  _message(
+                    context,
+                    'Upgrade flow baad mein billing module ke sath connect hoga.',
+                  );
+                },
+                icon: const Icon(Icons.lock_open_rounded),
+                label: const Text('Upgrade to Business'),
+              ),
+            )
+          else
+            const _InfoBox(
+              icon: Icons.check_circle_outline_rounded,
+              text:
+                  'Your plan can access export, scheduled reports and advanced analytics.',
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DataSyncSection extends ConsumerWidget {
+  final AccountSettingsData settings;
+  final bool saving;
+
+  const _DataSyncSection({required this.settings, required this.saving});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _SettingsCard(
+      title: 'Data & Sync',
+      subtitle: 'Offline changes and cloud synchronization',
+      icon: Icons.sync_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _InfoBox(
+            icon: Icons.cloud_done_outlined,
+            text:
+                'App offline-first hai. Internet weak ho to changes local save hoti hain aur baad mein sync hoti hain.',
+          ),
+          const SizedBox(height: 12),
+          _SyncInfoRow(
+            title: 'Profile, shop and branch changes',
+            subtitle: 'Offline queue supported',
+            icon: Icons.person_rounded,
+          ),
+          _SyncInfoRow(
+            title: 'Inventory, sales, expenses and reports',
+            subtitle: 'Module sync providers ke through handle hota hai',
+            icon: Icons.storage_rounded,
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed:
+                  saving
+                      ? null
+                      : () async {
+                        final ok =
+                            await ref
+                                .read(
+                                  accountSettingsControllerProvider.notifier,
+                                )
+                                .sync();
+
+                        if (!context.mounted) return;
+
+                        _message(
+                          context,
+                          ok ? 'Sync completed' : 'Sync failed',
+                        );
+                      },
+              icon:
+                  saving
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.sync_rounded),
+              label: Text(saving ? 'Syncing...' : 'Sync Now'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SyncInfoRow extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  const _SyncInfoRow({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: AppColors.primary.withValues(alpha: 0.08),
+            foregroundColor: AppColors.primary,
+            child: Icon(icon, size: 17),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoBox extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _InfoBox({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: AppColors.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanHeader extends StatelessWidget {
+  final AccountSettingsData settings;
+
+  const _PlanHeader({required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        settings.status.toLowerCase() == 'active'
+            ? AppColors.primary
+            : AppColors.error;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: color.withValues(alpha: 0.12),
+            foregroundColor: color,
+            child: const Icon(Icons.workspace_premium_rounded),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  settings.planLabel,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  'Status: ${settings.statusLabel}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeatureRow extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool enabled;
+
+  const _FeatureRow({
+    required this.title,
+    required this.subtitle,
+    required this.enabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = enabled ? Icons.check_circle_rounded : Icons.lock_outline;
+    final color = enabled ? AppColors.primary : AppColors.textSecondary;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            enabled ? 'Enabled' : 'Locked',
+            style: TextStyle(color: color, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
     );
   }
 }

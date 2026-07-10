@@ -55,6 +55,56 @@ class CartItemTile extends ConsumerWidget {
             children: [
               _QtyController(item: item),
               const Spacer(),
+              Text(
+                'Rs ${item.lineTotal.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              GestureDetector(
+                onTap: () => _showPriceDialog(context, ref),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.24),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.sell_rounded,
+                        size: 12,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Rs ${item.unitPrice.toStringAsFixed(0)}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               GestureDetector(
                 onTap: () => _showDiscountDialog(context, ref),
                 child: Container(
@@ -76,6 +126,7 @@ class CartItemTile extends ConsumerWidget {
                     ),
                   ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
                         Icons.percent_rounded,
@@ -103,19 +154,49 @@ class CartItemTile extends ConsumerWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Text(
-                'Rs ${item.lineTotal.toStringAsFixed(0)}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
             ],
           ),
         ],
       ),
+    );
+  }
+
+  void _showPriceDialog(BuildContext context, WidgetRef ref) {
+    final ctrl = TextEditingController(text: item.unitPrice.toStringAsFixed(0));
+
+    showDialog(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Sale price'),
+            content: TextField(
+              controller: ctrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Unit price',
+                prefixText: 'Rs ',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => _safePop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final price = double.tryParse(ctrl.text) ?? item.unitPrice;
+                  ref
+                      .read(cartProvider.notifier)
+                      .setItemPrice(item.productId, price);
+                  _safePop(dialogContext);
+                },
+                child: const Text('Apply'),
+              ),
+            ],
+          ),
     );
   }
 
@@ -193,7 +274,7 @@ class CartItemTile extends ConsumerWidget {
                         ref
                             .read(cartProvider.notifier)
                             .setItemDiscount(item.productId, 0);
-                        Navigator.pop(context);
+                        _safePop(dialogContext);
                       },
                       child: const Text('Remove'),
                     ),
@@ -204,7 +285,7 @@ class CartItemTile extends ConsumerWidget {
                             (type == DiscountType.fixed &&
                                 discount > item.unitPrice) ||
                             (type == DiscountType.percent && discount > 100)) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
                             const SnackBar(
                               content: Text(AppStrings.errorDiscountExceeds),
                               backgroundColor: AppColors.error,
@@ -221,10 +302,12 @@ class CartItemTile extends ConsumerWidget {
                               approvalPin: pinCtrl.text,
                               reason: reasonCtrl.text,
                             );
-                        if (success && context.mounted) Navigator.pop(context);
-                        if (!success && context.mounted) {
+                        if (success && dialogContext.mounted) {
+                          _safePop(dialogContext);
+                        }
+                        if (!success && dialogContext.mounted) {
                           final error = ref.read(discountControllerProvider);
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
                             SnackBar(
                               content: Text(
                                 error.error?.toString() ??
@@ -241,6 +324,13 @@ class CartItemTile extends ConsumerWidget {
                 ),
           ),
     );
+  }
+
+  void _safePop(BuildContext context) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
   }
 }
 

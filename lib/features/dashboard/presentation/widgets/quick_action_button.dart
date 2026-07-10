@@ -9,12 +9,14 @@ class QuickActionButton extends ConsumerWidget {
   final String label;
   final IconData icon;
   final String route;
+  final Color color;
 
   const QuickActionButton({
     super.key,
     required this.label,
     required this.icon,
     required this.route,
+    this.color = AppColors.primary,
   });
 
   @override
@@ -26,23 +28,36 @@ class QuickActionButton extends ConsumerWidget {
       },
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
         decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: 0.06),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.18)),
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: AppColors.primary),
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 17, color: color),
+            ),
             const SizedBox(width: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primary,
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
               ),
             ),
           ],

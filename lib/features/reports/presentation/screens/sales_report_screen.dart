@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/reports/presentation/providers/sales_report_provider.dart';
+import 'package:mobileshop_saas/features/reports/presentation/widgets/reports_back_button.dart';
 
 import '../../data/models/sales_report_models.dart';
 
@@ -17,6 +19,7 @@ class SalesReportScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const ReportsBackButton(),
         title: const Text('Sales Analytics'),
         actions: [
           IconButton(
@@ -56,11 +59,7 @@ class SalesReportScreen extends ConsumerWidget {
           IconButton(
             tooltip: 'Scheduled Reports',
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const _SchedulesPlaceholderScreen(),
-                ),
-              );
+              context.go('/reports/sales/schedules');
             },
             icon: const Icon(Icons.schedule_send_outlined),
           ),
@@ -920,22 +919,6 @@ class _ErrorView extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SchedulesPlaceholderScreen extends StatelessWidget {
-  const _SchedulesPlaceholderScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Scheduled Sales Reports')),
-      body: const Center(
-        child: Text(
-          'Next screen: scheduled reports list and create schedule form.',
         ),
       ),
     );

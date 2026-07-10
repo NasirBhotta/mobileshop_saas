@@ -68,6 +68,9 @@ class SaleReturnItemModel {
   final String? productSku;
   final int quantity;
   final double refundAmount;
+  final String? restockProductId;
+  final String restockCondition;
+  final double? resalePrice;
 
   const SaleReturnItemModel({
     required this.productId,
@@ -75,6 +78,9 @@ class SaleReturnItemModel {
     this.productSku,
     required this.quantity,
     required this.refundAmount,
+    this.restockProductId,
+    this.restockCondition = 'returned',
+    this.resalePrice,
   });
 
   factory SaleReturnItemModel.fromSaleItem({
@@ -99,6 +105,9 @@ class SaleReturnItemModel {
       productSku: map['product_sku'] as String?,
       quantity: (map['quantity'] as num).toInt(),
       refundAmount: (map['refund_amount'] as num).toDouble(),
+      restockProductId: map['restock_product_id'] as String?,
+      restockCondition: map['restock_condition'] as String? ?? 'returned',
+      resalePrice: (map['resale_price'] as num?)?.toDouble(),
     );
   }
 
@@ -108,6 +117,9 @@ class SaleReturnItemModel {
     'product_sku': productSku,
     'quantity': quantity,
     'refund_amount': refundAmount,
+    'restock_product_id': restockProductId,
+    'restock_condition': restockCondition,
+    'resale_price': resalePrice,
   };
 }
 

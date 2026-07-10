@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/reports/presentation/providers/sales_report_provider.dart';
+import 'package:mobileshop_saas/features/reports/presentation/widgets/reports_back_button.dart';
 
 import '../../data/models/sales_report_models.dart';
 
@@ -47,7 +48,13 @@ class _SalesReportScheduleFormScreenState
     final saving = controllerState.isLoading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Report Schedule')),
+      appBar: AppBar(
+        leading: const ReportsBackButton(
+          route: '/reports/sales/schedules',
+          tooltip: 'Back to Scheduled Sales Reports',
+        ),
+        title: const Text('Create Report Schedule'),
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

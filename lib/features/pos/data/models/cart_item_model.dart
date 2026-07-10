@@ -5,6 +5,7 @@ class CartItemModel {
   final String productName;
   final String? productSku;
   final double unitPrice;
+  final double? unitCost;
   final int quantity;
   final double discountAmount; // item level discount
   final double taxRate; // percentage (0-100)
@@ -15,6 +16,7 @@ class CartItemModel {
     required this.productName,
     this.productSku,
     required this.unitPrice,
+    this.unitCost,
     this.quantity = 1,
     this.discountAmount = 0,
     this.taxRate = 0,
@@ -51,6 +53,7 @@ class CartItemModel {
       productName: product.name,
       productSku: product.sku,
       unitPrice: product.salePrice,
+      unitCost: product.costPrice,
       availableStock: product.stock,
     );
   }
@@ -62,6 +65,9 @@ class CartItemModel {
       productName: map['product_name'] as String,
       productSku: map['product_sku'] as String?,
       unitPrice: (map['unit_price'] as num).toDouble(),
+      unitCost:
+          (map['unit_cost_at_sale'] as num?)?.toDouble() ??
+          (map['unit_cost'] as num?)?.toDouble(),
       quantity: (map['quantity'] as num).toInt(),
       discountAmount: (map['discount_amount'] as num?)?.toDouble() ?? 0,
       taxRate: (map['tax_rate'] as num?)?.toDouble() ?? 0,
@@ -74,6 +80,8 @@ class CartItemModel {
     'product_name': productName,
     'product_sku': productSku,
     'unit_price': unitPrice,
+    'unit_cost_at_sale': unitCost,
+    'cogs_total': unitCost == null ? null : unitCost! * quantity,
     'quantity': quantity,
     'discount_amount': discountAmount,
     'tax_rate': taxRate,
@@ -86,6 +94,7 @@ class CartItemModel {
     String? productName,
     String? productSku,
     double? unitPrice,
+    double? unitCost,
     int? quantity,
     double? discountAmount,
     double? taxRate,
@@ -96,6 +105,7 @@ class CartItemModel {
       productName: productName ?? this.productName,
       productSku: productSku ?? this.productSku,
       unitPrice: unitPrice ?? this.unitPrice,
+      unitCost: unitCost ?? this.unitCost,
       quantity: quantity ?? this.quantity,
       discountAmount: discountAmount ?? this.discountAmount,
       taxRate: taxRate ?? this.taxRate,

@@ -30,6 +30,15 @@ import 'package:mobileshop_saas/features/pos/presentation/screens/return_screen.
 import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repair_form_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repairs_list_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/business_dashboard_report_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/business_report_schedule_form_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/business_report_schedules_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/cash_flow_report_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/customer_credit_report_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/inventory_report_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/profit_loss_report_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/repair_report_screen.dart';
+import 'package:mobileshop_saas/features/reports/presentation/screens/reports_home_screen.dart';
 import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_schedule_form_screen.dart';
 import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_schedules_screen.dart';
 import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_screen.dart';
@@ -230,6 +239,116 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               return const AccountSettingsScreen();
             },
           ),
+          GoRoute(
+            path: '/reports/sales',
+            builder: (context, state) {
+              return const SalesReportScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/sales/schedules',
+            builder: (context, state) {
+              return const SalesReportSchedulesScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/sales/schedules/new',
+            builder: (context, state) {
+              return const SalesReportScheduleFormScreen();
+            },
+          ),
+          GoRoute(
+            path: '/reports',
+            builder: (context, state) {
+              return const ReportsHomeScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/business',
+            builder: (context, state) {
+              return const BusinessDashboardReportScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/business/profit-loss',
+            builder: (context, state) {
+              return const ProfitLossReportScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/business/inventory',
+            builder: (context, state) {
+              return const InventoryReportScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/business/customer-credit',
+            builder: (context, state) {
+              return const CustomerCreditReportScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/business/cash-flow',
+            builder: (context, state) {
+              return const CashFlowReportScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/business/repairs',
+            builder: (context, state) {
+              return const RepairReportScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/business/schedules',
+            builder: (context, state) {
+              return const BusinessReportSchedulesScreen();
+            },
+          ),
+
+          GoRoute(
+            path: '/reports/business/schedules/new',
+            builder: (context, state) {
+              return const BusinessReportScheduleFormScreen();
+            },
+          ),
+          GoRoute(
+            path: '/reports/profit-loss',
+            redirect: (_, _) => '/reports/business/profit-loss',
+          ),
+          GoRoute(
+            path: '/reports/inventory',
+            redirect: (_, _) => '/reports/business/inventory',
+          ),
+          GoRoute(
+            path: '/reports/customer-credit',
+            redirect: (_, _) => '/reports/business/customer-credit',
+          ),
+          GoRoute(
+            path: '/reports/cash-flow',
+            redirect: (_, _) => '/reports/business/cash-flow',
+          ),
+          GoRoute(
+            path: '/reports/repairs',
+            redirect: (_, _) => '/reports/business/repairs',
+          ),
+          GoRoute(
+            path: '/reports/schedules',
+            redirect: (_, _) => '/reports/business/schedules',
+          ),
+          GoRoute(
+            path: '/reports/schedules/new',
+            redirect: (_, _) => '/reports/business/schedules/new',
+          ),
         ],
       ),
       GoRoute(path: '/expenses/add', redirect: (_, _) => '/expenses/new'),
@@ -315,27 +434,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return PODocumentScreen(po: po);
         },
       ),
-
-      GoRoute(
-        path: '/reports/sales',
-        builder: (context, state) {
-          return const SalesReportScreen();
-        },
-      ),
-
-      GoRoute(
-        path: '/reports/sales/schedules',
-        builder: (context, state) {
-          return const SalesReportSchedulesScreen();
-        },
-      ),
-
-      GoRoute(
-        path: '/reports/sales/schedules/new',
-        builder: (context, state) {
-          return const SalesReportScheduleFormScreen();
-        },
-      ),
     ],
   );
 });
@@ -348,7 +446,7 @@ int _shellIndexForLocation(String location) {
   if (location.startsWith('/suppliers')) return 5;
   if (location.startsWith('/purchase-orders')) return 5;
   if (location.startsWith('/expenses')) return 6;
-  if (location.startsWith('/reports/sales')) return 7;
+  if (location.startsWith('/reports')) return 7;
   if (location.startsWith('/settings')) return 8;
   if (location.startsWith('/accounts')) return 9;
   return 0;

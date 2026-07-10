@@ -41,11 +41,17 @@ class LocalDatabase {
     'supplier_payments',
     'accounts',
     'account_transactions',
+    'business_report_schedules',
+    'business_report_delivery_jobs',
+    'business_report_cache',
   };
 
   static const List<String> _deleteOrder = [
     'account_transactions',
     'accounts',
+    'business_report_cache',
+    'business_report_delivery_jobs',
+    'business_report_schedules',
     'goods_receipt_items',
     'goods_receipts',
     'supplier_payments',
@@ -395,19 +401,31 @@ class LocalDatabase {
   ''');
 
     await _db.customStatement('''
-    CREATE TABLE IF NOT EXISTS sale_items (
-      id TEXT PRIMARY KEY,
-      sale_id TEXT NOT NULL,
-      product_id TEXT NOT NULL,
-      product_name TEXT NOT NULL,
-      product_sku TEXT,
-      quantity INTEGER NOT NULL,
-      unit_price REAL NOT NULL,
-      discount_amount REAL NOT NULL DEFAULT 0,
-      tax_rate REAL NOT NULL DEFAULT 0,
-      line_total REAL NOT NULL
-    )
+      CREATE TABLE IF NOT EXISTS sale_items (
+        id TEXT PRIMARY KEY,
+        sale_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        product_sku TEXT,
+        quantity INTEGER NOT NULL,
+        unit_price REAL NOT NULL,
+        unit_cost_at_sale REAL,
+        discount_amount REAL NOT NULL DEFAULT 0,
+        tax_rate REAL NOT NULL DEFAULT 0,
+        cogs_total REAL,
+        line_total REAL NOT NULL
+      )
   ''');
+    await _addColumnIfMissing(
+      table: 'sale_items',
+      column: 'unit_cost_at_sale',
+      definition: 'REAL',
+    );
+    await _addColumnIfMissing(
+      table: 'sale_items',
+      column: 'cogs_total',
+      definition: 'REAL',
+    );
 
     await _db.customStatement('''
     CREATE TABLE IF NOT EXISTS sale_payments (
@@ -458,9 +476,27 @@ class LocalDatabase {
       product_name TEXT NOT NULL,
       product_sku TEXT,
       quantity INTEGER NOT NULL,
-      refund_amount REAL NOT NULL DEFAULT 0
+      refund_amount REAL NOT NULL DEFAULT 0,
+      restock_product_id TEXT,
+      restock_condition TEXT NOT NULL DEFAULT 'returned',
+      resale_price REAL
     )
   ''');
+    await _addColumnIfMissing(
+      table: 'sale_return_items',
+      column: 'restock_product_id',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'sale_return_items',
+      column: 'restock_condition',
+      definition: "TEXT NOT NULL DEFAULT 'returned'",
+    );
+    await _addColumnIfMissing(
+      table: 'sale_return_items',
+      column: 'resale_price',
+      definition: 'REAL',
+    );
 
     await _db.customStatement('''
     CREATE TABLE IF NOT EXISTS discount_audit_logs (
@@ -890,6 +926,57 @@ class LocalDatabase {
       )
     ''');
 
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS business_report_schedules (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT,
+        name TEXT NOT NULL,
+        report_type TEXT NOT NULL,
+        cadence TEXT NOT NULL DEFAULT 'daily',
+        report_scope TEXT NOT NULL DEFAULT 'branch',
+        export_format TEXT NOT NULL DEFAULT 'csv',
+        send_to_email TEXT NOT NULL,
+        next_run_at TEXT NOT NULL,
+        last_run_at TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_by TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS business_report_delivery_jobs (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        schedule_id TEXT,
+        branch_id TEXT,
+        report_type TEXT NOT NULL,
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        export_format TEXT NOT NULL,
+        send_to_email TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        error_message TEXT,
+        created_at TEXT,
+        processed_at TEXT
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS business_report_cache (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT,
+        report_type TEXT NOT NULL,
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        report_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_local_sales_report_schedules_tenant ON sales_report_schedules(tenant_id)',
     );
@@ -916,6 +1003,34 @@ class LocalDatabase {
 
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_local_sales_report_cache_lookup ON sales_report_cache(tenant_id, branch_id, date_from, date_to)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_business_report_schedules_tenant ON business_report_schedules(tenant_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_business_report_schedules_branch ON business_report_schedules(branch_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_business_report_schedules_status ON business_report_schedules(status)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_business_report_schedules_next_run ON business_report_schedules(next_run_at)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_business_report_jobs_tenant ON business_report_delivery_jobs(tenant_id)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_business_report_jobs_status ON business_report_delivery_jobs(status)',
+    );
+
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_local_business_report_cache_lookup ON business_report_cache(tenant_id, branch_id, report_type, date_from, date_to)',
     );
 
     await _db.customStatement(

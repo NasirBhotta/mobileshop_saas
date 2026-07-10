@@ -204,6 +204,8 @@ class SetupSubmitController extends StateNotifier<AsyncValue<void>> {
       );
       final completedBranches = await _repository.countBranches(tenantId);
 
+      _ref.invalidate(setupFlowStatusProvider);
+      _ref.invalidate(selectedBranchIdProvider);
       _ref.read(setupProgressProvider.notifier).state = SetupProgressState(
         isLoaded: true,
         tenantId: tenantId,
@@ -270,6 +272,8 @@ class SetupSubmitController extends StateNotifier<AsyncValue<void>> {
 
       await _repository.markSetupComplete(tenantId);
       final status = await _repository.loadStatus(user.id);
+      _ref.invalidate(setupFlowStatusProvider);
+      _ref.invalidate(selectedBranchIdProvider);
 
       state = const AsyncData(null);
 

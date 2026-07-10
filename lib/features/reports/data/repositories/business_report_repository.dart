@@ -1,13 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
-import 'package:mobileshop_saas/features/reports/data/local/sales_report_local_store.dart';
-import 'package:mobileshop_saas/features/reports/data/models/sales_report_models.dart';
+import 'package:mobileshop_saas/features/reports/data/local/business_report_local_store.dart';
+import 'package:mobileshop_saas/features/reports/data/models/business_report_models.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
-class SalesReportRepository {
+class BusinessReportRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
 
   final SupabaseClient _client = Supabase.instance.client;
@@ -19,7 +20,7 @@ class SalesReportRepository {
   }
 
   // ════════════════════════════════════════
-  // CURRENT PROFILE / TENANT / BRANCH
+  // CURRENT USER / TENANT / BRANCH
   // ════════════════════════════════════════
 
   Future<Map<String, dynamic>> _currentProfile() async {
@@ -131,14 +132,17 @@ class SalesReportRepository {
   Future<void> _ensureAllBranchesAccess() async {
     if (await _canAccessAllBranches()) return;
 
-    throw Exception('All-branch sales reports are available only to owners.');
+    throw Exception(
+      'All-branch business reports are available only to owners.',
+    );
   }
 
   // ════════════════════════════════════════
-  // SALES ANALYTICS REPORT
+  // GENERIC REPORT FETCH
   // ════════════════════════════════════════
 
-  Future<SalesAnalyticsReportModel> fetchSalesReport({
+  Future<Map<String, dynamic>> fetchRawReport({
+    required BusinessReportType reportType,
     required DateTime dateFrom,
     required DateTime dateTo,
     bool allBranches = false,
@@ -153,10 +157,9 @@ class SalesReportRepository {
     }
 
     final branchId = allBranches ? null : await _branchId(tenantId);
-    final plan = await _tenantPlan(tenantId);
-    final exportAllowed = _exportAllowedByPlan(plan);
 
-    final cached = await SalesReportLocalStore.loadReportCache(
+    final cached = await BusinessReportLocalStore.loadReportCache(
+      reportType: reportType,
       tenantId: tenantId,
       branchId: branchId,
       dateFrom: dateFrom,
@@ -165,7 +168,8 @@ class SalesReportRepository {
 
     if (cached != null) {
       unawaited(
-        _refreshSalesReport(
+        _refreshRawReport(
+          reportType: reportType,
           tenantId: tenantId,
           branchId: branchId,
           dateFrom: dateFrom,
@@ -179,34 +183,38 @@ class SalesReportRepository {
     }
 
     try {
-      return await _fetchRemoteSalesReport(
+      return await _fetchRemoteRawReport(
+        reportType: reportType,
         tenantId: tenantId,
         branchId: branchId,
         dateFrom: dateFrom,
         dateTo: dateTo,
       ).timeout(_networkTimeout);
     } catch (e) {
-      debugPrint('Remote sales report failed, using local fallback: $e');
-
-      return SalesReportLocalStore.buildLocalReport(
+      debugPrint('Remote business report failed, using local fallback: $e');
+      final plan = await _tenantPlan(tenantId);
+      return BusinessReportLocalStore.buildLocalReport(
+        reportType: reportType,
         tenantId: tenantId,
         branchId: branchId,
         dateFrom: dateFrom,
         dateTo: dateTo,
         plan: plan,
-        exportAllowed: exportAllowed,
+        exportAllowed: _exportAllowedByPlan(plan),
       );
     }
   }
 
-  Future<void> _refreshSalesReport({
+  Future<void> _refreshRawReport({
+    required BusinessReportType reportType,
     required String tenantId,
     required String? branchId,
     required DateTime dateFrom,
     required DateTime dateTo,
   }) async {
     try {
-      await _fetchRemoteSalesReport(
+      await _fetchRemoteRawReport(
+        reportType: reportType,
         tenantId: tenantId,
         branchId: branchId,
         dateFrom: dateFrom,
@@ -215,29 +223,154 @@ class SalesReportRepository {
     } catch (_) {}
   }
 
-  Future<SalesAnalyticsReportModel> _fetchRemoteSalesReport({
+  Future<Map<String, dynamic>> _fetchRemoteRawReport({
+    required BusinessReportType reportType,
     required String tenantId,
     required String? branchId,
     required DateTime dateFrom,
     required DateTime dateTo,
   }) async {
-    final data = await _client.rpc(
-      'get_sales_analytics_report',
-      params: {
-        'p_tenant_id': tenantId,
-        'p_branch_id': branchId,
-        'p_date_from': _dateOnly(dateFrom),
-        'p_date_to': _dateOnly(dateTo),
-      },
+    final functionName = _rpcName(reportType);
+
+    final data = await _client
+        .rpc(
+          functionName,
+          params: {
+            'p_tenant_id': tenantId,
+            'p_branch_id': branchId,
+            'p_date_from': _dateOnly(dateFrom),
+            'p_date_to': _dateOnly(dateTo),
+          },
+        )
+        .timeout(_networkTimeout);
+
+    final map = Map<String, dynamic>.from(data as Map);
+
+    await BusinessReportLocalStore.saveReportCache(
+      reportType: reportType,
+      tenantId: tenantId,
+      branchId: branchId,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      report: map,
     );
 
-    final report = SalesAnalyticsReportModel.fromMap(
-      Map<String, dynamic>.from(data as Map),
+    return map;
+  }
+
+  Future<ProfitLossReportModel> fetchProfitLossReport({
+    required DateTime dateFrom,
+    required DateTime dateTo,
+    bool allBranches = false,
+  }) async {
+    final map = await fetchRawReport(
+      reportType: BusinessReportType.profitLoss,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      allBranches: allBranches,
     );
 
-    await SalesReportLocalStore.saveReportCache(report);
+    return ProfitLossReportModel.fromMap(map);
+  }
 
-    return report;
+  Future<InventoryAnalyticsReportModel> fetchInventoryReport({
+    required DateTime dateFrom,
+    required DateTime dateTo,
+    bool allBranches = false,
+  }) async {
+    final map = await fetchRawReport(
+      reportType: BusinessReportType.inventory,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      allBranches: allBranches,
+    );
+
+    return InventoryAnalyticsReportModel.fromMap(map);
+  }
+
+  Future<CustomerCreditReportModel> fetchCustomerCreditReport({
+    required DateTime dateFrom,
+    required DateTime dateTo,
+    bool allBranches = false,
+  }) async {
+    final map = await fetchRawReport(
+      reportType: BusinessReportType.customerCredit,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      allBranches: allBranches,
+    );
+
+    return CustomerCreditReportModel.fromMap(map);
+  }
+
+  Future<RepairAnalyticsReportModel> fetchRepairReport({
+    required DateTime dateFrom,
+    required DateTime dateTo,
+    bool allBranches = false,
+  }) async {
+    final map = await fetchRawReport(
+      reportType: BusinessReportType.repairs,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      allBranches: allBranches,
+    );
+
+    return RepairAnalyticsReportModel.fromMap(map);
+  }
+
+  Future<CashFlowReportModel> fetchCashFlowReport({
+    required DateTime dateFrom,
+    required DateTime dateTo,
+    bool allBranches = false,
+  }) async {
+    final map = await fetchRawReport(
+      reportType: BusinessReportType.cashFlow,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      allBranches: allBranches,
+    );
+
+    return CashFlowReportModel.fromMap(map);
+  }
+
+  Future<BusinessDashboardReportModel> fetchDashboardReport({
+    required DateTime dateFrom,
+    required DateTime dateTo,
+    bool allBranches = false,
+  }) async {
+    final map = await fetchRawReport(
+      reportType: BusinessReportType.dashboard,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      allBranches: allBranches,
+    );
+
+    return BusinessDashboardReportModel.fromMap(map);
+  }
+
+  String _rpcName(BusinessReportType reportType) {
+    switch (reportType) {
+      case BusinessReportType.sales:
+        return 'get_sales_analytics_report';
+
+      case BusinessReportType.profitLoss:
+        return 'get_profit_loss_report';
+
+      case BusinessReportType.inventory:
+        return 'get_inventory_analytics_report';
+
+      case BusinessReportType.customerCredit:
+        return 'get_customer_credit_report';
+
+      case BusinessReportType.repairs:
+        return 'get_repair_analytics_report';
+
+      case BusinessReportType.cashFlow:
+        return 'get_cash_flow_report';
+
+      case BusinessReportType.dashboard:
+        return 'get_business_dashboard_report';
+    }
   }
 
   // ════════════════════════════════════════
@@ -245,6 +378,7 @@ class SalesReportRepository {
   // ════════════════════════════════════════
 
   Future<String> buildCsvExport({
+    required BusinessReportType reportType,
     required DateTime dateFrom,
     required DateTime dateTo,
     bool allBranches = false,
@@ -263,150 +397,131 @@ class SalesReportRepository {
       );
     }
 
-    SalesAnalyticsReportModel report;
+    Map<String, dynamic> map;
 
     try {
       final data = await _client
           .rpc(
-            'get_sales_report_export_dataset',
+            'get_business_report_export_dataset',
             params: {
               'p_tenant_id': tenantId,
               'p_branch_id': branchId,
               'p_date_from': _dateOnly(dateFrom),
               'p_date_to': _dateOnly(dateTo),
-              'p_export_format': SalesReportExportFormat.csv.code,
+              'p_report_type': reportType.code,
+              'p_export_format': 'csv',
             },
           )
           .timeout(_networkTimeout);
 
-      report = SalesAnalyticsReportModel.fromMap(
-        Map<String, dynamic>.from(data as Map),
+      map = Map<String, dynamic>.from(data as Map);
+
+      await BusinessReportLocalStore.saveReportCache(
+        reportType: reportType,
+        tenantId: tenantId,
+        branchId: branchId,
+        dateFrom: dateFrom,
+        dateTo: dateTo,
+        report: map,
       );
-
-      await SalesReportLocalStore.saveReportCache(report);
     } catch (e) {
-      debugPrint('Remote export dataset failed, using report fallback: $e');
+      debugPrint('Remote business export failed, using report cache: $e');
 
-      report = await fetchSalesReport(
+      map = await fetchRawReport(
+        reportType: reportType,
         dateFrom: dateFrom,
         dateTo: dateTo,
         allBranches: allBranches,
       );
     }
 
-    return _buildCsvFromReport(report);
+    return _buildGenericCsv(title: reportType.label, map: map);
   }
 
-  String _buildCsvFromReport(SalesAnalyticsReportModel report) {
+  String _buildGenericCsv({
+    required String title,
+    required Map<String, dynamic> map,
+  }) {
     final buffer = StringBuffer();
 
-    buffer.writeln('Sales Analytics Report');
-    buffer.writeln('Date From,${_dateOnly(report.dateFrom)}');
-    buffer.writeln('Date To,${_dateOnly(report.dateTo)}');
-    buffer.writeln('Plan,${_csv(report.plan)}');
+    buffer.writeln(_csv(title));
+    buffer.writeln('Generated At,${_csv(DateTime.now().toIso8601String())}');
     buffer.writeln('');
 
-    buffer.writeln('Summary');
-    buffer.writeln('Metric,Value');
-    buffer.writeln('Total Orders,${report.summary.totalOrders}');
-    buffer.writeln('Total Units,${report.summary.totalUnits}');
-    buffer.writeln('Revenue,${report.summary.revenue.toStringAsFixed(2)}');
-    buffer.writeln('Discount,${report.summary.discount.toStringAsFixed(2)}');
-    buffer.writeln('Tax,${report.summary.tax.toStringAsFixed(2)}');
-    buffer.writeln('COGS,${report.summary.cogs.toStringAsFixed(2)}');
-    buffer.writeln(
-      'Gross Profit,${report.summary.grossProfit.toStringAsFixed(2)}',
-    );
-    buffer.writeln(
-      'Gross Margin %,${report.summary.grossMarginPercent.toStringAsFixed(2)}',
-    );
-    buffer.writeln('');
-
-    buffer.writeln('Product Breakdown');
-    buffer.writeln(
-      'Product Name,SKU,Quantity,Revenue,COGS,Gross Profit,Margin %',
-    );
-
-    for (final item in report.productBreakdown) {
-      buffer.writeln(
-        [
-          _csv(item.productName),
-          _csv(item.sku ?? ''),
-          item.quantity,
-          item.revenue.toStringAsFixed(2),
-          item.cogs.toStringAsFixed(2),
-          item.grossProfit.toStringAsFixed(2),
-          item.marginPercent.toStringAsFixed(2),
-        ].join(','),
-      );
-    }
-
-    buffer.writeln('');
-    buffer.writeln('Customer Breakdown');
-    buffer.writeln('Customer Name,Orders,Revenue,Gross Profit');
-
-    for (final item in report.customerBreakdown) {
-      buffer.writeln(
-        [
-          _csv(item.customerName),
-          item.orders,
-          item.revenue.toStringAsFixed(2),
-          item.grossProfit.toStringAsFixed(2),
-        ].join(','),
-      );
-    }
-
-    buffer.writeln('');
-    buffer.writeln('Branch Breakdown');
-    buffer.writeln('Branch Name,Orders,Revenue,COGS,Gross Profit,Margin %');
-
-    for (final item in report.branchBreakdown) {
-      buffer.writeln(
-        [
-          _csv(item.branchName),
-          item.orders,
-          item.revenue.toStringAsFixed(2),
-          item.cogs.toStringAsFixed(2),
-          item.grossProfit.toStringAsFixed(2),
-          item.marginPercent.toStringAsFixed(2),
-        ].join(','),
-      );
-    }
-
-    buffer.writeln('');
-    buffer.writeln('Category Breakdown');
-    buffer.writeln('Category Name,Quantity,Revenue,COGS,Gross Profit,Margin %');
-
-    for (final item in report.categoryBreakdown) {
-      buffer.writeln(
-        [
-          _csv(item.categoryName),
-          item.quantity,
-          item.revenue.toStringAsFixed(2),
-          item.cogs.toStringAsFixed(2),
-          item.grossProfit.toStringAsFixed(2),
-          item.marginPercent.toStringAsFixed(2),
-        ].join(','),
-      );
-    }
-
-    buffer.writeln('');
-    buffer.writeln('Daily Breakdown');
-    buffer.writeln('Date,Orders,Revenue,COGS,Gross Profit');
-
-    for (final item in report.dailyBreakdown) {
-      buffer.writeln(
-        [
-          _dateOnly(item.date),
-          item.orders,
-          item.revenue.toStringAsFixed(2),
-          item.cogs.toStringAsFixed(2),
-          item.grossProfit.toStringAsFixed(2),
-        ].join(','),
-      );
-    }
+    _writeMapAsCsv(buffer: buffer, title: 'Report Data', value: map);
 
     return buffer.toString();
+  }
+
+  void _writeMapAsCsv({
+    required StringBuffer buffer,
+    required String title,
+    required dynamic value,
+  }) {
+    buffer.writeln(_csv(title));
+
+    if (value is Map) {
+      for (final entry in value.entries) {
+        final key = entry.key.toString();
+        final item = entry.value;
+
+        if (item is Map || item is List) {
+          buffer.writeln('');
+          _writeMapAsCsv(buffer: buffer, title: key, value: item);
+        } else {
+          buffer.writeln('${_csv(key)},${_csv(item?.toString() ?? '')}');
+        }
+      }
+
+      buffer.writeln('');
+      return;
+    }
+
+    if (value is List) {
+      if (value.isEmpty) {
+        buffer.writeln('No data');
+        buffer.writeln('');
+        return;
+      }
+
+      final firstMap = value.first is Map ? value.first as Map : null;
+
+      if (firstMap == null) {
+        for (final item in value) {
+          buffer.writeln(_csv(item.toString()));
+        }
+
+        buffer.writeln('');
+        return;
+      }
+
+      final headers = firstMap.keys.map((e) => e.toString()).toList();
+      buffer.writeln(headers.map(_csv).join(','));
+
+      for (final row in value) {
+        if (row is! Map) continue;
+
+        final line = headers
+            .map((header) {
+              final cell = row[header];
+
+              if (cell is Map || cell is List) {
+                return _csv(jsonEncode(cell));
+              }
+
+              return _csv(cell?.toString() ?? '');
+            })
+            .join(',');
+
+        buffer.writeln(line);
+      }
+
+      buffer.writeln('');
+      return;
+    }
+
+    buffer.writeln(_csv(value?.toString() ?? ''));
+    buffer.writeln('');
   }
 
   String _csv(String value) {
@@ -415,22 +530,23 @@ class SalesReportRepository {
   }
 
   // ════════════════════════════════════════
-  // SCHEDULED REPORTS
+  // GENERIC SCHEDULED BUSINESS REPORTS
   // ════════════════════════════════════════
 
-  Future<SalesReportScheduleModel> createSchedule({
+  Future<BusinessReportScheduleModel> createSchedule({
     required String name,
-    required SalesReportCadence cadence,
-    required SalesReportScope reportScope,
-    required SalesReportExportFormat exportFormat,
+    required BusinessReportType reportType,
+    required String cadence,
+    required String reportScope,
+    required String exportFormat,
     required String sendToEmail,
-    DateTime? nextRunAt,
+    required DateTime nextRunAt,
   }) async {
     final tenantId = await _tenantId();
-    final currentBranchId = await _branchId(tenantId);
+    final branchId = await _branchId(tenantId);
     final plan = await _tenantPlan(tenantId);
 
-    if (reportScope == SalesReportScope.allBranches) {
+    if (reportScope == 'all_branches') {
       await _ensureAllBranchesAccess();
     }
 
@@ -444,38 +560,52 @@ class SalesReportRepository {
       throw Exception('Enter a valid email address.');
     }
 
+    if (!['daily', 'weekly', 'monthly'].contains(cadence)) {
+      throw Exception('Invalid cadence.');
+    }
+
+    if (!['branch', 'all_branches'].contains(reportScope)) {
+      throw Exception('Invalid report scope.');
+    }
+
+    if (!['csv', 'pdf'].contains(exportFormat)) {
+      throw Exception('Invalid export format.');
+    }
+
     final now = DateTime.now();
 
-    final schedule = SalesReportScheduleModel(
+    final schedule = BusinessReportScheduleModel(
       id: const Uuid().v4(),
       tenantId: tenantId,
-      branchId: reportScope == SalesReportScope.branch ? currentBranchId : null,
+      branchId: reportScope == 'branch' ? branchId : null,
       name: name.trim(),
+      reportType: reportType,
       cadence: cadence,
       reportScope: reportScope,
       exportFormat: exportFormat,
       sendToEmail: sendToEmail.trim(),
-      nextRunAt: nextRunAt ?? _defaultNextRun(cadence),
+      nextRunAt: nextRunAt,
       status: 'active',
       createdBy: _currentUser.id,
       createdAt: now,
       updatedAt: now,
     );
 
-    await SalesReportLocalStore.saveSchedule(schedule);
+    await BusinessReportLocalStore.saveSchedule(schedule);
 
     try {
       final id = await _client
           .rpc(
-            'create_sales_report_schedule',
+            'create_business_report_schedule',
             params: {
               'p_schedule_id': schedule.id,
-              'p_tenant_id': tenantId,
+              'p_tenant_id': schedule.tenantId,
               'p_branch_id': schedule.branchId,
               'p_name': schedule.name,
-              'p_cadence': schedule.cadence.code,
-              'p_report_scope': schedule.reportScope.code,
-              'p_export_format': schedule.exportFormat.code,
+              'p_report_type': schedule.reportType.code,
+              'p_cadence': schedule.cadence,
+              'p_report_scope': schedule.reportScope,
+              'p_export_format': schedule.exportFormat,
               'p_send_to_email': schedule.sendToEmail,
               'p_next_run_at': schedule.nextRunAt.toIso8601String(),
             },
@@ -483,25 +613,26 @@ class SalesReportRepository {
           .timeout(_networkTimeout);
 
       final saved = await fetchScheduleById(id.toString());
+
       return saved ?? schedule;
     } catch (e) {
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
-        type: 'create_sales_report_schedule',
+        type: 'create_business_report_schedule',
         payload: schedule.toMap(),
       );
 
-      debugPrint('Sales report schedule saved offline: $e');
+      debugPrint('Business report schedule saved offline: $e');
       return schedule;
     }
   }
 
-  Future<List<SalesReportScheduleModel>> fetchSchedules() async {
+  Future<List<BusinessReportScheduleModel>> fetchSchedules() async {
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final includeAllBranches = await _canAccessAllBranches();
 
-    final cached = await SalesReportLocalStore.loadSchedules(
+    final cached = await BusinessReportLocalStore.loadSchedules(
       tenantId: tenantId,
       branchId: branchId,
       includeAllBranches: includeAllBranches,
@@ -525,58 +656,13 @@ class SalesReportRepository {
         branchId: branchId,
         includeAllBranches: includeAllBranches,
       ).timeout(_networkTimeout);
-    } catch (_) {
-      return SalesReportLocalStore.loadSchedules(
+    } catch (e) {
+      debugPrint('Fetch business report schedules failed: $e');
+      return BusinessReportLocalStore.loadSchedules(
         tenantId: tenantId,
         branchId: branchId,
         includeAllBranches: includeAllBranches,
       );
-    }
-  }
-
-  Future<SalesReportScheduleModel?> fetchScheduleById(String scheduleId) async {
-    final tenantId = await _tenantId();
-    final branchId = await _branchId(tenantId);
-    final includeAllBranches = await _canAccessAllBranches();
-
-    try {
-      final data =
-          includeAllBranches
-              ? await _client
-                  .from('sales_report_schedules')
-                  .select()
-                  .eq('id', scheduleId)
-                  .eq('tenant_id', tenantId)
-                  .or('branch_id.eq.$branchId,branch_id.is.null')
-                  .maybeSingle()
-                  .timeout(_networkTimeout)
-              : await _client
-                  .from('sales_report_schedules')
-                  .select()
-                  .eq('id', scheduleId)
-                  .eq('tenant_id', tenantId)
-                  .eq('branch_id', branchId)
-                  .maybeSingle()
-                  .timeout(_networkTimeout);
-
-      if (data == null) return null;
-
-      final schedule = SalesReportScheduleModel.fromMap(data);
-      await SalesReportLocalStore.saveSchedule(schedule);
-
-      return schedule;
-    } catch (_) {
-      final schedules = await SalesReportLocalStore.loadSchedules(
-        tenantId: tenantId,
-        branchId: branchId,
-        includeAllBranches: includeAllBranches,
-      );
-
-      for (final schedule in schedules) {
-        if (schedule.id == scheduleId) return schedule;
-      }
-
-      return null;
     }
   }
 
@@ -594,7 +680,7 @@ class SalesReportRepository {
     } catch (_) {}
   }
 
-  Future<List<SalesReportScheduleModel>> _fetchRemoteSchedules({
+  Future<List<BusinessReportScheduleModel>> _fetchRemoteSchedules({
     required String tenantId,
     required String branchId,
     required bool includeAllBranches,
@@ -602,13 +688,13 @@ class SalesReportRepository {
     final data =
         includeAllBranches
             ? await _client
-                .from('sales_report_schedules')
+                .from('business_report_schedules')
                 .select()
                 .eq('tenant_id', tenantId)
                 .or('branch_id.eq.$branchId,branch_id.is.null')
                 .order('next_run_at', ascending: true)
             : await _client
-                .from('sales_report_schedules')
+                .from('business_report_schedules')
                 .select()
                 .eq('tenant_id', tenantId)
                 .eq('branch_id', branchId)
@@ -616,16 +702,70 @@ class SalesReportRepository {
 
     final schedules =
         (data as List)
-            .map((row) => SalesReportScheduleModel.fromMap(row))
+            .map(
+              (row) => BusinessReportScheduleModel.fromMap(
+                Map<String, dynamic>.from(row as Map),
+              ),
+            )
             .toList();
 
-    await SalesReportLocalStore.saveSchedules(schedules);
+    await BusinessReportLocalStore.saveSchedules(schedules);
 
     return schedules;
   }
 
+  Future<BusinessReportScheduleModel?> fetchScheduleById(
+    String scheduleId,
+  ) async {
+    final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
+    final includeAllBranches = await _canAccessAllBranches();
+
+    try {
+      final data =
+          includeAllBranches
+              ? await _client
+                  .from('business_report_schedules')
+                  .select()
+                  .eq('id', scheduleId)
+                  .eq('tenant_id', tenantId)
+                  .or('branch_id.eq.$branchId,branch_id.is.null')
+                  .maybeSingle()
+                  .timeout(_networkTimeout)
+              : await _client
+                  .from('business_report_schedules')
+                  .select()
+                  .eq('id', scheduleId)
+                  .eq('tenant_id', tenantId)
+                  .eq('branch_id', branchId)
+                  .maybeSingle()
+                  .timeout(_networkTimeout);
+
+      if (data == null) return null;
+
+      final schedule = BusinessReportScheduleModel.fromMap(
+        Map<String, dynamic>.from(data),
+      );
+      await BusinessReportLocalStore.saveSchedule(schedule);
+
+      return schedule;
+    } catch (_) {
+      final schedules = await BusinessReportLocalStore.loadSchedules(
+        tenantId: tenantId,
+        branchId: branchId,
+        includeAllBranches: includeAllBranches,
+      );
+
+      for (final schedule in schedules) {
+        if (schedule.id == scheduleId) return schedule;
+      }
+
+      return null;
+    }
+  }
+
   Future<void> updateScheduleStatus({
-    required SalesReportScheduleModel schedule,
+    required BusinessReportScheduleModel schedule,
     required String status,
   }) async {
     if (!['active', 'paused', 'cancelled'].contains(status)) {
@@ -642,7 +782,7 @@ class SalesReportRepository {
       throw Exception('Schedule not available for this user or branch.');
     }
 
-    await SalesReportLocalStore.updateScheduleStatus(
+    await BusinessReportLocalStore.updateScheduleStatus(
       scheduleId: schedule.id,
       tenantId: tenantId,
       branchId: branchId,
@@ -652,7 +792,7 @@ class SalesReportRepository {
 
     try {
       final update = _client
-          .from('sales_report_schedules')
+          .from('business_report_schedules')
           .update({
             'status': status,
             'updated_at': DateTime.now().toIso8601String(),
@@ -670,24 +810,25 @@ class SalesReportRepository {
     } catch (e) {
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
-        type: 'update_sales_report_schedule_status',
+        type: 'update_business_report_schedule_status',
         payload: {
           'schedule_id': schedule.id,
           'tenant_id': tenantId,
+          'branch_id': schedule.branchId,
           'status': status,
         },
       );
 
-      debugPrint('Schedule status saved offline: $e');
+      debugPrint('Business schedule status saved offline: $e');
     }
   }
 
-  Future<List<SalesReportDeliveryJobModel>> fetchDeliveryJobs() async {
+  Future<List<BusinessReportDeliveryJobModel>> fetchDeliveryJobs() async {
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final includeAllBranches = await _canAccessAllBranches();
 
-    final cached = await SalesReportLocalStore.loadDeliveryJobs(
+    final cached = await BusinessReportLocalStore.loadDeliveryJobs(
       tenantId: tenantId,
       branchId: branchId,
       includeAllBranches: includeAllBranches,
@@ -710,8 +851,9 @@ class SalesReportRepository {
         branchId: branchId,
         includeAllBranches: includeAllBranches,
       ).timeout(_networkTimeout);
-    } catch (_) {
-      return SalesReportLocalStore.loadDeliveryJobs(
+    } catch (e) {
+      debugPrint('Fetch business delivery jobs failed: $e');
+      return BusinessReportLocalStore.loadDeliveryJobs(
         tenantId: tenantId,
         branchId: branchId,
         includeAllBranches: includeAllBranches,
@@ -733,7 +875,7 @@ class SalesReportRepository {
     } catch (_) {}
   }
 
-  Future<List<SalesReportDeliveryJobModel>> _fetchRemoteDeliveryJobs({
+  Future<List<BusinessReportDeliveryJobModel>> _fetchRemoteDeliveryJobs({
     required String tenantId,
     required String branchId,
     required bool includeAllBranches,
@@ -741,13 +883,13 @@ class SalesReportRepository {
     final data =
         includeAllBranches
             ? await _client
-                .from('sales_report_delivery_jobs')
+                .from('business_report_delivery_jobs')
                 .select()
                 .eq('tenant_id', tenantId)
                 .order('created_at', ascending: false)
                 .limit(100)
             : await _client
-                .from('sales_report_delivery_jobs')
+                .from('business_report_delivery_jobs')
                 .select()
                 .eq('tenant_id', tenantId)
                 .eq('branch_id', branchId)
@@ -756,10 +898,14 @@ class SalesReportRepository {
 
     final jobs =
         (data as List)
-            .map((row) => SalesReportDeliveryJobModel.fromMap(row))
+            .map(
+              (row) => BusinessReportDeliveryJobModel.fromMap(
+                Map<String, dynamic>.from(row as Map),
+              ),
+            )
             .toList();
 
-    await SalesReportLocalStore.saveDeliveryJobs(jobs);
+    await BusinessReportLocalStore.saveDeliveryJobs(jobs);
 
     return jobs;
   }
@@ -779,11 +925,11 @@ class SalesReportRepository {
     for (final mutation in mutations) {
       try {
         switch (mutation.type) {
-          case 'create_sales_report_schedule':
+          case 'create_business_report_schedule':
             await _syncCreateSchedule(mutation.payload);
             break;
 
-          case 'update_sales_report_schedule_status':
+          case 'update_business_report_schedule_status':
             await _syncScheduleStatus(mutation.payload);
             break;
 
@@ -791,7 +937,7 @@ class SalesReportRepository {
             remaining.add(mutation);
         }
       } catch (e) {
-        debugPrint('Sales report mutation sync failed: $e');
+        debugPrint('Business report mutation sync failed: $e');
         remaining.add(mutation);
       }
     }
@@ -800,18 +946,19 @@ class SalesReportRepository {
   }
 
   Future<void> _syncCreateSchedule(Map<String, dynamic> payload) async {
-    final schedule = SalesReportScheduleModel.fromMap(payload);
+    final schedule = BusinessReportScheduleModel.fromMap(payload);
 
     await _client.rpc(
-      'create_sales_report_schedule',
+      'create_business_report_schedule',
       params: {
         'p_schedule_id': schedule.id,
         'p_tenant_id': schedule.tenantId,
         'p_branch_id': schedule.branchId,
         'p_name': schedule.name,
-        'p_cadence': schedule.cadence.code,
-        'p_report_scope': schedule.reportScope.code,
-        'p_export_format': schedule.exportFormat.code,
+        'p_report_type': schedule.reportType.code,
+        'p_cadence': schedule.cadence,
+        'p_report_scope': schedule.reportScope,
+        'p_export_format': schedule.exportFormat,
         'p_send_to_email': schedule.sendToEmail,
         'p_next_run_at': schedule.nextRunAt.toIso8601String(),
       },
@@ -819,41 +966,35 @@ class SalesReportRepository {
 
     final saved = await fetchScheduleById(schedule.id);
     if (saved != null) {
-      await SalesReportLocalStore.saveSchedule(saved);
+      await BusinessReportLocalStore.saveSchedule(saved);
     }
   }
 
   Future<void> _syncScheduleStatus(Map<String, dynamic> payload) async {
     final tenantId = payload['tenant_id'] as String? ?? await _tenantId();
+    final branchId = payload['branch_id'] as String?;
 
-    await _client
-        .from('sales_report_schedules')
+    final update = _client
+        .from('business_report_schedules')
         .update({
           'status': payload['status'],
           'updated_at': DateTime.now().toIso8601String(),
         })
         .eq('id', payload['schedule_id'])
         .eq('tenant_id', tenantId);
+
+    if (branchId != null) {
+      await update.eq('branch_id', branchId);
+      return;
+    }
+
+    await _ensureAllBranchesAccess();
+    await update;
   }
 
   // ════════════════════════════════════════
   // HELPERS
   // ════════════════════════════════════════
-
-  DateTime _defaultNextRun(SalesReportCadence cadence) {
-    final now = DateTime.now();
-
-    switch (cadence) {
-      case SalesReportCadence.daily:
-        return DateTime(now.year, now.month, now.day + 1, 8);
-
-      case SalesReportCadence.weekly:
-        return now.add(const Duration(days: 7));
-
-      case SalesReportCadence.monthly:
-        return DateTime(now.year, now.month + 1, 1, 8);
-    }
-  }
 
   bool _isValidEmail(String value) {
     final trimmed = value.trim();

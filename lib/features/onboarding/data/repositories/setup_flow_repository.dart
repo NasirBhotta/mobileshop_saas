@@ -170,6 +170,18 @@ class SetupFlowRepository {
   Future<Map<String, dynamic>?> loadProfile(String userId) async {
     final cachedProfile = await OfflineStore.loadProfile(userId);
     if (cachedProfile != null) {
+      if (cachedProfile['tenant_id'] == null) {
+        try {
+          final profile = await _remoteProfile(userId).timeout(_networkTimeout);
+          if (profile != null) {
+            await _saveProfileWithSelectedBranch(userId, profile);
+            return profile;
+          }
+        } catch (_) {
+          return cachedProfile;
+        }
+      }
+
       unawaited(_refreshProfileCache(userId));
       return cachedProfile;
     }
@@ -322,6 +334,28 @@ class SetupFlowRepository {
         .eq('id', user.id)
         .select();
 
+    final updatedProfile = <String, dynamic>{
+      if (profile != null) ...profile,
+      'id': user.id,
+      'tenant_id': tenantId,
+      'branch_id': profile?['branch_id'],
+      'full_name':
+          profile?['full_name'] ?? user.userMetadata?['full_name'] ?? '',
+      'email': profile?['email'] ?? user.email ?? '',
+      'phone': profile?['phone'] ?? user.userMetadata?['phone'] ?? '',
+      'role': profile?['role'] ?? 'owner',
+    };
+    await OfflineStore.saveProfile(user.id, updatedProfile);
+    await OfflineStore.saveTenant(tenantId, {
+      'id': tenantId,
+      'shop_name': shopName,
+      'business_type': businessType,
+      'branch_count': branchCount < 1 ? 1 : branchCount,
+      'plan': 'starter',
+      'status': 'active',
+      'setup_complete': false,
+    });
+
     return tenantId;
   }
 
@@ -334,7 +368,10 @@ class SetupFlowRepository {
     required int branchCount,
     required BranchInputModel branch,
   }) async {
-    final existingCount = await countBranches(tenantId);
+    final existingBranches = await _fetchRemoteBranches(
+      tenantId,
+    ).timeout(_networkTimeout);
+    final existingCount = existingBranches.length;
     if (existingCount >= branchCount) return existingCount;
 
     await _client.from('branches').insert({
@@ -348,14 +385,25 @@ class SetupFlowRepository {
       'is_active': true,
     });
 
-    return countBranches(tenantId);
+    final updatedBranches = await _fetchRemoteBranches(
+      tenantId,
+    ).timeout(_networkTimeout);
+    return updatedBranches.length;
   }
 
-  Future<void> markSetupComplete(String tenantId) {
-    return _client
+  Future<void> markSetupComplete(String tenantId) async {
+    await _client
         .from('tenants')
         .update({'setup_complete': true})
         .eq('id', tenantId);
+
+    final tenant = await loadTenant(tenantId);
+    if (tenant != null) {
+      await OfflineStore.saveTenant(tenantId, {
+        ...tenant,
+        'setup_complete': true,
+      });
+    }
   }
 
   Future<void> selectBranch({

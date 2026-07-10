@@ -33,6 +33,13 @@ class PosRepository {
     return (discountedPrice * quantity) + taxAmount;
   }
 
+  double? _saleItemCogsTotal(Map<String, dynamic> item) {
+    final unitCost = (item['unit_cost_at_sale'] as num?)?.toDouble();
+    final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
+    if (unitCost == null) return null;
+    return unitCost * quantity;
+  }
+
   User get _currentUser {
     final user = _client.auth.currentUser;
     if (user == null) throw Exception('User not logged in');
@@ -312,10 +319,14 @@ class PosRepository {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final user = _currentUser;
+    final costedItems = await _withUnitCostsAtSale(
+      branchId: branchId,
+      items: items,
+    );
 
     // ── Step 1: Stock check ──
     try {
-      for (final item in items) {
+      for (final item in costedItems) {
         final inv = await _client
             .from('inventory')
             .select('quantity')
@@ -338,7 +349,7 @@ class PosRepository {
 
       // Offline fallback: check stock locally from cached products
       final cachedProducts = await OfflineStore.loadProducts(branchId);
-      for (final item in items) {
+      for (final item in costedItems) {
         final cachedProduct = cachedProducts.firstWhere(
           (p) => p.id == item.productId,
           orElse:
@@ -357,17 +368,17 @@ class PosRepository {
     }
 
     // ── Step 2: Totals calculate karo ──
-    final subtotal = items.fold<double>(
+    final subtotal = costedItems.fold<double>(
       0,
       (sum, item) => sum + (item.unitPrice * item.quantity),
     );
 
-    final discountAmount = items.fold<double>(
+    final discountAmount = costedItems.fold<double>(
       0,
       (sum, item) => sum + (item.discountAmount * item.quantity),
     );
 
-    final taxAmount = items.fold<double>(
+    final taxAmount = costedItems.fold<double>(
       0,
       (sum, item) => sum + item.taxAmount,
     );
@@ -408,7 +419,7 @@ class PosRepository {
       taxAmount: taxAmount,
       total: total,
       notes: notes,
-      items: items,
+      items: costedItems,
       payments: payments,
       createdAt: DateTime.now(),
     );
@@ -436,7 +447,7 @@ class PosRepository {
       await _client
           .from('sale_items')
           .insert(
-            items
+            costedItems
                 .map(
                   (item) => {
                     'sale_id': saleId,
@@ -445,8 +456,13 @@ class PosRepository {
                     'product_sku': item.productSku,
                     'quantity': item.quantity,
                     'unit_price': item.unitPrice,
+                    'unit_cost_at_sale': item.unitCost,
                     'discount_amount': item.discountAmount,
                     'tax_rate': item.taxRate,
+                    'cogs_total':
+                        item.unitCost == null
+                            ? null
+                            : item.unitCost! * item.quantity,
                     'line_total': item.lineTotal,
                   },
                 )
@@ -471,7 +487,7 @@ class PosRepository {
           .timeout(Network.networkTimeout);
 
       // ── Step 7: Stock update remotely ──
-      for (final item in items) {
+      for (final item in costedItems) {
         final inv = await _client
             .from('inventory')
             .select('quantity')
@@ -506,7 +522,7 @@ class PosRepository {
         );
       }
 
-      for (final item in items) {
+      for (final item in costedItems) {
         await OfflineStore.decrementStock(
           branchId: branchId,
           productId: item.productId,
@@ -528,7 +544,7 @@ class PosRepository {
         );
       }
 
-      for (final item in items) {
+      for (final item in costedItems) {
         await OfflineStore.decrementStock(
           branchId: branchId,
           productId: item.productId,
@@ -574,6 +590,23 @@ class PosRepository {
     }
 
     return sale;
+  }
+
+  Future<List<CartItemModel>> _withUnitCostsAtSale({
+    required String branchId,
+    required List<CartItemModel> items,
+  }) async {
+    final cachedProducts = await OfflineStore.loadProducts(branchId);
+    final costByProductId = {
+      for (final product in cachedProducts) product.id: product.costPrice,
+    };
+
+    return [
+      for (final item in items)
+        item.unitCost != null
+            ? item
+            : item.copyWith(unitCost: costByProductId[item.productId]),
+    ];
   }
 
   Future<void> _validateCreditCheckout({
@@ -1012,6 +1045,7 @@ class PosRepository {
     required SaleModel sale,
     required Map<String, int> quantitiesByProductId,
     required RefundMethod refundMethod,
+    required double refundAmount,
     String? overrideReason,
   }) async {
     if (sale.id == null) throw Exception('Original invoice ID missing');
@@ -1046,9 +1080,16 @@ class PosRepository {
 
     if (items.isEmpty) throw Exception('Return quantity select karein');
 
-    final refundAmount = items.fold<double>(
+    final maxRefundAmount = items.fold<double>(
       0,
       (sum, item) => sum + item.refundAmount,
+    );
+    final normalizedRefundAmount =
+        refundAmount.clamp(0, maxRefundAmount).toDouble();
+    final refundItems = _withDistributedRefundAmounts(
+      items: items,
+      refundAmount: normalizedRefundAmount,
+      maxRefundAmount: maxRefundAmount,
     );
     final reasons = <String>[];
     final saleDate = sale.createdAt;
@@ -1067,7 +1108,7 @@ class PosRepository {
       }
     }
 
-    if (refundAmount > approvalThreshold && !canApprove) {
+    if (normalizedRefundAmount > approvalThreshold && !canApprove) {
       reasons.add('Refund value approval threshold se zyada hai');
     }
 
@@ -1086,12 +1127,12 @@ class PosRepository {
       userId: _currentUser.id,
       status: status,
       refundMethod: refundMethod,
-      refundAmount: refundAmount,
+      refundAmount: normalizedRefundAmount,
       approvalRequiredReason: reasons.isEmpty ? null : reasons.join('; '),
       overrideReason: normalizedOverrideReason,
       approvedBy: status == SaleReturnStatus.approved ? _currentUser.id : null,
       createdAt: DateTime.now(),
-      items: items,
+      items: refundItems,
     );
 
     await _saveReturnLocally(saleReturn, synced: false);
@@ -1113,6 +1154,38 @@ class PosRepository {
     }
 
     return saleReturn;
+  }
+
+  List<SaleReturnItemModel> _withDistributedRefundAmounts({
+    required List<SaleReturnItemModel> items,
+    required double refundAmount,
+    required double maxRefundAmount,
+  }) {
+    if (items.isEmpty || maxRefundAmount <= 0) return items;
+
+    var remainingRefund = refundAmount;
+    return [
+      for (var i = 0; i < items.length; i++)
+        () {
+          final item = items[i];
+          final itemRefund =
+              i == items.length - 1
+                  ? remainingRefund
+                  : refundAmount * (item.refundAmount / maxRefundAmount);
+          remainingRefund -= itemRefund;
+
+          return SaleReturnItemModel(
+            productId: item.productId,
+            productName: item.productName,
+            productSku: item.productSku,
+            quantity: item.quantity,
+            refundAmount: itemRefund,
+            restockProductId: item.restockProductId ?? const Uuid().v4(),
+            restockCondition: item.restockCondition,
+            resalePrice: item.quantity <= 0 ? null : itemRefund / item.quantity,
+          );
+        }(),
+    ];
   }
 
   Future<List<SaleReturnModel>> fetchPendingReturns() async {
@@ -1200,9 +1273,11 @@ class PosRepository {
       throw Exception('Manager ya Owner approval required hai');
     }
 
-    final approved = pendingReturn.copyWith(
-      status: SaleReturnStatus.approved,
-      approvedBy: _currentUser.id,
+    final approved = _returnWithRestockIds(
+      pendingReturn.copyWith(
+        status: SaleReturnStatus.approved,
+        approvedBy: _currentUser.id,
+      ),
     );
     final wasAlreadyApproved = await _isReturnAlreadyApproved(approved.id);
     await _saveReturnLocally(approved, synced: false);
@@ -1254,6 +1329,47 @@ class PosRepository {
       userId: _currentUser.id,
       type: type,
       payload: saleReturn.toMap(),
+    );
+  }
+
+  SaleReturnModel _returnWithRestockIds(SaleReturnModel saleReturn) {
+    var changed = false;
+    final items = [
+      for (final item in saleReturn.items)
+        if (item.restockProductId == null) ...[
+          () {
+            changed = true;
+            final unitRefund =
+                item.quantity == 0 ? 0.0 : item.refundAmount / item.quantity;
+            return SaleReturnItemModel(
+              productId: item.productId,
+              productName: item.productName,
+              productSku: item.productSku,
+              quantity: item.quantity,
+              refundAmount: item.refundAmount,
+              restockProductId: const Uuid().v4(),
+              restockCondition: item.restockCondition,
+              resalePrice: item.resalePrice ?? unitRefund,
+            );
+          }(),
+        ] else
+          item,
+    ];
+
+    if (!changed) return saleReturn;
+    return SaleReturnModel(
+      id: saleReturn.id,
+      originalSaleId: saleReturn.originalSaleId,
+      branchId: saleReturn.branchId,
+      userId: saleReturn.userId,
+      status: saleReturn.status,
+      refundMethod: saleReturn.refundMethod,
+      refundAmount: saleReturn.refundAmount,
+      approvalRequiredReason: saleReturn.approvalRequiredReason,
+      overrideReason: saleReturn.overrideReason,
+      approvedBy: saleReturn.approvedBy,
+      createdAt: saleReturn.createdAt,
+      items: items,
     );
   }
 
@@ -1326,8 +1442,9 @@ class PosRepository {
         '''
         INSERT OR REPLACE INTO sale_return_items(
           id, return_id, original_sale_id, product_id, product_name,
-          product_sku, quantity, refund_amount
-        ) VALUES(?,?,?,?,?,?,?,?)
+          product_sku, quantity, refund_amount, restock_product_id,
+          restock_condition, resale_price
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
         ''',
         [
           '${saleReturn.id}_${item.productId}',
@@ -1338,6 +1455,9 @@ class PosRepository {
           item.productSku,
           item.quantity,
           item.refundAmount,
+          item.restockProductId,
+          item.restockCondition,
+          item.resalePrice,
         ],
       );
     }
@@ -1352,13 +1472,15 @@ class PosRepository {
 
   Future<void> _restockReturnItems(SaleReturnModel saleReturn) async {
     for (final item in saleReturn.items) {
+      final returnedProductId = item.restockProductId ?? const Uuid().v4();
       await _ensureReturnedProductCached(
         branchId: saleReturn.branchId,
         item: item,
+        returnedProductId: returnedProductId,
       );
       await OfflineStore.incrementStock(
         branchId: saleReturn.branchId,
-        productId: item.productId,
+        productId: returnedProductId,
         quantity: item.quantity,
       );
     }
@@ -1367,22 +1489,24 @@ class PosRepository {
   Future<void> _ensureReturnedProductCached({
     required String branchId,
     required SaleReturnItemModel item,
+    required String returnedProductId,
   }) async {
     final products = await OfflineStore.loadProducts(branchId);
-    if (products.any((product) => product.id == item.productId)) return;
+    if (products.any((product) => product.id == returnedProductId)) return;
 
     final tenantId = await _currentTenantId();
     final unitRefund =
         item.quantity == 0 ? 0.0 : item.refundAmount / item.quantity;
     await OfflineStore.upsertCachedProduct(
       ProductModel(
-        id: item.productId,
+        id: returnedProductId,
         tenantId: tenantId,
         branchId: branchId,
-        name: item.productName,
-        sku: item.productSku,
-        salePrice: unitRefund,
-        costPrice: 0,
+        name: 'Returned - ${item.productName}',
+        sku: _returnedSku(item, returnedProductId),
+        description: 'Returned stock. Original product: ${item.productName}.',
+        salePrice: item.resalePrice ?? unitRefund,
+        costPrice: unitRefund,
         stock: 0,
       ),
     );
@@ -1446,11 +1570,17 @@ class PosRepository {
     if (saleReturn.status == SaleReturnStatus.approved &&
         !remoteAlreadyApproved) {
       for (final item in saleReturn.items) {
+        final returnedProductId = item.restockProductId ?? const Uuid().v4();
+        await _syncReturnedProductRemote(
+          saleReturn: saleReturn,
+          item: item,
+          returnedProductId: returnedProductId,
+        );
         final inv = await _client
             .from('inventory')
             .select('quantity')
             .eq('branch_id', saleReturn.branchId)
-            .eq('product_id', item.productId)
+            .eq('product_id', returnedProductId)
             .maybeSingle()
             .timeout(Network.networkTimeout);
         final currentStock = (inv?['quantity'] as num?)?.toInt() ?? 0;
@@ -1458,13 +1588,49 @@ class PosRepository {
             .from('inventory')
             .upsert({
               'branch_id': saleReturn.branchId,
-              'product_id': item.productId,
+              'product_id': returnedProductId,
               'quantity': currentStock + item.quantity,
               'updated_at': DateTime.now().toIso8601String(),
             }, onConflict: 'branch_id,product_id')
             .timeout(Network.networkTimeout);
       }
     }
+  }
+
+  Future<void> _syncReturnedProductRemote({
+    required SaleReturnModel saleReturn,
+    required SaleReturnItemModel item,
+    required String returnedProductId,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final unitRefund =
+        item.quantity == 0 ? 0.0 : item.refundAmount / item.quantity;
+
+    await _client
+        .from('products')
+        .upsert({
+          'id': returnedProductId,
+          'tenant_id': tenantId,
+          'branch_id': saleReturn.branchId,
+          'category_id': null,
+          'name': 'Returned - ${item.productName}',
+          'sku': _returnedSku(item, returnedProductId),
+          'description':
+              'Returned stock from sale ${saleReturn.originalSaleId}. Original product: ${item.productName}.',
+          'sale_price': item.resalePrice ?? unitRefund,
+          'cost_price': unitRefund,
+          'imei_tracked': false,
+          'is_active': true,
+          'created_at': saleReturn.createdAt.toIso8601String(),
+        }, onConflict: 'id')
+        .timeout(Network.networkTimeout);
+  }
+
+  String _returnedSku(SaleReturnItemModel item, String returnedProductId) {
+    final suffix = returnedProductId.replaceAll('-', '').substring(0, 8);
+    final base = item.productSku?.trim();
+    if (base == null || base.isEmpty) return 'RTN-$suffix';
+    return '$base-RTN-$suffix';
   }
 
   Future<List<CustomerModel>> searchCustomers(String query) async {
@@ -2145,8 +2311,11 @@ class PosRepository {
                             'product_sku': item['product_sku'],
                             'quantity': item['quantity'],
                             'unit_price': item['unit_price'],
+                            'unit_cost_at_sale': item['unit_cost_at_sale'],
                             'discount_amount': item['discount_amount'],
                             'tax_rate': item['tax_rate'],
+                            'cogs_total':
+                                item['cogs_total'] ?? _saleItemCogsTotal(item),
                             'line_total': _saleItemLineTotal(item),
                           },
                         )

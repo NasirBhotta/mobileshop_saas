@@ -14,13 +14,17 @@ class ReturnScreen extends ConsumerStatefulWidget {
 
 class _ReturnScreenState extends ConsumerState<ReturnScreen> {
   final _invoiceController = TextEditingController();
+  final _refundController = TextEditingController();
   final _overrideReasonController = TextEditingController();
+  final _refundFocusNode = FocusNode();
   bool _isSearching = false;
 
   @override
   void dispose() {
     _invoiceController.dispose();
+    _refundController.dispose();
     _overrideReasonController.dispose();
+    _refundFocusNode.dispose();
     super.dispose();
   }
 
@@ -29,6 +33,7 @@ class _ReturnScreenState extends ConsumerState<ReturnScreen> {
     final draft = ref.watch(returnDraftProvider);
     final controller = ref.watch(returnControllerProvider);
     final sale = draft.sale;
+    _syncRefundController(draft);
 
     ref.listen(returnControllerProvider, (previous, next) {
       next.whenOrNull(
@@ -66,119 +71,86 @@ class _ReturnScreenState extends ConsumerState<ReturnScreen> {
         backgroundColor: AppColors.surface,
         elevation: 0,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 760;
+          final content = ListView(
+            padding: const EdgeInsets.all(16),
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _invoiceController,
-                  decoration: const InputDecoration(
-                    labelText: 'Original invoice ID',
-                    hintText: 'Invoice ID ya first 8 chars',
-                    border: OutlineInputBorder(),
+              _InvoiceSearchBar(
+                controller: _invoiceController,
+                isSearching: _isSearching,
+                isWide: isWide,
+                onSearch: _searchInvoice,
+              ),
+              const SizedBox(height: 16),
+              if (sale == null)
+                const _EmptyReturnState()
+              else ...[
+                _SaleSummary(draft: draft),
+                const SizedBox(height: 16),
+                if (isWide)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: _ReturnItemsList(draft: draft)),
+                      const SizedBox(width: 16),
+                      SizedBox(
+                        width: 340,
+                        child: _RefundDecisionPanel(
+                          draft: draft,
+                          controller: controller,
+                          refundController: _refundController,
+                          refundFocusNode: _refundFocusNode,
+                          overrideReasonController: _overrideReasonController,
+                          onRefundChanged: _setRefundAmount,
+                        ),
+                      ),
+                    ],
+                  )
+                else ...[
+                  _ReturnItemsList(draft: draft),
+                  const SizedBox(height: 16),
+                  _RefundDecisionPanel(
+                    draft: draft,
+                    controller: controller,
+                    refundController: _refundController,
+                    refundFocusNode: _refundFocusNode,
+                    overrideReasonController: _overrideReasonController,
+                    onRefundChanged: _setRefundAmount,
                   ),
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _searchInvoice(),
-                ),
-              ),
-              const SizedBox(width: 10),
-              FilledButton.icon(
-                onPressed: _isSearching ? null : _searchInvoice,
-                icon:
-                    _isSearching
-                        ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                        : const Icon(Icons.search_rounded),
-                label: const Text('Search'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          if (sale == null)
-            const _EmptyReturnState()
-          else ...[
-            _SaleSummary(draft: draft),
-            const SizedBox(height: 16),
-            ...sale.items.map((item) {
-              final returned =
-                  draft.alreadyReturnedByProductId[item.productId] ?? 0;
-              final available = item.quantity - returned;
-              final selected = draft.quantitiesByProductId[item.productId] ?? 0;
-              return _ReturnItemTile(
-                name: item.productName,
-                sold: item.quantity,
-                returned: returned,
-                available: available,
-                selected: selected,
-                onChanged:
-                    (value) => ref
-                        .read(returnDraftProvider.notifier)
-                        .setQuantity(item.productId, value),
-              );
-            }),
-            const SizedBox(height: 16),
-            SegmentedButton<RefundMethod>(
-              segments: const [
-                ButtonSegment(
-                  value: RefundMethod.cash,
-                  icon: Icon(Icons.payments_rounded),
-                  label: Text('Cash'),
-                ),
-                ButtonSegment(
-                  value: RefundMethod.credit,
-                  icon: Icon(Icons.account_balance_wallet_rounded),
-                  label: Text('Credit'),
-                ),
+                ],
               ],
-              selected: {draft.refundMethod},
-              onSelectionChanged:
-                  (values) => ref
-                      .read(returnDraftProvider.notifier)
-                      .setRefundMethod(values.first),
+              const SizedBox(height: 24),
+              _PendingReturnsPanel(isBusy: controller.isLoading),
+            ],
+          );
+
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1180),
+              child: content,
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _overrideReasonController,
-              decoration: const InputDecoration(
-                labelText: 'Owner override reason (if needed)',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed:
-                  controller.isLoading
-                      ? null
-                      : () => ref
-                          .read(returnControllerProvider.notifier)
-                          .submit(
-                            overrideReason:
-                                _overrideReasonController.text.trim(),
-                          ),
-              icon:
-                  controller.isLoading
-                      ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                      : const Icon(Icons.assignment_return_rounded),
-              label: Text(
-                'Process Refund Rs ${draft.refundAmount.toStringAsFixed(0)}',
-              ),
-            ),
-          ],
-          const SizedBox(height: 24),
-          _PendingReturnsPanel(isBusy: controller.isLoading),
-        ],
+          );
+        },
       ),
     );
+  }
+
+  void _syncRefundController(ReturnDraftState draft) {
+    if (_refundFocusNode.hasFocus) return;
+
+    final value = draft.refundAmount.toStringAsFixed(0);
+    if (_refundController.text == value) return;
+
+    _refundController.text = value;
+  }
+
+  void _setRefundAmount(String value) {
+    final normalized = value.replaceAll(',', '').trim();
+    final amount = double.tryParse(normalized) ?? 0;
+    ref.read(returnDraftProvider.notifier).setRefundAmount(amount);
   }
 
   Future<void> _searchInvoice() async {
@@ -198,6 +170,273 @@ class _ReturnScreenState extends ConsumerState<ReturnScreen> {
     } finally {
       if (mounted) setState(() => _isSearching = false);
     }
+  }
+}
+
+class _InvoiceSearchBar extends StatelessWidget {
+  final TextEditingController controller;
+  final bool isSearching;
+  final bool isWide;
+  final VoidCallback onSearch;
+
+  const _InvoiceSearchBar({
+    required this.controller,
+    required this.isSearching,
+    required this.isWide,
+    required this.onSearch,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final searchField = TextField(
+      controller: controller,
+      decoration: const InputDecoration(
+        labelText: 'Original invoice ID',
+        hintText: 'Invoice ID ya first 8 chars',
+        border: OutlineInputBorder(),
+        prefixIcon: Icon(Icons.receipt_long_rounded),
+      ),
+      textInputAction: TextInputAction.search,
+      onSubmitted: (_) => onSearch(),
+    );
+    final button = FilledButton.icon(
+      onPressed: isSearching ? null : onSearch,
+      icon:
+          isSearching
+              ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+              : const Icon(Icons.search_rounded),
+      label: const Text('Search'),
+    );
+
+    if (isWide) {
+      return Row(
+        children: [
+          Expanded(child: searchField),
+          const SizedBox(width: 10),
+          SizedBox(height: 48, child: button),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        searchField,
+        const SizedBox(height: 10),
+        SizedBox(height: 48, child: button),
+      ],
+    );
+  }
+}
+
+class _ReturnItemsList extends ConsumerWidget {
+  final ReturnDraftState draft;
+
+  const _ReturnItemsList({required this.draft});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sale = draft.sale;
+    if (sale == null) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Returned items',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 10),
+        ...sale.items.map((item) {
+          final returned =
+              draft.alreadyReturnedByProductId[item.productId] ?? 0;
+          final available = item.quantity - returned;
+          final selected = draft.quantitiesByProductId[item.productId] ?? 0;
+          return _ReturnItemTile(
+            name: item.productName,
+            sold: item.quantity,
+            returned: returned,
+            available: available,
+            selected: selected,
+            onChanged:
+                (value) => ref
+                    .read(returnDraftProvider.notifier)
+                    .setQuantity(item.productId, value),
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class _RefundDecisionPanel extends ConsumerWidget {
+  final ReturnDraftState draft;
+  final AsyncValue<SaleReturnModel?> controller;
+  final TextEditingController refundController;
+  final FocusNode refundFocusNode;
+  final TextEditingController overrideReasonController;
+  final ValueChanged<String> onRefundChanged;
+
+  const _RefundDecisionPanel({
+    required this.draft,
+    required this.controller,
+    required this.refundController,
+    required this.refundFocusNode,
+    required this.overrideReasonController,
+    required this.onRefundChanged,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final maxRefund = draft.maxRefundAmount;
+    final actualRefund = draft.refundAmount;
+    final hasReturnItems = maxRefund > 0;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Refund decision',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _RefundAmountRow(
+            label: 'Max refundable',
+            value: 'Rs ${maxRefund.toStringAsFixed(0)}',
+            color: AppColors.textPrimary,
+          ),
+          const SizedBox(height: 8),
+          _RefundAmountRow(
+            label: 'Actual refund',
+            value: 'Rs ${actualRefund.toStringAsFixed(0)}',
+            color: AppColors.success,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: refundController,
+            focusNode: refundFocusNode,
+            enabled: hasReturnItems && !controller.isLoading,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: 'Refund amount shopkeeper will pay',
+              helperText:
+                  '0 se Rs ${maxRefund.toStringAsFixed(0)} tak amount set karein',
+              border: const OutlineInputBorder(),
+              prefixText: 'Rs ',
+            ),
+            onChanged: onRefundChanged,
+          ),
+          if (draft.refundAmountInput > maxRefund) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Entered amount max refundable se zyada hai, submit par max amount use hogi.',
+              style: TextStyle(fontSize: 12, color: AppColors.warning),
+            ),
+          ],
+          const SizedBox(height: 14),
+          SegmentedButton<RefundMethod>(
+            segments: const [
+              ButtonSegment(
+                value: RefundMethod.cash,
+                icon: Icon(Icons.payments_rounded),
+                label: Text('Cash'),
+              ),
+              ButtonSegment(
+                value: RefundMethod.credit,
+                icon: Icon(Icons.account_balance_wallet_rounded),
+                label: Text('Credit'),
+              ),
+            ],
+            selected: {draft.refundMethod},
+            onSelectionChanged:
+                controller.isLoading
+                    ? null
+                    : (values) => ref
+                        .read(returnDraftProvider.notifier)
+                        .setRefundMethod(values.first),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: overrideReasonController,
+            enabled: !controller.isLoading,
+            decoration: const InputDecoration(
+              labelText: 'Owner override reason (if needed)',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 2,
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed:
+                controller.isLoading || !hasReturnItems
+                    ? null
+                    : () => ref
+                        .read(returnControllerProvider.notifier)
+                        .submit(
+                          overrideReason: overrideReasonController.text.trim(),
+                        ),
+            icon:
+                controller.isLoading
+                    ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.assignment_return_rounded),
+            label: Text('Process Return Rs ${actualRefund.toStringAsFixed(0)}'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RefundAmountRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _RefundAmountRow({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(color: color, fontWeight: FontWeight.w900),
+        ),
+      ],
+    );
   }
 }
 
@@ -235,30 +474,69 @@ class _PendingReturnsPanel extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
               ...returns.map(
-                (saleReturn) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    'Invoice #${saleReturn.originalSaleId.substring(0, 8).toUpperCase()}',
-                  ),
-                  subtitle: Text(
-                    saleReturn.approvalRequiredReason ??
-                        'Manager/Owner approval required',
-                  ),
-                  trailing: FilledButton(
-                    onPressed:
-                        isBusy
-                            ? null
-                            : () => ref
-                                .read(returnControllerProvider.notifier)
-                                .approve(saleReturn),
-                    child: Text(
-                      'Approve Rs ${saleReturn.refundAmount.toStringAsFixed(0)}',
-                    ),
-                  ),
-                ),
+                (saleReturn) =>
+                    _PendingReturnTile(saleReturn: saleReturn, isBusy: isBusy),
               ),
             ],
           ),
+        );
+      },
+    );
+  }
+}
+
+class _PendingReturnTile extends ConsumerWidget {
+  final SaleReturnModel saleReturn;
+  final bool isBusy;
+
+  const _PendingReturnTile({required this.saleReturn, required this.isBusy});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final approveButton = FilledButton(
+      onPressed:
+          isBusy
+              ? null
+              : () => ref
+                  .read(returnControllerProvider.notifier)
+                  .approve(saleReturn),
+      child: Text('Approve Rs ${saleReturn.refundAmount.toStringAsFixed(0)}'),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 560;
+        final info = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Invoice #${_shortId(saleReturn.originalSaleId)}',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              saleReturn.approvalRequiredReason ??
+                  'Manager/Owner approval required',
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+          ],
+        );
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child:
+              isNarrow
+                  ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [info, const SizedBox(height: 8), approveButton],
+                  )
+                  : Row(
+                    children: [
+                      Expanded(child: info),
+                      const SizedBox(width: 12),
+                      approveButton,
+                    ],
+                  ),
         );
       },
     );
@@ -322,7 +600,7 @@ class _SaleSummary extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Invoice #${sale.id?.substring(0, 8).toUpperCase()}',
+                  'Invoice #${_shortId(sale.id)}',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     color: AppColors.textPrimary,
@@ -339,13 +617,25 @@ class _SaleSummary extends StatelessWidget {
               ],
             ),
           ),
-          Text(
-            'Rs ${draft.refundAmount.toStringAsFixed(0)}',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.success,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                'Rs ${draft.refundAmount.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.success,
+                ),
+              ),
+              Text(
+                'Max Rs ${draft.maxRefundAmount.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -394,7 +684,7 @@ class _ReturnItemTile extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  'Sold $sold · Returned $returned · Available $available',
+                  'Sold $sold - Returned $returned - Available $available',
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.textSecondary,
@@ -424,4 +714,11 @@ class _ReturnItemTile extends StatelessWidget {
       ),
     );
   }
+}
+
+String _shortId(String? id) {
+  final raw = id?.trim();
+  if (raw == null || raw.isEmpty) return 'SALE';
+  final short = raw.length <= 8 ? raw : raw.substring(0, 8);
+  return short.toUpperCase();
 }

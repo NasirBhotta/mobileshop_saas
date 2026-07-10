@@ -4,10 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
-import '../../features/auth/presentation/providers/auth_provider.dart';
 import '../../features/onboarding/data/repositories/setup_flow_repository.dart';
 import '../providers/navigation_loading_provider.dart';
-import 'logout_action.dart';
 
 class DesktopNav extends ConsumerWidget {
   final Widget child;
@@ -27,7 +25,7 @@ class DesktopNav extends ConsumerWidget {
     '/repairs',
     '/suppliers',
     '/expenses',
-    '/reports/sales',
+    '/reports',
     '/settings',
   ];
 
@@ -45,15 +43,9 @@ class DesktopNav extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isLoggingOut = ref.watch(authControllerProvider).isLoading;
     final setupStatus = ref.watch(setupFlowStatusProvider);
     final hasMultipleBranches = setupStatus.maybeWhen(
       data: (status) => status.branches.length >= 2,
-      orElse: () => false,
-    );
-    final showLogout = setupStatus.maybeWhen(
-      data: (status) => status.branches.length < 2,
-      error: (_, _) => true,
       orElse: () => false,
     );
 
@@ -224,42 +216,6 @@ class DesktopNav extends ConsumerWidget {
                           ),
                         ),
                       ],
-                      if (showLogout)
-                        SizedBox(
-                          width: double.infinity,
-                          child: TextButton.icon(
-                            onPressed:
-                                isLoggingOut
-                                    ? null
-                                    : () => confirmLogout(context, ref),
-                            icon:
-                                isLoggingOut
-                                    ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                    : const Icon(
-                                      Icons.logout_rounded,
-                                      size: 18,
-                                    ),
-                            label: const Text(AppStrings.logout),
-                            style: TextButton.styleFrom(
-                              foregroundColor: AppColors.error,
-                              alignment: Alignment.centerLeft,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 10,
-                              ),
-                              textStyle: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                 ),

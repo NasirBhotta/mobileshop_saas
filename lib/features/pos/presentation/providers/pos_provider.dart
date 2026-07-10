@@ -182,6 +182,22 @@ class CartNotifier extends StateNotifier<CartState> {
     state = state.copyWith(items: updated, discountApprovals: approvals);
   }
 
+  void setItemPrice(String productId, double unitPrice) {
+    final safePrice = unitPrice < 0 ? 0.0 : unitPrice;
+    final updated =
+        state.items.map((item) {
+          if (item.productId != productId) return item;
+          return item.copyWith(
+            unitPrice: safePrice,
+            discountAmount:
+                item.discountAmount > safePrice
+                    ? safePrice
+                    : item.discountAmount,
+          );
+        }).toList();
+    state = state.copyWith(items: updated);
+  }
+
   // Quantity directly set karo
   void setItemQuantity(String productId, int quantity) {
     if (quantity <= 0) {
@@ -621,15 +637,17 @@ class ReturnDraftState {
   final Map<String, int> quantitiesByProductId;
   final Map<String, int> alreadyReturnedByProductId;
   final RefundMethod refundMethod;
+  final double refundAmountInput;
 
   const ReturnDraftState({
     this.sale,
     this.quantitiesByProductId = const {},
     this.alreadyReturnedByProductId = const {},
     this.refundMethod = RefundMethod.cash,
+    this.refundAmountInput = 0,
   });
 
-  double get refundAmount {
+  double get maxRefundAmount {
     final currentSale = sale;
     if (currentSale == null) return 0;
     return currentSale.items.fold<double>(0, (sum, item) {
@@ -639,12 +657,16 @@ class ReturnDraftState {
     });
   }
 
+  double get refundAmount =>
+      refundAmountInput.clamp(0, maxRefundAmount).toDouble();
+
   ReturnDraftState copyWith({
     SaleModel? sale,
     bool clearSale = false,
     Map<String, int>? quantitiesByProductId,
     Map<String, int>? alreadyReturnedByProductId,
     RefundMethod? refundMethod,
+    double? refundAmountInput,
   }) {
     return ReturnDraftState(
       sale: clearSale ? null : sale ?? this.sale,
@@ -653,6 +675,7 @@ class ReturnDraftState {
       alreadyReturnedByProductId:
           alreadyReturnedByProductId ?? this.alreadyReturnedByProductId,
       refundMethod: refundMethod ?? this.refundMethod,
+      refundAmountInput: refundAmountInput ?? this.refundAmountInput,
     );
   }
 }
@@ -679,6 +702,7 @@ class ReturnDraftNotifier extends StateNotifier<ReturnDraftState> {
       sale: sale,
       alreadyReturnedByProductId: returned,
       quantitiesByProductId: {for (final item in sale.items) item.productId: 0},
+      refundAmountInput: 0,
     );
     return sale;
   }
@@ -690,12 +714,26 @@ class ReturnDraftNotifier extends StateNotifier<ReturnDraftState> {
     final alreadyReturned = state.alreadyReturnedByProductId[productId] ?? 0;
     final available = item.quantity - alreadyReturned;
     final safeQuantity = quantity.clamp(0, available).toInt();
-    state = state.copyWith(
-      quantitiesByProductId: {
-        ...state.quantitiesByProductId,
-        productId: safeQuantity,
-      },
-    );
+    final updatedQuantities = {
+      ...state.quantitiesByProductId,
+      productId: safeQuantity,
+    };
+    final nextState = state.copyWith(quantitiesByProductId: updatedQuantities);
+    final nextRefundAmount =
+        state.refundAmountInput <= 0
+            ? nextState.maxRefundAmount
+            : state.refundAmountInput
+                .clamp(0, nextState.maxRefundAmount)
+                .toDouble();
+    state = nextState.copyWith(refundAmountInput: nextRefundAmount);
+  }
+
+  void setRefundAmount(double amount) {
+    state = state.copyWith(refundAmountInput: amount);
+  }
+
+  void clearRefundAmount() {
+    state = state.copyWith(refundAmountInput: 0);
   }
 
   void setRefundMethod(RefundMethod method) {
@@ -761,6 +799,7 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
         sale: sale,
         quantitiesByProductId: draft.quantitiesByProductId,
         refundMethod: draft.refundMethod,
+        refundAmount: draft.refundAmount,
         overrideReason: overrideReason,
       );
       _ref.invalidate(salesHistoryProvider);

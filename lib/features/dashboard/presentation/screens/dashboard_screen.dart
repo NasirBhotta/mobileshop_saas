@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../../settings/presentation/widgets/account_menu_button.dart';
 import '../providers/dashboard_provider.dart';
 import '../widgets/quick_action_button.dart';
 import '../widgets/stat_card.dart';
@@ -56,19 +58,23 @@ class _MobileDashboard extends ConsumerWidget {
                   const SizedBox(height: 14),
                   _DashboardError(message: errorMessage),
                 ],
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+                _TodaySnapshot(stats: stats, isLoading: isLoading),
+                const SizedBox(height: 16),
+                const _QuickActions(compact: true),
+                const SizedBox(height: 16),
+                _DashboardAlerts(stats: stats, compact: true),
+                const SizedBox(height: 16),
                 _StatsGrid(
                   stats: stats,
                   isLoading: isLoading,
                   crossAxisCount: 2,
-                  childAspectRatio: 1.32,
+                  childAspectRatio: 1.18,
                   compact: true,
                 ),
-                const SizedBox(height: 20),
-                const _QuickActions(compact: true),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 _CreditCustomersPanel(stats: stats, compact: true),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 _RecentSalesPanel(stats: stats, compact: true),
               ],
             ),
@@ -113,16 +119,29 @@ class _DesktopDashboard extends ConsumerWidget {
                 const SizedBox(height: 18),
                 _DashboardError(message: errorMessage),
               ],
-              const SizedBox(height: 28),
+              const SizedBox(height: 18),
+              _TodaySnapshot(
+                stats: stats,
+                isLoading: isLoading,
+                compact: false,
+              ),
+              const SizedBox(height: 18),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Expanded(flex: 5, child: _QuickActions()),
+                  const SizedBox(width: 18),
+                  Expanded(flex: 4, child: _DashboardAlerts(stats: stats)),
+                ],
+              ),
+              const SizedBox(height: 18),
               _StatsGrid(
                 stats: stats,
                 isLoading: isLoading,
-                crossAxisCount: 3,
-                childAspectRatio: 3.3,
+                crossAxisCount: 4,
+                childAspectRatio: 2.25,
               ),
-              const SizedBox(height: 28),
-              const _QuickActions(),
-              const SizedBox(height: 28),
+              const SizedBox(height: 18),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -146,41 +165,248 @@ class _DashboardHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                compact
+                    ? AppStrings.dashboardWelcome
+                    : AppStrings.dashboardTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: compact ? 13 : 24,
+                  fontWeight: compact ? FontWeight.normal : FontWeight.bold,
+                  color:
+                      compact ? AppColors.textSecondary : AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                compact
+                    ? _weekdayLabel(now)
+                    : 'Aaj ka sales, stock aur udhar overview',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: compact ? 20 : 14,
+                  fontWeight: compact ? FontWeight.bold : FontWeight.normal,
+                  color:
+                      compact ? AppColors.textPrimary : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        const AccountMenuButton(),
+      ],
+    );
+  }
+}
+
+class _TodaySnapshot extends StatelessWidget {
+  final DashboardStats? stats;
+  final bool isLoading;
+  final bool compact;
+
+  const _TodaySnapshot({
+    required this.stats,
+    required this.isLoading,
+    this.compact = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cash = _moneyOrLoading(stats?.todaySalesTotal, isLoading);
+    final profit = _moneyOrLoading(stats?.totalProfit, isLoading);
+    final outstanding = _moneyOrLoading(stats?.totalOutstanding, isLoading);
+    final activeRepairs =
+        isLoading ? '...' : (stats?.activeRepairCount ?? 0).toString();
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(compact ? 16 : 20),
+      decoration: BoxDecoration(
+        color: AppColors.textPrimary,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.textPrimary),
+      ),
+      child:
+          compact
+              ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _SnapshotMainValue(value: cash),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _SnapshotPill(
+                        icon: Icons.stacked_line_chart_rounded,
+                        label: 'Profit',
+                        value: profit,
+                        color: AppColors.secondary,
+                      ),
+                      _SnapshotPill(
+                        icon: Icons.account_balance_wallet_rounded,
+                        label: 'Udhar',
+                        value: outstanding,
+                        color: AppColors.warning,
+                      ),
+                      _SnapshotPill(
+                        icon: Icons.build_rounded,
+                        label: 'Repairs',
+                        value: activeRepairs,
+                        color: AppColors.info,
+                      ),
+                    ],
+                  ),
+                ],
+              )
+              : Row(
+                children: [
+                  Expanded(child: _SnapshotMainValue(value: cash)),
+                  const SizedBox(width: 18),
+                  _SnapshotPill(
+                    icon: Icons.stacked_line_chart_rounded,
+                    label: 'Realized profit',
+                    value: profit,
+                    color: AppColors.secondary,
+                  ),
+                  const SizedBox(width: 10),
+                  _SnapshotPill(
+                    icon: Icons.account_balance_wallet_rounded,
+                    label: 'Total udhar',
+                    value: outstanding,
+                    color: AppColors.warning,
+                  ),
+                  const SizedBox(width: 10),
+                  _SnapshotPill(
+                    icon: Icons.build_rounded,
+                    label: 'Active repairs',
+                    value: activeRepairs,
+                    color: AppColors.info,
+                  ),
+                ],
+              ),
+    );
+  }
+}
+
+class _SnapshotMainValue extends StatelessWidget {
+  final String value;
+
+  const _SnapshotMainValue({required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Text(
-              compact ? AppStrings.dashboardWelcome : AppStrings.dashboardTitle,
-              style: TextStyle(
-                fontSize: compact ? 13 : 24,
-                fontWeight: compact ? FontWeight.normal : FontWeight.bold,
-                color:
-                    compact ? AppColors.textSecondary : AppColors.textPrimary,
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.payments_rounded,
+                color: AppColors.success,
+                size: 18,
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              compact ? 'Ali Mobile Center' : 'Aaj ka overview dekhen',
-              style: TextStyle(
-                fontSize: compact ? 20 : 14,
-                fontWeight: compact ? FontWeight.bold : FontWeight.normal,
-                color:
-                    compact ? AppColors.textPrimary : AppColors.textSecondary,
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Today cash received',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
             ),
           ],
         ),
-        CircleAvatar(
-          backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-          child: Icon(
-            compact ? Icons.notifications_outlined : Icons.person_rounded,
-            color: AppColors.primary,
+        const SizedBox(height: 10),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+            ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SnapshotPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _SnapshotPill({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 118),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white60, fontSize: 11),
+                ),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -276,21 +502,37 @@ class _QuickActions extends StatelessWidget {
         label: AppStrings.actionNewSale,
         icon: Icons.add_shopping_cart_rounded,
         route: '/pos',
+        color: AppColors.success,
       ),
       const QuickActionButton(
         label: AppStrings.actionAddProduct,
         icon: Icons.add_box_rounded,
         route: '/inventory/add',
+        color: AppColors.info,
       ),
       const QuickActionButton(
         label: AppStrings.actionNewRepair,
         icon: Icons.build_circle_rounded,
         route: '/repairs/new',
+        color: AppColors.warning,
       ),
       const QuickActionButton(
         label: AppStrings.actionAddExpense,
         icon: Icons.receipt_rounded,
         route: '/expenses/new',
+        color: AppColors.error,
+      ),
+      const QuickActionButton(
+        label: 'Customers',
+        icon: Icons.people_rounded,
+        route: '/customers',
+        color: AppColors.secondary,
+      ),
+      const QuickActionButton(
+        label: 'Reports',
+        icon: Icons.insights_rounded,
+        route: '/reports',
+        color: AppColors.primary,
       ),
     ];
 
@@ -307,34 +549,170 @@ class _QuickActions extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         if (compact) ...[
-          Row(
-            children: [
-              Expanded(child: actions[0]),
-              const SizedBox(width: 12),
-              Expanded(child: actions[1]),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(child: actions[2]),
-              const SizedBox(width: 12),
-              Expanded(child: actions[3]),
-            ],
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 2.9,
+            children: actions,
           ),
         ] else
-          Row(
-            children: [
-              actions[0],
-              const SizedBox(width: 12),
-              actions[1],
-              const SizedBox(width: 12),
-              actions[2],
-              const SizedBox(width: 12),
-              actions[3],
-            ],
-          ),
+          Wrap(spacing: 10, runSpacing: 10, children: actions),
       ],
+    );
+  }
+}
+
+class _DashboardAlerts extends StatelessWidget {
+  final DashboardStats? stats;
+  final bool compact;
+
+  const _DashboardAlerts({required this.stats, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    if (stats == null) {
+      return const _DashboardPanel(
+        title: 'Attention',
+        trailing: _StatusBadge(label: 'Loading', color: AppColors.info),
+        child: _EmptyPanelMessage(
+          icon: Icons.hourglass_empty_rounded,
+          message: 'Alerts load ho rahe hain.',
+        ),
+      );
+    }
+
+    final alerts = <_DashboardAlertData>[
+      if (stats!.lowStock > 0)
+        _DashboardAlertData(
+          icon: Icons.warning_amber_rounded,
+          title: '${stats!.lowStock} low stock items',
+          subtitle: 'Inventory review kar lein',
+          route: '/inventory',
+          color: AppColors.error,
+        ),
+      if (stats!.totalOutstanding > 0)
+        _DashboardAlertData(
+          icon: Icons.account_balance_wallet_rounded,
+          title: _money(stats!.totalOutstanding),
+          subtitle: 'Udhar follow-up pending',
+          route: '/customers',
+          color: AppColors.warning,
+        ),
+      if (stats!.activeRepairCount > 0)
+        _DashboardAlertData(
+          icon: Icons.build_rounded,
+          title: '${stats!.activeRepairCount} active repairs',
+          subtitle: 'Repair queue check karein',
+          route: '/repairs',
+          color: AppColors.info,
+        ),
+    ];
+
+    return _DashboardPanel(
+      title: 'Attention',
+      trailing:
+          alerts.isEmpty
+              ? const _StatusBadge(label: 'All clear', color: AppColors.success)
+              : _StatusBadge(
+                label: '${alerts.length} items',
+                color: AppColors.warning,
+              ),
+      child:
+          alerts.isEmpty
+              ? const _EmptyPanelMessage(
+                icon: Icons.check_circle_outline_rounded,
+                message: 'Aaj ke liye koi urgent alert nahi.',
+              )
+              : Column(
+                children: [
+                  for (var i = 0; i < alerts.length; i++) ...[
+                    _DashboardAlertTile(data: alerts[i], compact: compact),
+                    if (i != alerts.length - 1) const SizedBox(height: 10),
+                  ],
+                ],
+              ),
+    );
+  }
+}
+
+class _DashboardAlertData {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String route;
+  final Color color;
+
+  const _DashboardAlertData({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.route,
+    required this.color,
+  });
+}
+
+class _DashboardAlertTile extends StatelessWidget {
+  final _DashboardAlertData data;
+  final bool compact;
+
+  const _DashboardAlertTile({required this.data, required this.compact});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => context.go(data.route),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: EdgeInsets.all(compact ? 12 : 14),
+        decoration: BoxDecoration(
+          color: data.color.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: data.color.withValues(alpha: 0.14)),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: data.color.withValues(alpha: 0.12),
+              foregroundColor: data.color,
+              child: Icon(data.icon, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    data.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    data.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.textSecondary,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -370,12 +748,9 @@ class _CreditCustomersPanel extends StatelessWidget {
               totalCreditSales: stats!.totalCreditSales,
             ),
           if (customers.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Text(
-                'Abhi kisi customer ka udhar pending nahi',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
+            const _EmptyPanelMessage(
+              icon: Icons.check_circle_outline_rounded,
+              message: 'Abhi kisi customer ka udhar pending nahi.',
             )
           else
             ...customers.map(
@@ -454,6 +829,31 @@ class _CreditCustomerTile extends StatelessWidget {
         limit == null || limit <= 0
             ? null
             : (customer.outstandingBalance / limit).clamp(0.0, 1.0);
+    final amountAndAction = Column(
+      crossAxisAlignment:
+          compact ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+      children: [
+        Text(
+          _money(customer.outstandingBalance),
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: AppColors.error,
+          ),
+        ),
+        const SizedBox(height: 6),
+        OutlinedButton.icon(
+          onPressed: () => _sendReminder(context, customer),
+          icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
+          label: const Text(AppStrings.dashboardSendReminder),
+          style: OutlinedButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            foregroundColor: AppColors.success,
+            side: const BorderSide(color: AppColors.success),
+          ),
+        ),
+      ],
+    );
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -507,33 +907,10 @@ class _CreditCustomerTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    _money(customer.outstandingBalance),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.error,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  OutlinedButton.icon(
-                    onPressed: () => _sendReminder(context, customer),
-                    icon: const Icon(Icons.chat_bubble_outline_rounded),
-                    label: const Text(AppStrings.dashboardSendReminder),
-                    style: OutlinedButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: AppColors.success,
-                      side: const BorderSide(color: AppColors.success),
-                    ),
-                  ),
-                ],
-              ),
+              if (!compact) ...[const SizedBox(width: 10), amountAndAction],
             ],
           ),
+          if (compact) ...[const SizedBox(height: 10), amountAndAction],
           if (progress != null) ...[
             const SizedBox(height: 10),
             ClipRRect(
@@ -575,14 +952,9 @@ class _RecentSalesPanel extends StatelessWidget {
       title: AppStrings.dashboardRecentSales,
       child:
           recentSales.isEmpty
-              ? const Padding(
-                padding: EdgeInsets.symmetric(vertical: 28),
-                child: Center(
-                  child: Text(
-                    'Abhi koi sale nahi hui',
-                    style: TextStyle(color: AppColors.textSecondary),
-                  ),
-                ),
+              ? const _EmptyPanelMessage(
+                icon: Icons.point_of_sale_rounded,
+                message: 'Abhi koi sale nahi hui.',
               )
               : Column(
                 children:
@@ -592,13 +964,25 @@ class _RecentSalesPanel extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(vertical: 8),
                             child: Row(
                               children: [
+                                CircleAvatar(
+                                  radius: 17,
+                                  backgroundColor: AppColors.success.withValues(
+                                    alpha: 0.10,
+                                  ),
+                                  foregroundColor: AppColors.success,
+                                  child: const Icon(
+                                    Icons.receipt_long_rounded,
+                                    size: 17,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Invoice #${sale.id?.substring(0, 8).toUpperCase() ?? 'SALE'}',
+                                        _saleLabel(sale.id),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
@@ -609,7 +993,17 @@ class _RecentSalesPanel extends StatelessWidget {
                                       ),
                                       if (sale.customerName != null)
                                         Text(
-                                          sale.customerName!,
+                                          '${sale.customerName!} - ${_formatDateTime(sale.createdAt)}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                        ),
+                                      if (sale.customerName == null)
+                                        Text(
+                                          _formatDateTime(sale.createdAt),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
@@ -684,6 +1078,65 @@ class _DashboardPanel extends StatelessWidget {
   }
 }
 
+class _StatusBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _StatusBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyPanelMessage extends StatelessWidget {
+  final IconData icon;
+  final String message;
+
+  const _EmptyPanelMessage({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: AppColors.textSecondary, size: 24),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DashboardError extends StatelessWidget {
   final String message;
 
@@ -708,11 +1161,69 @@ class _DashboardError extends StatelessWidget {
   }
 }
 
-String _money(double amount) => 'Rs ${amount.toStringAsFixed(0)}';
+String _money(double amount) => 'Rs ${_compactNumber(amount)}';
 
 String _moneyOrLoading(double? amount, bool isLoading) {
   if (isLoading && amount == null) return '...';
   return _money(amount ?? 0);
+}
+
+String _compactNumber(double amount) {
+  final isNegative = amount < 0;
+  final rounded = amount.abs().round().toString();
+  final buffer = StringBuffer();
+
+  for (var i = 0; i < rounded.length; i++) {
+    final positionFromEnd = rounded.length - i;
+    buffer.write(rounded[i]);
+    if (positionFromEnd > 1 && positionFromEnd % 3 == 1) {
+      buffer.write(',');
+    }
+  }
+
+  return isNegative ? '-$buffer' : buffer.toString();
+}
+
+String _saleLabel(String? id) {
+  if (id == null || id.isEmpty) return 'Invoice #SALE';
+
+  final code = id.length <= 8 ? id : id.substring(0, 8);
+  return 'Invoice #${code.toUpperCase()}';
+}
+
+String _formatDateTime(DateTime? value) {
+  if (value == null) return 'No time';
+
+  final now = DateTime.now();
+  final isToday =
+      value.year == now.year &&
+      value.month == now.month &&
+      value.day == now.day;
+
+  final hour =
+      value.hour == 0
+          ? 12
+          : value.hour > 12
+          ? value.hour - 12
+          : value.hour;
+  final minute = value.minute.toString().padLeft(2, '0');
+  final suffix = value.hour >= 12 ? 'PM' : 'AM';
+
+  if (isToday) return 'Today $hour:$minute $suffix';
+  return '${value.day}/${value.month}/${value.year}';
+}
+
+String _weekdayLabel(DateTime value) {
+  const weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+  return '${weekdays[value.weekday - 1]} overview';
 }
 
 Future<void> _sendReminder(

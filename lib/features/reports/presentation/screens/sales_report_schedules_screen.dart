@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/reports/presentation/providers/sales_report_provider.dart';
+import 'package:mobileshop_saas/features/reports/presentation/widgets/reports_back_button.dart';
 
 import '../../data/models/sales_report_models.dart';
 
@@ -16,6 +17,7 @@ class SalesReportSchedulesScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const ReportsBackButton(),
         title: const Text('Scheduled Sales Reports'),
         actions: [
           IconButton(
