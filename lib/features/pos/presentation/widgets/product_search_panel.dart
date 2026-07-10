@@ -104,7 +104,7 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text(e.toString())),
             data: (products) {
-              if (_debouncedQuery.length < 2) {
+              if (_debouncedQuery.isNotEmpty && _debouncedQuery.length < 2) {
                 return const Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -116,7 +116,7 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
                       ),
                       SizedBox(height: 12),
                       Text(
-                        'Product name ya SKU search karein',
+                        'Kam az kam 2 characters type karein',
                         style: TextStyle(color: AppColors.textSecondary),
                       ),
                     ],

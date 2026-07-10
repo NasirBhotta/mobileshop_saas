@@ -348,8 +348,7 @@ class CheckoutController extends StateNotifier<AsyncValue<SaleModel?>> {
       _ref.invalidate(salesHistoryProvider);
       _ref.invalidate(allSalesProvider);
       _ref.invalidate(approvedReturnsProvider);
-      _ref.invalidate(allProductsProvider);
-      _ref.invalidate(productsProvider);
+      invalidateProductListProviders(_ref);
       _ref.invalidate(customersProvider);
       _ref.invalidate(allCustomersProvider);
       if (customerId != null) {
@@ -807,8 +806,7 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
       _ref.invalidate(pendingReturnsProvider);
       _ref.invalidate(approvedReturnsProvider);
       _ref.invalidate(allApprovedReturnsProvider);
-      _ref.invalidate(allProductsProvider);
-      _ref.invalidate(productsProvider);
+      invalidateProductListProviders(_ref);
       _ref.invalidate(returnDraftProvider);
       state = AsyncData(result);
       return result;
@@ -827,8 +825,7 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
       _ref.invalidate(pendingReturnsProvider);
       _ref.invalidate(approvedReturnsProvider);
       _ref.invalidate(allApprovedReturnsProvider);
-      _ref.invalidate(allProductsProvider);
-      _ref.invalidate(productsProvider);
+      invalidateProductListProviders(_ref);
       state = AsyncData(result);
       return result;
     } catch (e, st) {

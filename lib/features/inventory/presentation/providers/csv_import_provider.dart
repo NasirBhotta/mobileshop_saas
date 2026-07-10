@@ -33,8 +33,9 @@ class CsvImportController extends StateNotifier<AsyncValue<void>> {
       }
 
       final bytes = result.files.first.bytes;
-      if (bytes == null)
+      if (bytes == null) {
         throw Exception('FIle is not being loaded into memory');
+      }
 
       final csvString = String.fromCharCodes(bytes);
 
@@ -45,8 +46,7 @@ class CsvImportController extends StateNotifier<AsyncValue<void>> {
       _ref.read(csvImportResultProvider.notifier).state = importResult;
 
       // 6. Products refresh karo
-      _ref.invalidate(productsProvider);
-      _ref.invalidate(allProductsProvider);
+      invalidateProductListProviders(_ref);
       _ref.invalidate(categoriesProvider);
 
       state = const AsyncData(null);

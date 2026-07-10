@@ -96,8 +96,7 @@ class StockAdjustmentController extends StateNotifier<AsyncValue<void>> {
       );
 
       // Providers refresh karo taake UI update ho
-      _ref.invalidate(productsProvider);
-      _ref.invalidate(allProductsProvider);
+      invalidateProductListProviders(_ref);
       _ref.invalidate(adjustmentsProvider);
 
       state = const AsyncData(null);
@@ -189,7 +188,7 @@ final productSearchProvider =
     ) async {
       await ref.watch(selectedBranchIdProvider.future);
       final query = request.query.trim();
-      if (query.length < 2) return const <ProductModel>[];
+      if (query.isNotEmpty && query.length < 2) return const <ProductModel>[];
 
       return ref
           .read(inventoryRepositoryProvider)
@@ -200,6 +199,12 @@ final productSearchProvider =
             offset: request.offset,
           );
     });
+
+void invalidateProductListProviders(Ref ref) {
+  ref.invalidate(allProductsProvider);
+  ref.invalidate(productsProvider);
+  ref.invalidate(productSearchProvider);
+}
 
 // Categories list
 final categoriesProvider = FutureProvider<List<CategoryModel>>((ref) async {
@@ -240,8 +245,7 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
     try {
       await _repository.addProduct(product);
-      _ref.invalidate(allProductsProvider);
-      _ref.invalidate(productsProvider); // list refresh
+      invalidateProductListProviders(_ref);
       state = const AsyncData(null);
       return true;
     } catch (e, st) {
@@ -254,8 +258,7 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
     try {
       await _repository.updateProduct(product);
-      _ref.invalidate(allProductsProvider);
-      _ref.invalidate(productsProvider);
+      invalidateProductListProviders(_ref);
       _ref.invalidate(productPriceHistoryProvider(product.id));
       state = const AsyncData(null);
       return true;
@@ -269,8 +272,7 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
     try {
       await _repository.deleteProduct(productId);
-      _ref.invalidate(allProductsProvider);
-      _ref.invalidate(productsProvider);
+      invalidateProductListProviders(_ref);
       state = const AsyncData(null);
       return true;
     } catch (e, st) {
@@ -289,8 +291,7 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
         percentage: request.percentage,
         direction: request.direction,
       );
-      _ref.invalidate(allProductsProvider);
-      _ref.invalidate(productsProvider);
+      invalidateProductListProviders(_ref);
       for (final productId in request.productIds) {
         _ref.invalidate(productPriceHistoryProvider(productId));
       }
@@ -334,8 +335,7 @@ class CategoryController extends StateNotifier<AsyncValue<void>> {
     try {
       await _repository.deleteCategory(categoryId);
       _ref.invalidate(categoriesProvider);
-      _ref.invalidate(allProductsProvider);
-      _ref.invalidate(productsProvider);
+      invalidateProductListProviders(_ref);
       state = const AsyncData(null);
       return true;
     } catch (e, st) {
