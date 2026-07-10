@@ -452,6 +452,7 @@ class _StatsGrid extends StatelessWidget {
         ),
         StatCard(
           title: AppStrings.dashboardOverallProfit,
+          subtitle: 'Before expenses',
           value: _moneyOrLoading(stats?.totalProfit, isLoading),
           icon: Icons.stacked_line_chart_rounded,
           color: AppColors.secondary,

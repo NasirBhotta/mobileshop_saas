@@ -8,6 +8,7 @@ class StatCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final bool isCompact; // mobile = true, desktop = false
+  final String? subtitle;
 
   const StatCard({
     super.key,
@@ -16,6 +17,7 @@ class StatCard extends StatelessWidget {
     required this.icon,
     this.color = AppColors.primary,
     this.isCompact = false,
+    this.subtitle,
   });
 
   @override
@@ -69,10 +71,17 @@ class StatCard extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           title,
-          maxLines: 2,
+          maxLines: subtitle == null ? 2 : 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
         ),
+        if (subtitle != null)
+          Text(
+            subtitle!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 10, color: AppColors.textHint),
+          ),
       ],
     );
   }
@@ -116,6 +125,16 @@ class StatCard extends StatelessWidget {
                   color: AppColors.textSecondary,
                 ),
               ),
+              if (subtitle != null)
+                Text(
+                  subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textHint,
+                  ),
+                ),
             ],
           ),
         ),
