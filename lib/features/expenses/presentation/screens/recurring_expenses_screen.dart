@@ -180,7 +180,7 @@ class _RecurringRuleCard extends ConsumerWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
-            const Spacer(),
+            const SizedBox(height: 12),
             Wrap(
               spacing: 8,
               runSpacing: 8,

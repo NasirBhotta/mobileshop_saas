@@ -206,6 +206,124 @@ for each row
 execute function public.set_updated_at();
 
 -- ---------------------------------------------------------
+-- App compatibility columns
+-- The Flutter expense module stores richer local/remote fields than the
+-- first expense migration draft. These ALTERs make the migration idempotent
+-- and compatible with the app models/repository.
+-- ---------------------------------------------------------
+alter table public.expense_categories
+add column if not exists branch_id uuid references public.branches(id) on delete cascade;
+
+alter table public.expense_categories
+add column if not exists description text;
+
+alter table public.expense_categories
+add column if not exists is_system boolean not null default false;
+
+alter table public.expenses
+add column if not exists title text;
+
+update public.expenses
+set title = coalesce(title, category_name, 'Expense')
+where title is null;
+
+alter table public.expenses
+alter column title set default 'Expense';
+
+alter table public.expenses
+alter column title set not null;
+
+alter table public.expenses
+add column if not exists payee text;
+
+alter table public.expenses
+add column if not exists notes text;
+
+update public.expenses
+set notes = coalesce(notes, note)
+where notes is null;
+
+alter table public.expenses
+add column if not exists receipt_photo_path text;
+
+update public.expenses
+set receipt_photo_path = coalesce(receipt_photo_path, receipt_storage_path)
+where receipt_photo_path is null;
+
+alter table public.expenses
+add column if not exists local_receipt_path text;
+
+alter table public.expenses
+add column if not exists source text not null default 'manual';
+
+alter table public.expenses
+add column if not exists recurring_due_date date;
+
+update public.expenses
+set recurring_due_date = coalesce(recurring_due_date, due_date)
+where recurring_due_date is null;
+
+alter table public.expenses
+add column if not exists confirmed_by uuid references auth.users(id);
+
+alter table public.expenses
+add column if not exists voided_by uuid references auth.users(id);
+
+alter table public.expenses
+add column if not exists voided_at timestamptz;
+
+update public.expenses
+set status = 'void'
+where status = 'cancelled';
+
+alter table public.expenses
+drop constraint if exists expenses_status_check;
+
+alter table public.expenses
+add constraint expenses_status_check
+check (status in ('draft', 'confirmed', 'void'));
+
+alter table public.expenses
+drop constraint if exists expenses_payment_mode_check;
+
+alter table public.expenses
+add constraint expenses_payment_mode_check
+check (
+  payment_mode in (
+    'cash',
+    'card',
+    'bank_transfer',
+    'easypaisa',
+    'jazzcash',
+    'cheque',
+    'other'
+  )
+);
+
+alter table public.expenses
+drop constraint if exists expenses_source_check;
+
+alter table public.expenses
+add constraint expenses_source_check
+check (source in ('manual', 'recurring'));
+
+alter table public.recurring_expense_rules
+add column if not exists title text;
+
+update public.recurring_expense_rules
+set title = coalesce(title, category_name, 'Recurring Expense')
+where title is null;
+
+alter table public.recurring_expense_rules
+alter column title set default 'Recurring Expense';
+
+alter table public.recurring_expense_rules
+alter column title set not null;
+
+alter table public.recurring_expense_rules
+add column if not exists payee text;
+
+-- ---------------------------------------------------------
 -- Recurring due date calculator
 -- ---------------------------------------------------------
 create or replace function public.advance_recurring_due_date(
@@ -598,6 +716,282 @@ begin
     es.expenses as total_expenses,
     (ss.revenue - ss.cogs - es.expenses) as net_profit
   from sales_summary ss, expense_summary es;
+end;
+$$;
+
+-- ---------------------------------------------------------
+-- App RPC: Generate due recurring expenses for a specific branch.
+-- The Flutter repository calls this name and passes tenant/branch params.
+-- ---------------------------------------------------------
+create or replace function public.generate_due_recurring_expenses(
+  p_tenant_id uuid,
+  p_branch_id uuid
+)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_created_count int := 0;
+  v_rule record;
+  v_next_due date;
+begin
+  if p_tenant_id <> public.current_user_tenant_id() then
+    raise exception 'Not allowed';
+  end if;
+
+  for v_rule in
+    select *
+    from public.recurring_expense_rules
+    where tenant_id = p_tenant_id
+      and branch_id = p_branch_id
+      and status = 'active'
+      and next_due_date <= current_date
+      and (end_date is null or next_due_date <= end_date)
+  loop
+    insert into public.expenses (
+      tenant_id,
+      branch_id,
+      category_id,
+      category_name,
+      title,
+      expense_date,
+      amount,
+      payment_mode,
+      payee,
+      notes,
+      status,
+      source,
+      recurring_rule_id,
+      recurring_due_date,
+      due_date,
+      is_recurring_generated,
+      created_by
+    )
+    values (
+      v_rule.tenant_id,
+      v_rule.branch_id,
+      v_rule.category_id,
+      v_rule.category_name,
+      coalesce(v_rule.title, v_rule.category_name, 'Recurring Expense'),
+      v_rule.next_due_date,
+      v_rule.estimated_amount,
+      v_rule.payment_mode,
+      v_rule.payee,
+      v_rule.note,
+      'draft',
+      'recurring',
+      v_rule.id,
+      v_rule.next_due_date,
+      v_rule.next_due_date,
+      true,
+      auth.uid()
+    )
+    on conflict do nothing;
+
+    if found then
+      v_created_count := v_created_count + 1;
+    end if;
+
+    v_next_due := public.advance_recurring_due_date(
+      v_rule.next_due_date,
+      v_rule.frequency,
+      v_rule.interval_count
+    );
+
+    update public.recurring_expense_rules
+    set next_due_date = v_next_due
+    where id = v_rule.id
+      and tenant_id = p_tenant_id;
+  end loop;
+
+  return v_created_count;
+end;
+$$;
+
+-- ---------------------------------------------------------
+-- App RPC: Confirm expense with optional receipt path.
+-- Named params match ExpenseRepository.confirmExpense().
+-- ---------------------------------------------------------
+drop function if exists public.confirm_expense(uuid, numeric, text);
+
+create or replace function public.confirm_expense(
+  p_expense_id uuid,
+  p_actual_amount numeric default null,
+  p_receipt_photo_path text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant_id uuid;
+begin
+  v_tenant_id := public.current_user_tenant_id();
+
+  if v_tenant_id is null then
+    raise exception 'User tenant not found';
+  end if;
+
+  if p_actual_amount is not null and p_actual_amount < 0 then
+    raise exception 'Expense amount must be 0 or greater';
+  end if;
+
+  update public.expenses
+  set
+    amount = coalesce(p_actual_amount, amount),
+    receipt_photo_path = coalesce(p_receipt_photo_path, receipt_photo_path),
+    receipt_storage_path = coalesce(p_receipt_photo_path, receipt_storage_path),
+    status = 'confirmed',
+    confirmed_by = auth.uid(),
+    confirmed_at = now()
+  where id = p_expense_id
+    and tenant_id = v_tenant_id;
+
+  if not found then
+    raise exception 'Expense not found or not allowed';
+  end if;
+
+  return p_expense_id;
+end;
+$$;
+
+-- ---------------------------------------------------------
+-- App RPC: Profit/report payload as a single JSON object.
+-- ---------------------------------------------------------
+create or replace function public.get_expense_profit_report(
+  p_tenant_id uuid,
+  p_branch_id uuid,
+  p_date_from date,
+  p_date_to date,
+  p_category_id uuid default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_plan text;
+  v_total_expenses numeric;
+  v_draft_expenses numeric;
+  v_sales_revenue numeric;
+  v_cogs numeric;
+  v_by_category jsonb;
+  v_by_payment_mode jsonb;
+begin
+  if p_tenant_id <> public.current_user_tenant_id() then
+    raise exception 'Not allowed';
+  end if;
+
+  perform public.validate_expense_report_range(
+    p_tenant_id,
+    p_date_from,
+    p_date_to
+  );
+
+  select coalesce(plan, 'starter')
+    into v_plan
+  from public.tenants
+  where id = p_tenant_id;
+
+  select coalesce(sum(amount), 0)
+    into v_total_expenses
+  from public.expenses
+  where tenant_id = p_tenant_id
+    and branch_id = p_branch_id
+    and status = 'confirmed'
+    and expense_date between p_date_from and p_date_to
+    and (p_category_id is null or category_id = p_category_id);
+
+  select coalesce(sum(amount), 0)
+    into v_draft_expenses
+  from public.expenses
+  where tenant_id = p_tenant_id
+    and branch_id = p_branch_id
+    and status = 'draft'
+    and expense_date between p_date_from and p_date_to
+    and (p_category_id is null or category_id = p_category_id);
+
+  select
+    coalesce(sum(si.line_total), 0),
+    coalesce(sum(coalesce(si.cogs_total, si.quantity * coalesce(si.unit_cost, p.cost_price, 0))), 0)
+    into v_sales_revenue, v_cogs
+  from public.sales s
+  join public.sale_items si on si.sale_id = s.id
+  left join public.products p on p.id = si.product_id
+  where s.branch_id = p_branch_id
+    and s.status = 'completed'
+    and s.created_at::date between p_date_from and p_date_to;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'category_id', category_id,
+        'category_name', category_name,
+        'total', total
+      )
+      order by total desc
+    ),
+    '[]'::jsonb
+  )
+    into v_by_category
+  from (
+    select
+      e.category_id,
+      coalesce(e.category_name, 'Uncategorized') as category_name,
+      coalesce(sum(e.amount), 0) as total
+    from public.expenses e
+    where e.tenant_id = p_tenant_id
+      and e.branch_id = p_branch_id
+      and e.status = 'confirmed'
+      and e.expense_date between p_date_from and p_date_to
+      and (p_category_id is null or e.category_id = p_category_id)
+    group by e.category_id, coalesce(e.category_name, 'Uncategorized')
+  ) rows;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'payment_mode', payment_mode,
+        'total', total
+      )
+      order by total desc
+    ),
+    '[]'::jsonb
+  )
+    into v_by_payment_mode
+  from (
+    select
+      e.payment_mode,
+      coalesce(sum(e.amount), 0) as total
+    from public.expenses e
+    where e.tenant_id = p_tenant_id
+      and e.branch_id = p_branch_id
+      and e.status = 'confirmed'
+      and e.expense_date between p_date_from and p_date_to
+      and (p_category_id is null or e.category_id = p_category_id)
+    group by e.payment_mode
+  ) rows;
+
+  return jsonb_build_object(
+    'tenant_id', p_tenant_id,
+    'branch_id', p_branch_id,
+    'date_from', p_date_from,
+    'date_to', p_date_to,
+    'plan', coalesce(v_plan, 'starter'),
+    'total_expenses', coalesce(v_total_expenses, 0),
+    'draft_expenses', coalesce(v_draft_expenses, 0),
+    'sales_revenue', coalesce(v_sales_revenue, 0),
+    'cogs', coalesce(v_cogs, 0),
+    'gross_profit', coalesce(v_sales_revenue, 0) - coalesce(v_cogs, 0),
+    'net_profit',
+      coalesce(v_sales_revenue, 0) - coalesce(v_cogs, 0) - coalesce(v_total_expenses, 0),
+    'by_category', v_by_category,
+    'by_payment_mode', v_by_payment_mode
+  );
 end;
 $$;
 
