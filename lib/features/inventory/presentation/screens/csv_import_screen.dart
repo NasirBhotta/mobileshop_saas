@@ -8,7 +8,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/utils/responsive.dart';
-import '../providers/csv_import_provider.dart';
+import '../providers/csv_import_provider.dart' as csv_import;
 import '../../data/models/csv_import_model.dart';
 
 class CsvImportScreen extends ConsumerWidget {
@@ -16,14 +16,15 @@ class CsvImportScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final importState = ref.watch(csvImportControllerProvider);
-    final importResult = ref.watch(csvImportResultProvider);
-    final importProgress = ref.watch(csvImportProgressProvider);
+    final importState = ref.watch(csv_import.csvImportControllerProvider);
+    final importResult = ref.watch(csv_import.csvImportResultProvider);
+    final importProgress = ref.watch(csv_import.csvImportProgressProvider);
+
     final isLoading = importState.isLoading;
     final isDesktop = Responsive.isDesktop(context);
 
     // Error listen karo
-    ref.listen(csvImportControllerProvider, (_, next) {
+    ref.listen(csv_import.csvImportControllerProvider, (_, next) {
       if (next.hasError) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -60,7 +61,9 @@ class CsvImportScreen extends ConsumerWidget {
                   onUpload:
                       () =>
                           ref
-                              .read(csvImportControllerProvider.notifier)
+                              .read(
+                                csv_import.csvImportControllerProvider.notifier,
+                              )
                               .pickAndImport(),
                 ),
                 const SizedBox(height: 20),
@@ -90,7 +93,9 @@ class CsvImportScreen extends ConsumerWidget {
   // Template download
   Future<void> _downloadTemplate(BuildContext context, WidgetRef ref) async {
     final csvString =
-        ref.read(csvImportControllerProvider.notifier).generateTemplate();
+        ref
+            .read(csv_import.csvImportControllerProvider.notifier)
+            .generateTemplate();
 
     await _shareFile(
       content: csvString,
