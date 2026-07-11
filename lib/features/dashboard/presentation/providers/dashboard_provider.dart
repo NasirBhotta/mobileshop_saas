@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../inventory/presentation/providers/inventory_provider.dart';
+import '../../../../core/local/local_database.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 import '../../../pos/data/models/cart_item_model.dart';
 import '../../../pos/data/models/customer_dashboard_model.dart';
@@ -14,23 +14,20 @@ import '../../../../core/extensions/repair_ticket_ext.dart';
 
 final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final branchId = await ref.watch(selectedBranchIdProvider.future);
-  final products = await ref.watch(allProductsProvider.future);
   final sales = await ref.watch(allSalesProvider.future);
   final returns = await ref.watch(allApprovedReturnsProvider.future);
   final customers = await ref.watch(allCustomersProvider.future);
   final settlements = await ref.watch(allCustomerSettlementsProvider.future);
   final repairTickets = await ref.watch(allRepairTicketsProvider.future);
 
-  final costByProductId = {
-    for (final product in products) product.id: product.costPrice,
-  };
-  final totalStock = products.fold<int>(
-    0,
-    (sum, product) => sum + product.stock,
-  );
-  final lowStock = products.where((product) => product.isLowStock).length;
   final completedSales =
       sales.where((sale) => sale.status == SaleStatus.completed).toList();
+  final inventorySummary = await _loadDashboardInventorySummary(branchId);
+  final costByProductId = await _loadDashboardProductCosts(
+    branchId: branchId,
+    sales: completedSales,
+    returns: returns,
+  );
   final today = DateTime.now();
   final todaySales =
       completedSales.where((sale) {
@@ -183,8 +180,8 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
 
   return DashboardStats(
     branchId: branchId,
-    totalStock: totalStock,
-    lowStock: lowStock,
+    totalStock: inventorySummary.totalStock,
+    lowStock: inventorySummary.lowStock,
     activeRepairCount: activeRepairCount,
     todaySalesTotal:
         todaySalesTotal +
@@ -199,6 +196,90 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
     recentSales: sales.take(5).toList(),
   );
 });
+
+Future<_DashboardInventorySummary> _loadDashboardInventorySummary(
+  String branchId,
+) async {
+  final rows = await LocalDatabase.select(
+    '''
+    SELECT
+      COALESCE(SUM(COALESCE(i.quantity, 0)), 0) AS total_stock,
+      COALESCE(SUM(
+        CASE
+          WHEN COALESCE(i.quantity, 0) > 0
+           AND COALESCE(i.quantity, 0) <= COALESCE(
+             NULLIF(i.reorder_threshold, 0),
+             NULLIF(p.reorder_threshold, 0),
+             NULLIF(c.default_reorder_threshold, 0),
+             5
+           )
+          THEN 1
+          ELSE 0
+        END
+      ), 0) AS low_stock
+    FROM products p
+    LEFT JOIN inventory i
+      ON i.product_id = p.id
+     AND i.branch_id = p.branch_id
+    LEFT JOIN categories c ON c.id = p.category_id
+    WHERE p.branch_id = ?
+      AND COALESCE(p.is_active, 1) = 1
+    ''',
+    [branchId],
+  );
+
+  final row = rows.isEmpty ? const <String, Object?>{} : rows.first;
+  return _DashboardInventorySummary(
+    totalStock: _intValue(row['total_stock']),
+    lowStock: _intValue(row['low_stock']),
+  );
+}
+
+Future<Map<String, double>> _loadDashboardProductCosts({
+  required String branchId,
+  required List<SaleModel> sales,
+  required List<SaleReturnModel> returns,
+}) async {
+  final productIds = <String>{
+    for (final sale in sales)
+      for (final item in sale.items) item.productId,
+    for (final saleReturn in returns)
+      for (final item in saleReturn.items) item.productId,
+  };
+  if (productIds.isEmpty) return const <String, double>{};
+
+  final placeholders = List.filled(productIds.length, '?').join(',');
+  final rows = await LocalDatabase.select(
+    '''
+    SELECT id, cost_price
+    FROM products
+    WHERE branch_id = ?
+      AND id IN ($placeholders)
+    ''',
+    [branchId, ...productIds],
+  );
+
+  return {
+    for (final row in rows)
+      row['id'] as String: ((row['cost_price'] as num?)?.toDouble() ?? 0),
+  };
+}
+
+int _intValue(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+class _DashboardInventorySummary {
+  final int totalStock;
+  final int lowStock;
+
+  const _DashboardInventorySummary({
+    required this.totalStock,
+    required this.lowStock,
+  });
+}
 
 double _saleProfit(SaleModel sale, Map<String, double> costByProductId) {
   return sale.items.fold<double>(0, (sum, item) {
