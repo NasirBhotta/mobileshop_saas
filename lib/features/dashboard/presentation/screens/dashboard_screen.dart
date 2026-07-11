@@ -46,10 +46,11 @@ class _MobileDashboard extends ConsumerWidget {
       backgroundColor: AppColors.background,
       body: SafeArea(
         child: RefreshIndicator(
+          color: AppColors.primary,
           onRefresh: () async => ref.invalidate(dashboardStatsProvider),
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -58,13 +59,13 @@ class _MobileDashboard extends ConsumerWidget {
                   const SizedBox(height: 14),
                   _DashboardError(message: errorMessage),
                 ],
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
                 _TodaySnapshot(stats: stats, isLoading: isLoading),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 const _QuickActions(compact: true),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 _DashboardAlerts(stats: stats, compact: true),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 _StatsGrid(
                   stats: stats,
                   isLoading: isLoading,
@@ -72,9 +73,9 @@ class _MobileDashboard extends ConsumerWidget {
                   childAspectRatio: 1.18,
                   compact: true,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 _CreditCustomersPanel(stats: stats, compact: true),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 _RecentSalesPanel(stats: stats, compact: true),
               ],
             ),
@@ -107,10 +108,11 @@ class _DesktopDashboard extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: RefreshIndicator(
+        color: AppColors.primary,
         onRefresh: () async => ref.invalidate(dashboardStatsProvider),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(28),
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -119,13 +121,13 @@ class _DesktopDashboard extends ConsumerWidget {
                 const SizedBox(height: 18),
                 _DashboardError(message: errorMessage),
               ],
-              const SizedBox(height: 18),
+              const SizedBox(height: 22),
               _TodaySnapshot(
                 stats: stats,
                 isLoading: isLoading,
                 compact: false,
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 22),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -134,14 +136,14 @@ class _DesktopDashboard extends ConsumerWidget {
                   Expanded(flex: 4, child: _DashboardAlerts(stats: stats)),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 22),
               _StatsGrid(
                 stats: stats,
                 isLoading: isLoading,
                 crossAxisCount: 4,
                 childAspectRatio: 2.25,
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 22),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -174,31 +176,53 @@ class _DashboardHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                compact
-                    ? AppStrings.dashboardWelcome
-                    : AppStrings.dashboardTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: compact ? 13 : 24,
-                  fontWeight: compact ? FontWeight.normal : FontWeight.bold,
-                  color:
-                      compact ? AppColors.textSecondary : AppColors.textPrimary,
-                ),
+              Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: compact ? 14 : 20,
+                    decoration: BoxDecoration(
+                      color: AppColors.secondary,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    compact
+                        ? AppStrings.dashboardWelcome
+                        : AppStrings.dashboardTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: compact ? 12.5 : 25,
+                      fontWeight: compact ? FontWeight.w600 : FontWeight.w800,
+                      letterSpacing: compact ? 0.4 : -0.3,
+                      color:
+                          compact
+                              ? AppColors.textSecondary
+                              : AppColors.textPrimary,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                compact
-                    ? _weekdayLabel(now)
-                    : 'Aaj ka sales, stock aur udhar overview',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: compact ? 20 : 14,
-                  fontWeight: compact ? FontWeight.bold : FontWeight.normal,
-                  color:
-                      compact ? AppColors.textPrimary : AppColors.textSecondary,
+              const SizedBox(height: 5),
+              Padding(
+                padding: EdgeInsets.only(left: compact ? 14 : 14),
+                child: Text(
+                  compact
+                      ? _weekdayLabel(now)
+                      : 'Aaj ka sales, stock aur udhar overview',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: compact ? 21 : 14.5,
+                    fontWeight: compact ? FontWeight.w800 : FontWeight.w500,
+                    letterSpacing: compact ? -0.4 : 0,
+                    color:
+                        compact
+                            ? AppColors.textPrimary
+                            : AppColors.textSecondary,
+                  ),
                 ),
               ),
             ],
@@ -232,71 +256,122 @@ class _TodaySnapshot extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(compact ? 16 : 20),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: AppColors.textPrimary,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.textPrimary),
+        borderRadius: BorderRadius.circular(20),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: AppColors.heroGradient,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryDark.withValues(alpha: 0.28),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
       ),
-      child:
-          compact
-              ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _SnapshotMainValue(value: cash),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _SnapshotPill(
-                        icon: Icons.stacked_line_chart_rounded,
-                        label: 'Profit',
-                        value: profit,
-                        color: AppColors.secondary,
-                      ),
-                      _SnapshotPill(
-                        icon: Icons.account_balance_wallet_rounded,
-                        label: 'Udhar',
-                        value: outstanding,
-                        color: AppColors.warning,
-                      ),
-                      _SnapshotPill(
-                        icon: Icons.build_rounded,
-                        label: 'Repairs',
-                        value: activeRepairs,
-                        color: AppColors.info,
-                      ),
-                    ],
-                  ),
-                ],
-              )
-              : Row(
-                children: [
-                  Expanded(child: _SnapshotMainValue(value: cash)),
-                  const SizedBox(width: 18),
-                  _SnapshotPill(
-                    icon: Icons.stacked_line_chart_rounded,
-                    label: 'Realized profit',
-                    value: profit,
-                    color: AppColors.secondary,
-                  ),
-                  const SizedBox(width: 10),
-                  _SnapshotPill(
-                    icon: Icons.account_balance_wallet_rounded,
-                    label: 'Total udhar',
-                    value: outstanding,
-                    color: AppColors.warning,
-                  ),
-                  const SizedBox(width: 10),
-                  _SnapshotPill(
-                    icon: Icons.build_rounded,
-                    label: 'Active repairs',
-                    value: activeRepairs,
-                    color: AppColors.info,
-                  ),
-                ],
+      child: Stack(
+        children: [
+          // Ambient depth — soft glow tucked in the corner.
+          Positioned(
+            top: -40,
+            right: -30,
+            child: Container(
+              width: 160,
+              height: 160,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.06),
               ),
+            ),
+          ),
+          Positioned(
+            bottom: -60,
+            left: -20,
+            child: Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.secondary.withValues(alpha: 0.10),
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.all(compact ? 18 : 22),
+            child:
+                compact
+                    ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _SnapshotMainValue(value: cash),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _SnapshotPill(
+                                icon: Icons.stacked_line_chart_rounded,
+                                label: 'Profit',
+                                value: profit,
+                                color: AppColors.secondaryLight,
+                                compact: true,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _SnapshotPill(
+                                icon: Icons.account_balance_wallet_rounded,
+                                label: 'Udhar',
+                                value: outstanding,
+                                color: const Color(0xFFFFB4A8),
+                                compact: true,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _SnapshotPill(
+                                icon: Icons.build_rounded,
+                                label: 'Repairs',
+                                value: activeRepairs,
+                                color: const Color(0xFF9FD9FF),
+                                compact: true,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    )
+                    : Row(
+                      children: [
+                        Expanded(child: _SnapshotMainValue(value: cash)),
+                        const SizedBox(width: 18),
+                        _SnapshotPill(
+                          icon: Icons.stacked_line_chart_rounded,
+                          label: 'Realized profit',
+                          value: profit,
+                          color: AppColors.secondaryLight,
+                        ),
+                        const SizedBox(width: 10),
+                        _SnapshotPill(
+                          icon: Icons.account_balance_wallet_rounded,
+                          label: 'Total udhar',
+                          value: outstanding,
+                          color: const Color(0xFFFFB4A8),
+                        ),
+                        const SizedBox(width: 10),
+                        _SnapshotPill(
+                          icon: Icons.build_rounded,
+                          label: 'Active repairs',
+                          value: activeRepairs,
+                          color: const Color(0xFF9FD9FF),
+                        ),
+                      ],
+                    ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -314,14 +389,14 @@ class _SnapshotMainValue extends StatelessWidget {
         Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
-                color: AppColors.success.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(10),
+                color: Colors.white.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(11),
               ),
               child: const Icon(
                 Icons.payments_rounded,
-                color: AppColors.success,
+                color: Colors.white,
                 size: 18,
               ),
             ),
@@ -331,12 +406,17 @@ class _SnapshotMainValue extends StatelessWidget {
                 'Today cash received',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Colors.white70, fontSize: 13),
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
@@ -344,8 +424,10 @@ class _SnapshotMainValue extends StatelessWidget {
             value,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 30,
+              fontSize: 32,
               fontWeight: FontWeight.w900,
+              letterSpacing: -0.5,
+              height: 1,
             ),
           ),
         ),
@@ -359,55 +441,97 @@ class _SnapshotPill extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
+  final bool compact;
 
   const _SnapshotPill({
     required this.icon,
     required this.label,
     required this.value,
     required this.color,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 118),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    final container = Container(
+      constraints: compact ? null : const BoxConstraints(minWidth: 122),
+      width: compact ? double.infinity : null,
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 10 : 12,
+        vertical: compact ? 10 : 11,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        color: Colors.white.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white60, fontSize: 11),
-                ),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
+      child:
+          compact
+              ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(icon, color: color, size: 16),
+                  const SizedBox(height: 7),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              )
+              : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: color, size: 18),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          value,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
     );
+
+    return container;
   }
 }
 
@@ -455,7 +579,7 @@ class _StatsGrid extends StatelessWidget {
           subtitle: 'Before expenses',
           value: _moneyOrLoading(stats?.totalProfit, isLoading),
           icon: Icons.stacked_line_chart_rounded,
-          color: AppColors.secondary,
+          color: AppColors.secondaryDark,
           isCompact: compact,
         ),
         StatCard(
@@ -527,7 +651,7 @@ class _QuickActions extends StatelessWidget {
         label: 'Customers',
         icon: Icons.people_rounded,
         route: '/customers',
-        color: AppColors.secondary,
+        color: AppColors.secondaryDark,
       ),
       const QuickActionButton(
         label: 'Reports',
@@ -544,11 +668,12 @@ class _QuickActions extends StatelessWidget {
           AppStrings.dashboardQuickActions,
           style: TextStyle(
             fontSize: 16,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.1,
             color: AppColors.textPrimary,
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 13),
         if (compact) ...[
           GridView.count(
             crossAxisCount: 2,
@@ -663,55 +788,81 @@ class _DashboardAlertTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => context.go(data.route),
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: EdgeInsets.all(compact ? 12 : 14),
-        decoration: BoxDecoration(
-          color: data.color.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: data.color.withValues(alpha: 0.14)),
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: data.color.withValues(alpha: 0.12),
-              foregroundColor: data.color,
-              child: Icon(data.icon, size: 18),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    data.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textPrimary,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => context.go(data.route),
+        borderRadius: BorderRadius.circular(12),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: data.color.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: data.color.withValues(alpha: 0.14)),
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  decoration: BoxDecoration(
+                    color: data.color,
+                    borderRadius: const BorderRadius.horizontal(
+                      left: Radius.circular(12),
                     ),
                   ),
-                  Text(
-                    data.subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 12 : 14,
+                      vertical: compact ? 12 : 14,
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: data.color.withValues(alpha: 0.14),
+                          foregroundColor: data.color,
+                          child: Icon(data.icon, size: 18),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                data.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              Text(
+                                data.subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: data.color.withValues(alpha: 0.7),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: AppColors.textSecondary,
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -734,12 +885,9 @@ class _CreditCustomersPanel extends StatelessWidget {
       trailing:
           stats == null
               ? null
-              : Text(
-                '$customerCount log',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
-                ),
+              : _StatusBadge(
+                label: '$customerCount log',
+                color: AppColors.textSecondary,
               ),
       child: Column(
         children: [
@@ -776,17 +924,26 @@ class _DueSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.warning.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
+        color: AppColors.warning.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.16)),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.account_balance_wallet_rounded,
-            color: AppColors.warning,
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: AppColors.warning.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.account_balance_wallet_rounded,
+              color: AppColors.warning,
+              size: 20,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -796,11 +953,13 @@ class _DueSummary extends StatelessWidget {
                 Text(
                   _money(totalOutstanding),
                   style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
                     color: AppColors.textPrimary,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
                   'Total udhar sales: ${_money(totalCreditSales)}',
                   style: const TextStyle(
@@ -837,12 +996,12 @@ class _CreditCustomerTile extends StatelessWidget {
         Text(
           _money(customer.outstandingBalance),
           style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
+            fontSize: 14.5,
+            fontWeight: FontWeight.w800,
             color: AppColors.error,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 7),
         OutlinedButton.icon(
           onPressed: () => _sendReminder(context, customer),
           icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
@@ -851,13 +1010,16 @@ class _CreditCustomerTile extends StatelessWidget {
             visualDensity: VisualDensity.compact,
             foregroundColor: AppColors.success,
             side: const BorderSide(color: AppColors.success),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
         ),
       ],
     );
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: AppColors.divider)),
       ),
@@ -868,15 +1030,15 @@ class _CreditCustomerTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.warning.withValues(alpha: 0.12),
+                radius: 19,
+                backgroundColor: AppColors.warning.withValues(alpha: 0.14),
                 child: Text(
                   customer.fullName.trim().isEmpty
                       ? '?'
                       : customer.fullName.trim()[0].toUpperCase(),
                   style: const TextStyle(
                     color: AppColors.warning,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -917,7 +1079,7 @@ class _CreditCustomerTile extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(99),
               child: LinearProgressIndicator(
-                minHeight: 5,
+                minHeight: 6,
                 value: progress,
                 backgroundColor: AppColors.divider,
                 valueColor: AlwaysStoppedAnimation<Color>(
@@ -962,13 +1124,13 @@ class _RecentSalesPanel extends StatelessWidget {
                     recentSales
                         .map(
                           (sale) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            padding: const EdgeInsets.symmetric(vertical: 9),
                             child: Row(
                               children: [
                                 CircleAvatar(
-                                  radius: 17,
+                                  radius: 18,
                                   backgroundColor: AppColors.success.withValues(
-                                    alpha: 0.10,
+                                    alpha: 0.12,
                                   ),
                                   foregroundColor: AppColors.success,
                                   child: const Icon(
@@ -976,7 +1138,7 @@ class _RecentSalesPanel extends StatelessWidget {
                                     size: 17,
                                   ),
                                 ),
-                                const SizedBox(width: 10),
+                                const SizedBox(width: 11),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
@@ -988,13 +1150,13 @@ class _RecentSalesPanel extends StatelessWidget {
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
                                           fontSize: 13,
-                                          fontWeight: FontWeight.w600,
+                                          fontWeight: FontWeight.w700,
                                           color: AppColors.textPrimary,
                                         ),
                                       ),
                                       if (sale.customerName != null)
                                         Text(
-                                          '${sale.customerName!} - ${_formatDateTime(sale.createdAt)}',
+                                          '${sale.customerName!} · ${_formatDateTime(sale.createdAt)}',
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
@@ -1018,8 +1180,8 @@ class _RecentSalesPanel extends StatelessWidget {
                                 Text(
                                   _money(sale.total),
                                   style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w800,
                                     color: AppColors.success,
                                   ),
                                 ),
@@ -1050,20 +1212,31 @@ class _DashboardPanel extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
+        boxShadow: AppColors.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
+              Container(
+                width: 4,
+                height: 16,
+                margin: const EdgeInsets.only(right: 9),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
               Expanded(
                 child: Text(
                   title,
                   style: const TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.1,
                     color: AppColors.textPrimary,
                   ),
                 ),
@@ -1071,7 +1244,7 @@ class _DashboardPanel extends StatelessWidget {
               if (trailing != null) trailing!,
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           child,
         ],
       ),
@@ -1092,17 +1265,28 @@ class _StatusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.16)),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1118,19 +1302,30 @@ class _EmptyPanelMessage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 26),
       decoration: BoxDecoration(
-        color: AppColors.surfaceVariant.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(10),
+        color: AppColors.surfaceVariant.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
         children: [
-          Icon(icon, color: AppColors.textSecondary, size: 24),
-          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Icon(icon, color: AppColors.textSecondary, size: 22),
+          ),
+          const SizedBox(height: 10),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: AppColors.textSecondary),
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),
@@ -1147,16 +1342,32 @@ class _DashboardError extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         color: AppColors.error.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.16)),
       ),
-      child: Text(
-        message,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: AppColors.error),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.error_outline_rounded,
+            color: AppColors.error,
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.error,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
