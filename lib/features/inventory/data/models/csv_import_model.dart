@@ -35,3 +35,30 @@ class CsvImportResult {
   // Sirf successful rows
   List<CsvRowResult> get successRows => rows.where((r) => r.isSuccess).toList();
 }
+
+class CsvImportProgress {
+  final int totalRows;
+  final int processedRows;
+  final int successCount;
+  final int failedCount;
+  final int currentBatch;
+  final int totalBatches;
+  final String message;
+
+  const CsvImportProgress({
+    required this.totalRows,
+    required this.processedRows,
+    required this.successCount,
+    required this.failedCount,
+    required this.currentBatch,
+    required this.totalBatches,
+    required this.message,
+  });
+
+  double get ratio {
+    if (totalRows <= 0) return 0;
+    return (processedRows / totalRows).clamp(0, 1).toDouble();
+  }
+
+  int get percent => (ratio * 100).round();
+}

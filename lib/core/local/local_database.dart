@@ -1207,6 +1207,10 @@ class LocalDatabase {
       ON products(branch_id, updated_at)
     ''');
     await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_products_branch_active_sale_price
+      ON products(branch_id, is_active, sale_price)
+    ''');
+    await _db.customStatement('''
       CREATE INDEX IF NOT EXISTS idx_inventory_branch_quantity
       ON inventory(branch_id, quantity)
     ''');

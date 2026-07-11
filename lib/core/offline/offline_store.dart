@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:mobileshop_saas/core/extensions/product_sort_ext.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/features/pos/data/models/cart_item_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/customer_dashboard_model.dart';
@@ -229,6 +230,7 @@ class OfflineStore {
     required String branchId,
     required String query,
     String? categoryId,
+    ProductSortOption sortOption = ProductSortOption.nameAZ,
     int limit = 50,
     int offset = 0,
   }) async {
@@ -237,6 +239,7 @@ class OfflineStore {
         branchId: branchId,
         query: query,
         categoryId: categoryId,
+        sortOption: sortOption,
         limit: limit,
         offset: offset,
       );
@@ -254,11 +257,36 @@ class OfflineStore {
             return product.name.toLowerCase().contains(normalizedQuery) ||
                 (product.sku?.toLowerCase().contains(normalizedQuery) ?? false);
           }).toList()
-          ..sort((a, b) => a.name.compareTo(b.name));
+          ..sort((a, b) => _compareProducts(a, b, sortOption));
 
     final start = offset < 0 ? 0 : offset;
     if (start >= filtered.length) return [];
     return filtered.skip(start).take(limit.clamp(1, 100)).toList();
+  }
+
+  static int _compareProducts(
+    ProductModel a,
+    ProductModel b,
+    ProductSortOption sortOption,
+  ) {
+    switch (sortOption) {
+      case ProductSortOption.nameAZ:
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      case ProductSortOption.nameZA:
+        return b.name.toLowerCase().compareTo(a.name.toLowerCase());
+      case ProductSortOption.priceLow:
+        final price = a.salePrice.compareTo(b.salePrice);
+        return price != 0 ? price : a.name.compareTo(b.name);
+      case ProductSortOption.priceHigh:
+        final price = b.salePrice.compareTo(a.salePrice);
+        return price != 0 ? price : a.name.compareTo(b.name);
+      case ProductSortOption.stockLow:
+        final stock = a.stock.compareTo(b.stock);
+        return stock != 0 ? stock : a.name.compareTo(b.name);
+      case ProductSortOption.stockHigh:
+        final stock = b.stock.compareTo(a.stock);
+        return stock != 0 ? stock : a.name.compareTo(b.name);
+    }
   }
 
   static Future<void> upsertCachedProduct(ProductModel product) async {
@@ -273,6 +301,36 @@ class OfflineStore {
       product,
     ]..sort((a, b) => a.name.compareTo(b.name));
     await saveProducts(product.branchId, nextProducts);
+  }
+
+  static Future<void> upsertCachedProductsBatch(
+    String branchId,
+    List<ProductModel> products,
+  ) async {
+    if (products.isEmpty) return;
+
+    try {
+      await LocalStore.saveProducts(branchId, products);
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_productsKey(branchId));
+    if (raw == null) return;
+
+    final existing =
+        (jsonDecode(raw) as List)
+            .map((row) => ProductModel.fromMap(Map<String, dynamic>.from(row)))
+            .toList();
+    final byId = {for (final product in existing) product.id: product};
+    for (final product in products) {
+      byId[product.id] = product;
+    }
+    final merged =
+        byId.values.toList()..sort((a, b) => a.name.compareTo(b.name));
+    await prefs.setString(
+      _productsKey(branchId),
+      jsonEncode(merged.map((product) => product.toCacheMap()).toList()),
+    );
   }
 
   static Future<void> deactivateCachedProduct({

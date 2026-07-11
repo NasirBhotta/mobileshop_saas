@@ -22,13 +22,34 @@ class InventoryScreen extends ConsumerWidget {
   }
 }
 
+class _LoadMoreTile extends StatelessWidget {
+  final VoidCallback onPressed;
+  final bool compact;
+
+  const _LoadMoreTile({required this.onPressed, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.expand_more_rounded, size: 18),
+        label: Text(compact ? 'More' : 'Load more products'),
+      ),
+    );
+  }
+}
+
 class _InventoryBody extends ConsumerStatefulWidget {
   @override
   ConsumerState<_InventoryBody> createState() => _InventoryBodyState();
 }
 
 class _InventoryBodyState extends ConsumerState<_InventoryBody> {
+  static const _pageSize = 100;
+
   final Set<String> _selectedProductIds = {};
+  int _visibleLimit = _pageSize;
 
   bool get _isSelectionMode => _selectedProductIds.isNotEmpty;
 
@@ -46,12 +67,43 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     setState(_selectedProductIds.clear);
   }
 
+  void _resetPaging() {
+    setState(() {
+      _visibleLimit = _pageSize;
+    });
+  }
+
+  void _loadMore() {
+    setState(() {
+      _visibleLimit += _pageSize;
+    });
+  }
+
+  InventoryProductsRequest _currentRequest({int? limit}) {
+    return InventoryProductsRequest(
+      query: ref.read(searchQueryProvider),
+      categoryId: ref.read(selectedCategoryProvider),
+      sortOption: ref.read(sortOptionProvider),
+      limit: limit ?? _visibleLimit,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final productsState = ref.watch(filteredProductsProvider);
-
     final categoriesState = ref.watch(categoriesProvider);
     final selectedCategory = ref.watch(selectedCategoryProvider);
+    final searchQuery = ref.watch(searchQueryProvider);
+    final sortOption = ref.watch(sortOptionProvider);
+    final productsState = ref.watch(
+      inventoryProductsProvider(
+        InventoryProductsRequest(
+          query: searchQuery,
+          categoryId: selectedCategory,
+          sortOption: sortOption,
+          limit: _visibleLimit,
+        ),
+      ),
+    );
     final isUpdating = ref.watch(productControllerProvider).isLoading;
     final isDesktop = Responsive.isDesktop(context);
     final isTablet = Responsive.isTablet(context);
@@ -140,6 +192,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                 child: SearchBarField(
                   hint: AppStrings.searchProducts,
                   onChanged: (query) {
+                    _resetPaging();
                     ref.read(searchQueryProvider.notifier).state = query;
                   },
                 ),
@@ -155,6 +208,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                     categories: categories,
                     selectedId: selectedCategory,
                     onSelected: (id) {
+                      _resetPaging();
                       ref.read(selectedCategoryProvider.notifier).state = id;
                     },
                   ),
@@ -220,7 +274,10 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                   }
 
                   return RefreshIndicator(
-                    onRefresh: () async => ref.invalidate(productsProvider),
+                    onRefresh: () async {
+                      _resetPaging();
+                      ref.invalidate(inventoryProductsProvider);
+                    },
                     child:
                         isDesktop
                             ? GridView.builder(
@@ -232,31 +289,17 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                                     crossAxisSpacing: 8,
                                     childAspectRatio: 3.5,
                                   ),
-                              itemCount: products.length,
+                              itemCount: _itemCount(products),
                               itemBuilder: (context, index) {
-                                final product = products[index];
-                                return ProductCard(
-                                  product: product,
-                                  isSelectionMode: _isSelectionMode,
-                                  isSelected: _selectedProductIds.contains(
-                                    product.id,
-                                  ),
-                                  onSelectionChanged:
-                                      (selected) => _toggleSelection(
-                                        product.id,
-                                        selected,
-                                      ),
-                                  onTap: () {
-                                    ref
-                                        .read(
-                                          navigationLoadingProvider.notifier,
-                                        )
-                                        .showFor();
-                                    context.push(
-                                      '/inventory/edit',
-                                      extra: product,
-                                    );
-                                  },
+                                if (index == products.length) {
+                                  return _LoadMoreTile(
+                                    compact: true,
+                                    onPressed: _loadMore,
+                                  );
+                                }
+                                return _buildProductCard(
+                                  context,
+                                  products[index],
                                 );
                               },
                             )
@@ -270,63 +313,32 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                                     crossAxisSpacing: 8,
                                     childAspectRatio: 3.5,
                                   ),
-                              itemCount: products.length,
+                              itemCount: _itemCount(products),
                               itemBuilder: (context, index) {
-                                final product = products[index];
-                                return ProductCard(
-                                  product: product,
-                                  isSelectionMode: _isSelectionMode,
-                                  isSelected: _selectedProductIds.contains(
-                                    product.id,
-                                  ),
-                                  onSelectionChanged:
-                                      (selected) => _toggleSelection(
-                                        product.id,
-                                        selected,
-                                      ),
-                                  onTap: () {
-                                    ref
-                                        .read(
-                                          navigationLoadingProvider.notifier,
-                                        )
-                                        .showFor();
-                                    context.push(
-                                      '/inventory/edit',
-                                      extra: product,
-                                    );
-                                  },
+                                if (index == products.length) {
+                                  return _LoadMoreTile(
+                                    compact: true,
+                                    onPressed: _loadMore,
+                                  );
+                                }
+                                return _buildProductCard(
+                                  context,
+                                  products[index],
                                 );
                               },
                             )
                             : ListView.separated(
                               padding: const EdgeInsets.all(16),
-                              itemCount: products.length,
+                              itemCount: _itemCount(products),
                               separatorBuilder:
                                   (_, _) => const SizedBox(height: 8),
                               itemBuilder: (context, index) {
-                                final product = products[index];
-                                return ProductCard(
-                                  product: product,
-                                  isSelectionMode: _isSelectionMode,
-                                  isSelected: _selectedProductIds.contains(
-                                    product.id,
-                                  ),
-                                  onSelectionChanged:
-                                      (selected) => _toggleSelection(
-                                        product.id,
-                                        selected,
-                                      ),
-                                  onTap: () {
-                                    ref
-                                        .read(
-                                          navigationLoadingProvider.notifier,
-                                        )
-                                        .showFor();
-                                    context.push(
-                                      '/inventory/edit',
-                                      extra: product,
-                                    );
-                                  },
+                                if (index == products.length) {
+                                  return _LoadMoreTile(onPressed: _loadMore);
+                                }
+                                return _buildProductCard(
+                                  context,
+                                  products[index],
                                 );
                               },
                             ),
@@ -340,9 +352,28 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     );
   }
 
+  int _itemCount(List<ProductModel> products) {
+    return products.length >= _visibleLimit
+        ? products.length + 1
+        : products.length;
+  }
+
+  Widget _buildProductCard(BuildContext context, ProductModel product) {
+    return ProductCard(
+      product: product,
+      isSelectionMode: _isSelectionMode,
+      isSelected: _selectedProductIds.contains(product.id),
+      onSelectionChanged: (selected) => _toggleSelection(product.id, selected),
+      onTap: () {
+        ref.read(navigationLoadingProvider.notifier).showFor();
+        context.push('/inventory/edit', extra: product);
+      },
+    );
+  }
+
   Future<void> _showBulkPriceUpdate(BuildContext context) async {
     final List<ProductModel> products = ref
-        .read(productsProvider)
+        .read(inventoryProductsProvider(_currentRequest()))
         .maybeWhen(
           data: (products) => products,
           orElse: () => <ProductModel>[],

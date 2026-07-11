@@ -18,6 +18,7 @@ class CsvImportScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final importState = ref.watch(csvImportControllerProvider);
     final importResult = ref.watch(csvImportResultProvider);
+    final importProgress = ref.watch(csvImportProgressProvider);
     final isLoading = importState.isLoading;
     final isDesktop = Responsive.isDesktop(context);
 
@@ -55,6 +56,7 @@ class CsvImportScreen extends ConsumerWidget {
                 // ── Upload Card ──
                 _UploadCard(
                   isLoading: isLoading,
+                  progress: importProgress,
                   onUpload:
                       () =>
                           ref
@@ -135,7 +137,9 @@ class CsvImportScreen extends ConsumerWidget {
       final file = File('${dir.path}/$fileName');
       await file.writeAsString(content);
 
-      await Share.shareXFiles([XFile(file.path)], subject: fileName);
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(file.path)], subject: fileName),
+      );
 
       return;
     }
@@ -170,7 +174,9 @@ class CsvImportScreen extends ConsumerWidget {
     final file = File('${dir.path}/$fileName');
     await file.writeAsString(content);
 
-    await Share.shareXFiles([XFile(file.path)], subject: fileName);
+    await SharePlus.instance.share(
+      ShareParams(files: [XFile(file.path)], subject: fileName),
+    );
   }
 }
 
@@ -228,9 +234,14 @@ class _TemplateCard extends StatelessWidget {
 // Upload Card
 class _UploadCard extends StatelessWidget {
   final bool isLoading;
+  final CsvImportProgress? progress;
   final VoidCallback onUpload;
 
-  const _UploadCard({required this.isLoading, required this.onUpload});
+  const _UploadCard({
+    required this.isLoading,
+    required this.progress,
+    required this.onUpload,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -251,7 +262,7 @@ class _UploadCard extends StatelessWidget {
         child: Column(
           children: [
             if (isLoading)
-              const CircularProgressIndicator()
+              _ImportProgressView(progress: progress)
             else ...[
               const Icon(
                 Icons.upload_file_rounded,
@@ -282,6 +293,58 @@ class _UploadCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ImportProgressView extends StatelessWidget {
+  final CsvImportProgress? progress;
+
+  const _ImportProgressView({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final current = progress;
+    final message = current?.message ?? 'Import start ho raha hai...';
+    final totalRows = current?.totalRows ?? 0;
+    final processedRows = current?.processedRows ?? 0;
+    final percent = current?.percent ?? 0;
+
+    return Column(
+      children: [
+        const Icon(
+          Icons.cloud_sync_rounded,
+          size: 42,
+          color: AppColors.primary,
+        ),
+        const SizedBox(height: 14),
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 12),
+        LinearProgressIndicator(value: current?.ratio),
+        const SizedBox(height: 10),
+        Text(
+          totalRows > 0
+              ? '$processedRows / $totalRows rows - $percent%'
+              : 'CSV read ho rahi hai...',
+          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+        ),
+        if (current != null && current.totalBatches > 0) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Batch ${current.currentBatch} / ${current.totalBatches} | '
+            'Imported ${current.successCount}, rejected ${current.failedCount}',
+            style: const TextStyle(fontSize: 11, color: AppColors.textHint),
+          ),
+        ],
+      ],
     );
   }
 }

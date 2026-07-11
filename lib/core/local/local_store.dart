@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:mobileshop_saas/core/extensions/product_sort_ext.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/features/pos/data/models/cart_item_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/customer_dashboard_model.dart';
@@ -160,6 +161,7 @@ class LocalStore {
     required String branchId,
     required String query,
     String? categoryId,
+    ProductSortOption sortOption = ProductSortOption.nameAZ,
     int limit = 50,
     int offset = 0,
   }) async {
@@ -170,6 +172,18 @@ class LocalStore {
     final args = <Object?>[branchId, if (categoryId != null) categoryId];
 
     var searchSql = '';
+    final orderSql =
+        normalizedQuery.isEmpty
+            ? _productOrderSql(sortOption)
+            : '''
+        CASE
+          WHEN p.sku = ? COLLATE NOCASE THEN 0
+          WHEN p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 1
+          WHEN p.name LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 2
+          ELSE 3
+        END,
+        ${_productOrderSql(sortOption)}
+      ''';
     if (normalizedQuery.isNotEmpty) {
       final escaped = _escapeLike(normalizedQuery);
       final prefix = '$escaped%';
@@ -200,26 +214,38 @@ class LocalStore {
         AND COALESCE(p.is_active, 1) = 1
         $categorySql
         $searchSql
-      ORDER BY
-        CASE
-          WHEN p.sku = ? COLLATE NOCASE THEN 0
-          WHEN p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 1
-          WHEN p.name LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 2
-          ELSE 3
-        END,
-        p.name COLLATE NOCASE ASC
+      ORDER BY $orderSql
       LIMIT ? OFFSET ?
       ''',
       [
         ...args,
-        normalizedQuery,
-        '${_escapeLike(normalizedQuery)}%',
-        '${_escapeLike(normalizedQuery)}%',
+        if (normalizedQuery.isNotEmpty) ...[
+          normalizedQuery,
+          '${_escapeLike(normalizedQuery)}%',
+          '${_escapeLike(normalizedQuery)}%',
+        ],
         safeLimit,
         safeOffset,
       ],
     );
     return rows.map(_productFromRow).toList();
+  }
+
+  static String _productOrderSql(ProductSortOption sortOption) {
+    switch (sortOption) {
+      case ProductSortOption.nameAZ:
+        return 'p.name COLLATE NOCASE ASC';
+      case ProductSortOption.nameZA:
+        return 'p.name COLLATE NOCASE DESC';
+      case ProductSortOption.priceLow:
+        return 'p.sale_price ASC, p.name COLLATE NOCASE ASC';
+      case ProductSortOption.priceHigh:
+        return 'p.sale_price DESC, p.name COLLATE NOCASE ASC';
+      case ProductSortOption.stockLow:
+        return 'COALESCE(i.quantity, 0) ASC, p.name COLLATE NOCASE ASC';
+      case ProductSortOption.stockHigh:
+        return 'COALESCE(i.quantity, 0) DESC, p.name COLLATE NOCASE ASC';
+    }
   }
 
   static Future<void> upsertProduct(ProductModel product) async {

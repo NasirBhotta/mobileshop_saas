@@ -155,6 +155,52 @@ final productsProvider = FutureProvider<List<ProductModel>>((ref) async {
       .fetchProducts(categoryId: categoryId);
 });
 
+class InventoryProductsRequest {
+  final String query;
+  final String? categoryId;
+  final ProductSortOption sortOption;
+  final int limit;
+  final int offset;
+
+  const InventoryProductsRequest({
+    required this.query,
+    this.categoryId,
+    this.sortOption = ProductSortOption.nameAZ,
+    this.limit = 100,
+    this.offset = 0,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    return other is InventoryProductsRequest &&
+        other.query == query &&
+        other.categoryId == categoryId &&
+        other.sortOption == sortOption &&
+        other.limit == limit &&
+        other.offset == offset;
+  }
+
+  @override
+  int get hashCode => Object.hash(query, categoryId, sortOption, limit, offset);
+}
+
+final inventoryProductsProvider =
+    FutureProvider.family<List<ProductModel>, InventoryProductsRequest>((
+      ref,
+      request,
+    ) async {
+      await ref.watch(selectedBranchIdProvider.future);
+      return ref
+          .read(inventoryRepositoryProvider)
+          .searchProducts(
+            query: request.query.trim(),
+            categoryId: request.categoryId,
+            sortOption: request.sortOption,
+            limit: request.limit,
+            offset: request.offset,
+          );
+    });
+
 class ProductSearchRequest {
   final String query;
   final String? categoryId;
@@ -203,6 +249,7 @@ final productSearchProvider =
 void invalidateProductListProviders(Ref ref) {
   ref.invalidate(allProductsProvider);
   ref.invalidate(productsProvider);
+  ref.invalidate(inventoryProductsProvider);
   ref.invalidate(productSearchProvider);
 }
 

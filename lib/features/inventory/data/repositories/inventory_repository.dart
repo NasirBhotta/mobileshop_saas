@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:mobileshop_saas/core/extensions/product_sort_ext.dart';
 import 'package:flutter/rendering.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/adjustment_extention.dart';
@@ -481,6 +482,7 @@ class InventoryRepository {
     required String branchId,
     String? categoryId,
     String? queryText,
+    ProductSortOption sortOption = ProductSortOption.nameAZ,
     int? limit,
     int offset = 0,
   }) async {
@@ -504,7 +506,7 @@ class InventoryRepository {
       query = query.or('name.ilike.$escaped%,sku.ilike.$escaped%');
     }
 
-    var ordered = query.order('name');
+    var ordered = _orderProducts(query, sortOption);
     if (limit != null) {
       final safeLimit = limit.clamp(1, 100).toInt();
       final safeOffset = offset < 0 ? 0 : offset;
@@ -524,9 +526,33 @@ class InventoryRepository {
     return products;
   }
 
+  dynamic _orderProducts(dynamic query, ProductSortOption sortOption) {
+    switch (sortOption) {
+      case ProductSortOption.nameAZ:
+        return query.order('name', ascending: true);
+      case ProductSortOption.nameZA:
+        return query.order('name');
+      case ProductSortOption.priceLow:
+        return query
+            .order('sale_price', ascending: true)
+            .order('name', ascending: true);
+      case ProductSortOption.priceHigh:
+        return query.order('sale_price').order('name', ascending: true);
+      case ProductSortOption.stockLow:
+        return query
+            .order('quantity', referencedTable: 'inventory', ascending: true)
+            .order('name', ascending: true);
+      case ProductSortOption.stockHigh:
+        return query
+            .order('quantity', referencedTable: 'inventory')
+            .order('name', ascending: true);
+    }
+  }
+
   Future<List<ProductModel>> searchProducts({
     required String query,
     String? categoryId,
+    ProductSortOption sortOption = ProductSortOption.nameAZ,
     int limit = 50,
     int offset = 0,
   }) async {
@@ -538,6 +564,7 @@ class InventoryRepository {
       branchId: branchId,
       query: normalizedQuery,
       categoryId: categoryId,
+      sortOption: sortOption,
       limit: limit,
       offset: offset,
     );
@@ -552,6 +579,7 @@ class InventoryRepository {
         branchId: branchId,
         categoryId: categoryId,
         queryText: normalizedQuery,
+        sortOption: sortOption,
         limit: limit,
         offset: offset,
       ).timeout(_networkTimeout);
@@ -721,7 +749,228 @@ class InventoryRepository {
     );
   }
 
-  Future<CsvImportResult> importFromCsv(List<List<dynamic>> csvRows) async {
+  Future<CsvImportResult> importFromCsv(
+    List<List<dynamic>> csvRows, {
+    void Function(CsvImportProgress progress)? onProgress,
+    int batchSize = 500,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    final userId = _currentUser.id;
+    final safeBatchSize = batchSize.clamp(100, 1000).toInt();
+    final dataRows = csvRows.skip(1).toList();
+
+    final results = <CsvRowResult>[];
+    final importedSkus = <String>{};
+    var categoriesChanged = false;
+    var successCount = 0;
+    var failedCount = 0;
+
+    final cachedProducts = await OfflineStore.loadProducts(branchId);
+    final existingSkus = <String>{
+      for (final product in cachedProducts)
+        if (product.sku != null && product.sku!.trim().isNotEmpty)
+          product.sku!.trim().toLowerCase(),
+    };
+    final categoryByName = <String, CategoryModel>{
+      for (final category in await OfflineStore.loadCategories(branchId))
+        category.name.trim().toLowerCase(): category,
+    };
+    final totalBatches =
+        dataRows.isEmpty ? 0 : ((dataRows.length - 1) ~/ safeBatchSize) + 1;
+
+    void emitProgress(int processedRows, int currentBatch, String message) {
+      onProgress?.call(
+        CsvImportProgress(
+          totalRows: dataRows.length,
+          processedRows: processedRows,
+          successCount: successCount,
+          failedCount: failedCount,
+          currentBatch: currentBatch,
+          totalBatches: totalBatches,
+          message: message,
+        ),
+      );
+    }
+
+    emitProgress(0, 0, 'Import prepare ho raha hai...');
+
+    for (
+      var batchStart = 0;
+      batchStart < dataRows.length;
+      batchStart += safeBatchSize
+    ) {
+      final batchEnd =
+          (batchStart + safeBatchSize) > dataRows.length
+              ? dataRows.length
+              : batchStart + safeBatchSize;
+      final batchRows = dataRows.sublist(batchStart, batchEnd);
+      final currentBatch = (batchStart ~/ safeBatchSize) + 1;
+      final batchProducts = <ProductModel>[];
+      final batchSkuCandidates = <String>{
+        for (final row in batchRows)
+          if (_cell(row, 1).trim().isNotEmpty) _cell(row, 1).trim(),
+      };
+      final remoteExistingSkus = await _existingSkusInRemoteBatch(
+        branchId: branchId,
+        skus: batchSkuCandidates,
+      );
+
+      for (int i = 0; i < batchRows.length; i++) {
+        final row = batchRows[i];
+        final rowNum = batchStart + i + 2;
+        final name = _cell(row, 0);
+        final sku = _cell(row, 1);
+        final salePriceStr = _cell(row, 2);
+        final costPriceStr = _cell(row, 3);
+        final categoryName = _cell(row, 4);
+        final quantityStr = _cell(row, 5);
+
+        if (name.isEmpty) {
+          results.add(
+            CsvRowResult(
+              rowNumber: rowNum,
+              isSuccess: false,
+              errorReason: 'Name is empty',
+            ),
+          );
+          failedCount++;
+          continue;
+        }
+
+        final salePrice = double.tryParse(salePriceStr);
+        if (salePrice == null || salePrice < 0) {
+          results.add(
+            CsvRowResult(
+              rowNumber: rowNum,
+              name: name,
+              sku: sku,
+              isSuccess: false,
+              errorReason: 'Sale price is not a valid number: "$salePriceStr"',
+            ),
+          );
+          failedCount++;
+          continue;
+        }
+
+        final normalizedSku = sku.toLowerCase();
+        if (normalizedSku.isNotEmpty && importedSkus.contains(normalizedSku)) {
+          results.add(
+            CsvRowResult(
+              rowNumber: rowNum,
+              name: name,
+              sku: sku,
+              isSuccess: false,
+              errorReason: 'SKU already exists in CSV: "$sku"',
+            ),
+          );
+          failedCount++;
+          continue;
+        }
+
+        if (normalizedSku.isNotEmpty &&
+            (existingSkus.contains(normalizedSku) ||
+                remoteExistingSkus.contains(normalizedSku))) {
+          results.add(
+            CsvRowResult(
+              rowNumber: rowNum,
+              name: name,
+              sku: sku,
+              isSuccess: false,
+              errorReason: 'SKU already exists: "$sku"',
+            ),
+          );
+          failedCount++;
+          continue;
+        }
+
+        CategoryModel? category;
+        if (categoryName.isNotEmpty) {
+          final categoryKey = categoryName.trim().toLowerCase();
+          category = categoryByName[categoryKey];
+          if (category == null) {
+            category = await _findOrCreateCsvCategory(
+              name: categoryName,
+              tenantId: tenantId,
+              branchId: branchId,
+              userId: userId,
+            );
+            categoryByName[categoryKey] = category;
+            categoriesChanged = true;
+          }
+        }
+
+        final costPrice = double.tryParse(costPriceStr) ?? 0;
+        final quantity = int.tryParse(quantityStr) ?? 0;
+        final product = ProductModel(
+          id: const Uuid().v4(),
+          tenantId: tenantId,
+          branchId: branchId,
+          categoryId: category?.id,
+          categoryName: category?.name,
+          name: name,
+          sku: sku.isEmpty ? null : sku,
+          salePrice: salePrice,
+          costPrice: costPrice,
+          isActive: true,
+          stock: quantity < 0 ? 0 : quantity,
+          categoryThreshold: category?.defaultReorderThreshold ?? 0,
+        );
+
+        batchProducts.add(product);
+        if (normalizedSku.isNotEmpty) {
+          importedSkus.add(normalizedSku);
+          existingSkus.add(normalizedSku);
+        }
+        successCount++;
+        results.add(
+          CsvRowResult(
+            rowNumber: rowNum,
+            name: name,
+            sku: sku,
+            isSuccess: true,
+          ),
+        );
+      }
+
+      if (batchProducts.isNotEmpty) {
+        await _upsertCsvProductBatch(
+          tenantId: tenantId,
+          branchId: branchId,
+          userId: userId,
+          products: batchProducts,
+        );
+        await OfflineStore.upsertCachedProductsBatch(branchId, batchProducts);
+      }
+
+      emitProgress(
+        batchEnd,
+        currentBatch,
+        'Batch $currentBatch / $totalBatches imported',
+      );
+    }
+
+    if (categoriesChanged) {
+      try {
+        await _fetchRemoteCategories(
+          tenantId: tenantId,
+          branchId: branchId,
+        ).timeout(_networkTimeout);
+      } catch (_) {}
+    }
+
+    return CsvImportResult(
+      totalRows: dataRows.length,
+      successCount: successCount,
+      failedCount: failedCount,
+      rows: results,
+    );
+  }
+
+  // ignore: unused_element
+  Future<CsvImportResult> _importFromCsvLegacy(
+    List<List<dynamic>> csvRows,
+  ) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final userId = _currentUser.id;
@@ -898,6 +1147,81 @@ class InventoryRepository {
       failedCount: results.where((r) => !r.isSuccess).length,
       rows: results,
     );
+  }
+
+  Future<Set<String>> _existingSkusInRemoteBatch({
+    required String branchId,
+    required Set<String> skus,
+  }) async {
+    if (skus.isEmpty) return const <String>{};
+    try {
+      final rows = await _client
+          .from('products')
+          .select('sku')
+          .eq('branch_id', branchId)
+          .inFilter('sku', skus.toList())
+          .timeout(_networkTimeout);
+      return {
+        for (final row in rows as List)
+          if ((row as Map)['sku'] != null)
+            row['sku'].toString().trim().toLowerCase(),
+      };
+    } catch (_) {
+      return const <String>{};
+    }
+  }
+
+  Future<void> _upsertCsvProductBatch({
+    required String tenantId,
+    required String branchId,
+    required String userId,
+    required List<ProductModel> products,
+  }) async {
+    try {
+      await _client
+          .from('products')
+          .upsert(
+            products
+                .map(
+                  (product) => {
+                    'id': product.id,
+                    ...product.toInsertMap(
+                      tenantId: tenantId,
+                      branchId: branchId,
+                    ),
+                  },
+                )
+                .toList(),
+            onConflict: 'id',
+          )
+          .timeout(_networkTimeout);
+
+      final updatedAt = DateTime.now().toIso8601String();
+      await _client
+          .from('inventory')
+          .upsert(
+            products
+                .map(
+                  (product) => {
+                    'branch_id': branchId,
+                    'product_id': product.id,
+                    'quantity': product.stock,
+                    'updated_at': updatedAt,
+                  },
+                )
+                .toList(),
+            onConflict: 'branch_id,product_id',
+          )
+          .timeout(_networkTimeout);
+    } catch (_) {
+      for (final product in products) {
+        await OfflineStore.enqueueMutation(
+          userId: userId,
+          type: 'upsert_product',
+          payload: {'product': product.toCacheMap()},
+        );
+      }
+    }
   }
 
   // Helper: CSV cell safe nikalo
