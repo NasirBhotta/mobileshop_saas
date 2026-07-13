@@ -516,8 +516,12 @@ class InventoryRepository {
     }
 
     final data = await ordered;
-    final products =
+    final remoteProducts =
         (data as List).map((e) => ProductModel.fromMap(e)).toList();
+    final products = await _applyPendingSaleStock(
+      branchId: branchId,
+      products: remoteProducts,
+    );
     if (categoryId == null && normalizedQuery?.isNotEmpty != true) {
       await OfflineStore.saveProducts(branchId, products);
     } else {
@@ -526,6 +530,52 @@ class InventoryRepository {
       }
     }
     return products;
+  }
+
+  Future<List<ProductModel>> _applyPendingSaleStock({
+    required String branchId,
+    required List<ProductModel> products,
+  }) async {
+    final mutations = await OfflineStore.loadMutations(_currentUser.id);
+    final pendingByProductId = <String, int>{};
+
+    for (final mutation in mutations) {
+      if (mutation.type != 'sale_checkout') continue;
+      final rawSale = mutation.payload['sale_data'];
+      if (rawSale is! Map) continue;
+      final sale = Map<String, dynamic>.from(rawSale);
+      if (sale['branch_id'] != branchId) continue;
+      final rawItems = sale['sale_items'];
+      if (rawItems is! List) continue;
+      for (final rawItem in rawItems) {
+        if (rawItem is! Map) continue;
+        final item = Map<String, dynamic>.from(rawItem);
+        final productId = item['product_id'] as String?;
+        final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
+        if (productId == null || quantity <= 0) continue;
+        pendingByProductId.update(
+          productId,
+          (current) => current + quantity,
+          ifAbsent: () => quantity,
+        );
+      }
+    }
+
+    if (pendingByProductId.isEmpty) return products;
+    final localProducts = await OfflineStore.loadProducts(branchId);
+    final localStockByProductId = {
+      for (final product in localProducts) product.id: product.stock,
+    };
+    return [
+      for (final product in products)
+        _copyProduct(
+          product,
+          stock:
+              pendingByProductId.containsKey(product.id)
+                  ? localStockByProductId[product.id] ?? product.stock
+                  : product.stock,
+        ),
+    ];
   }
 
   dynamic _orderProducts(dynamic query, ProductSortOption sortOption) {

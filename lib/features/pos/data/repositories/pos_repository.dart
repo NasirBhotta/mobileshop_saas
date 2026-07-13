@@ -424,6 +424,7 @@ class PosRepository {
       createdAt: DateTime.now(),
     );
 
+    var remoteSaleAndStockCommitted = false;
     try {
       // ── Step 4: Sale insert karo remotely ──
       await _client
@@ -509,9 +510,13 @@ class PosRepository {
             .eq('product_id', item.productId)
             .timeout(Network.networkTimeout);
       }
+      remoteSaleAndStockCommitted = true;
 
       // Save locally as already synced (SQLite synced = 1)
       await OfflineStore.saveSale(sale);
+      if (remoteSaleAndStockCommitted) {
+        await LocalStore.markSaleSynced(saleId);
+      }
       await LocalStore.saveSale(sale);
       await LocalStore.markSaleSynced(saleId);
       if (creditAmount > 0 && customerId != null) {
@@ -536,6 +541,9 @@ class PosRepository {
 
       // Save locally (synced = 0 by default in SQLite / LocalStore)
       await OfflineStore.saveSale(sale);
+      if (remoteSaleAndStockCommitted) {
+        await LocalStore.markSaleSynced(saleId);
+      }
       if (creditAmount > 0 && customerId != null) {
         await _adjustCustomerOutstanding(
           customerId: customerId,
@@ -553,30 +561,32 @@ class PosRepository {
       }
 
       // Enqueue mutation for later sync
-      await OfflineStore.enqueueMutation(
-        userId: user.id,
-        type: 'sale_checkout',
-        payload: {
-          'sale_id': saleId,
-          'sale_data': {
-            'id': sale.id,
-            'branch_id': sale.branchId,
-            'customer_id': sale.customerId,
-            'customer_name': sale.customerName,
-            'user_id': sale.userId,
-            'status': sale.status.code,
-            'subtotal': sale.subtotal,
-            'discount_amount': sale.discountAmount,
-            'tax_amount': sale.taxAmount,
-            'total': sale.total,
-            'notes': sale.notes,
-            'void_reason': sale.voidReason,
-            'created_at': sale.createdAt?.toIso8601String(),
-            'sale_items': sale.items.map((i) => i.toMap()).toList(),
-            'sale_payments': sale.payments.map((p) => p.toMap()).toList(),
+      if (!remoteSaleAndStockCommitted) {
+        await OfflineStore.enqueueMutation(
+          userId: user.id,
+          type: 'sale_checkout',
+          payload: {
+            'sale_id': saleId,
+            'sale_data': {
+              'id': sale.id,
+              'branch_id': sale.branchId,
+              'customer_id': sale.customerId,
+              'customer_name': sale.customerName,
+              'user_id': sale.userId,
+              'status': sale.status.code,
+              'subtotal': sale.subtotal,
+              'discount_amount': sale.discountAmount,
+              'tax_amount': sale.taxAmount,
+              'total': sale.total,
+              'notes': sale.notes,
+              'void_reason': sale.voidReason,
+              'created_at': sale.createdAt?.toIso8601String(),
+              'sale_items': sale.items.map((i) => i.toMap()).toList(),
+              'sale_payments': sale.payments.map((p) => p.toMap()).toList(),
+            },
           },
-        },
-      );
+        );
+      }
     }
 
     try {
@@ -2203,6 +2213,7 @@ class PosRepository {
   }) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
+    final localSales = await OfflineStore.loadSales(branchId);
 
     // Trigger offline sync in background
     unawaited(syncOfflineMutations());
@@ -2237,9 +2248,31 @@ class PosRepository {
         await OfflineStore.saveSale(sale);
         await LocalStore.markSaleSynced(sale.id!);
       }
-      return sales;
+      final mergedById = <String, SaleModel>{
+        for (final sale in sales)
+          if (sale.id != null) sale.id!: sale,
+        for (final sale in localSales)
+          if (sale.id != null) sale.id!: sale,
+      };
+      final merged =
+          mergedById.values.where((sale) {
+              return status == null || sale.status == status;
+            }).toList()
+            ..sort((a, b) {
+              final aDate =
+                  a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bDate =
+                  b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return bDate.compareTo(aDate);
+            });
+      return merged.take(limit).toList();
     } catch (_) {
-      return await OfflineStore.loadSales(branchId);
+      return localSales
+          .where((sale) {
+            return status == null || sale.status == status;
+          })
+          .take(limit)
+          .toList();
     }
   }
 
