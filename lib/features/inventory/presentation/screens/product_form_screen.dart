@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +8,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../../../shared/widgets/loading_overlay.dart';
+import '../../../../shared/widgets/barcode_camera_scanner.dart';
 import '../../data/models/category_model.dart';
 import '../../data/models/price_history_model.dart';
 import '../../data/models/product_model.dart';
@@ -25,6 +27,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _skuController;
+  late final TextEditingController _barcodeController;
   late final TextEditingController _descController;
   late final TextEditingController _salePriceController;
   late final TextEditingController _costPriceController;
@@ -33,6 +36,10 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   String? _selectedCategoryId;
   bool _imeiTracked = false;
   bool get _isEdit => widget.product != null;
+  bool get _cameraScannerSupported =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
 
   List<CategoryModel> _uniqueCategories(List<CategoryModel> categories) {
     final seen = <String>{};
@@ -83,6 +90,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     final p = widget.product;
     _nameController = TextEditingController(text: p?.name ?? '');
     _skuController = TextEditingController(text: p?.sku ?? '');
+    _barcodeController = TextEditingController(text: p?.barcode ?? '');
     _descController = TextEditingController(text: p?.description ?? '');
     _salePriceController = TextEditingController(
       text: p != null ? p.salePrice.toStringAsFixed(0) : '',
@@ -105,6 +113,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   void dispose() {
     _nameController.dispose();
     _skuController.dispose();
+    _barcodeController.dispose();
     _descController.dispose();
     _salePriceController.dispose();
     _costPriceController.dispose();
@@ -140,6 +149,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       categoryId: _selectedCategoryId,
       name: _nameController.text.trim(),
       sku: _skuController.text.trim(),
+      barcode: _barcodeController.text.trim(),
       description: _descController.text.trim(),
       salePrice: double.tryParse(_salePriceController.text) ?? 0,
       costPrice: double.tryParse(_costPriceController.text) ?? 0,
@@ -159,7 +169,22 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           .addProduct(product);
     }
 
-    if (success && mounted) context.pop();
+    if (success && mounted) {
+      context.pop();
+    } else if (mounted) {
+      final state = ref.read(productControllerProvider);
+      final message = state.whenOrNull(error: (error, _) => error.toString());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message ?? 'Product save nahi ho saka')),
+      );
+    }
+  }
+
+  Future<void> _scanBarcode() async {
+    final value = await BarcodeCameraScanner.open(context);
+    if (value != null && mounted) {
+      _barcodeController.text = value;
+    }
   }
 
   @override
@@ -266,6 +291,29 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                         controller: _skuController,
                         decoration: InputDecoration(
                           hintText: AppStrings.hintSku,
+                        ),
+                      ),
+                    ),
+
+                    _FormField(
+                      label: 'Barcode',
+                      child: TextFormField(
+                        controller: _barcodeController,
+                        textInputAction: TextInputAction.next,
+                        decoration: InputDecoration(
+                          hintText: 'Scan ya manually enter karein',
+                          helperText:
+                              'Desktop USB scanner barcode type karke Enter bhejta hai',
+                          suffixIcon:
+                              _cameraScannerSupported
+                                  ? IconButton(
+                                    onPressed: _scanBarcode,
+                                    tooltip: 'Camera se scan karein',
+                                    icon: const Icon(
+                                      Icons.qr_code_scanner_rounded,
+                                    ),
+                                  )
+                                  : const Icon(Icons.qr_code_2_rounded),
                         ),
                       ),
                     ),

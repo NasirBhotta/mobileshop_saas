@@ -6,6 +6,7 @@ class ProductModel {
   final String? categoryName;
   final String name;
   final String? sku;
+  final String? barcode;
   final String? description;
   final double salePrice;
   final double costPrice;
@@ -24,6 +25,7 @@ class ProductModel {
     this.categoryName,
     required this.name,
     this.sku,
+    this.barcode,
     this.description,
     required this.salePrice,
     required this.costPrice,
@@ -74,6 +76,7 @@ class ProductModel {
           category?['name'] as String? ?? map['category_name'] as String?,
       name: map['name'] as String,
       sku: map['sku'] as String?,
+      barcode: map['barcode'] as String?,
       description: map['description'] as String?,
       salePrice: (map['sale_price'] as num).toDouble(),
       costPrice: (map['cost_price'] as num).toDouble(),
@@ -107,6 +110,7 @@ class ProductModel {
     'category_id': categoryId,
     'name': name,
     'sku': sku?.isEmpty == true ? null : sku,
+    'barcode': barcode?.isEmpty == true ? null : barcode,
     'description': description?.isEmpty == true ? null : description,
     'sale_price': salePrice,
     'cost_price': costPrice,
@@ -123,6 +127,7 @@ class ProductModel {
     'categories': categoryName != null ? {'name': categoryName} : null,
     'name': name,
     'sku': sku,
+    'barcode': barcode,
     'description': description,
     'sale_price': salePrice,
     'cost_price': costPrice,

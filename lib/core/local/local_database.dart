@@ -245,6 +245,7 @@ class LocalDatabase {
         category_id TEXT,
         name TEXT NOT NULL,
         sku TEXT,
+        barcode TEXT,
         description TEXT,
         sale_price REAL NOT NULL DEFAULT 0,
         cost_price REAL NOT NULL DEFAULT 0,
@@ -263,6 +264,11 @@ class LocalDatabase {
     );
     await _addColumnIfMissing(
       table: 'products',
+      column: 'barcode',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'products',
       column: 'reorder_threshold',
       definition: 'INTEGER NOT NULL DEFAULT 0',
     );
@@ -271,6 +277,12 @@ class LocalDatabase {
       column: 'updated_at',
       definition: 'TEXT',
     );
+
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_products_branch_barcode_unique
+      ON products(branch_id, barcode COLLATE NOCASE)
+      WHERE barcode IS NOT NULL AND trim(barcode) <> ''
+    ''');
 
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS inventory (

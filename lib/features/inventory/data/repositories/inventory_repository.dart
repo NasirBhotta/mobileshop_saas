@@ -503,7 +503,9 @@ class InventoryRepository {
     final normalizedQuery = queryText?.trim();
     if (normalizedQuery != null && normalizedQuery.isNotEmpty) {
       final escaped = _escapePostgrestPattern(normalizedQuery);
-      query = query.or('name.ilike.$escaped%,sku.ilike.$escaped%');
+      query = query.or(
+        'name.ilike.$escaped%,sku.ilike.$escaped%,barcode.ilike.$escaped%',
+      );
     }
 
     var ordered = _orderProducts(query, sortOption);
@@ -605,6 +607,7 @@ class InventoryRepository {
   Future<ProductModel> addProduct(ProductModel product) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
+    await _ensureBarcodeAvailable(branchId: branchId, product: product);
     try {
       final data = await _client
           .from('products')
@@ -643,6 +646,11 @@ class InventoryRepository {
   Future<ProductModel> updateProduct(ProductModel product) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
+    await _ensureBarcodeAvailable(
+      branchId: branchId,
+      product: product,
+      excludingProductId: product.id,
+    );
     try {
       await _client
           .from('products')
@@ -1255,6 +1263,46 @@ class InventoryRepository {
     }
   }
 
+  Future<void> _ensureBarcodeAvailable({
+    required String branchId,
+    required ProductModel product,
+    String? excludingProductId,
+  }) async {
+    final barcode = product.barcode?.trim();
+    if (barcode == null || barcode.isEmpty) return;
+
+    final normalized = barcode.toLowerCase();
+    final cachedProducts = await OfflineStore.loadProducts(branchId);
+    final existsInCache = cachedProducts.any(
+      (item) =>
+          item.id != excludingProductId &&
+          item.barcode?.trim().toLowerCase() == normalized,
+    );
+    if (existsInCache) {
+      throw StateError('Yeh barcode pehle se kisi product par laga hua hai.');
+    }
+
+    try {
+      final rows = await _client
+          .from('products')
+          .select('id, barcode')
+          .eq('branch_id', branchId)
+          .ilike('barcode', barcode)
+          .limit(2)
+          .timeout(_networkTimeout);
+      final duplicate = (rows as List).any(
+        (row) => (row as Map)['id'] != excludingProductId,
+      );
+      if (duplicate) {
+        throw StateError('Yeh barcode pehle se kisi product par laga hua hai.');
+      }
+    } on StateError {
+      rethrow;
+    } catch (_) {
+      // Offline save remains available; the local unique index is the fallback.
+    }
+  }
+
   // Helper: Category naam se find karo ya create karo
   // ignore: unused_element
   Future<String> _findOrCreateCategory({
@@ -1404,6 +1452,7 @@ class InventoryRepository {
         categoryName: product.categoryName,
         name: product.name,
         sku: product.sku,
+        barcode: product.barcode,
         description: product.description,
         salePrice: newPrice,
         costPrice: product.costPrice,
@@ -1704,6 +1753,7 @@ class InventoryRepository {
       categoryName: product.categoryName,
       name: product.name,
       sku: product.sku,
+      barcode: product.barcode,
       description: product.description,
       salePrice: product.salePrice,
       costPrice: product.costPrice,
@@ -1740,6 +1790,7 @@ class InventoryRepository {
       categoryName: categoryName ?? product.categoryName,
       name: product.name,
       sku: product.sku,
+      barcode: product.barcode,
       description: product.description,
       salePrice: product.salePrice,
       costPrice: product.costPrice,
@@ -1816,6 +1867,7 @@ class InventoryRepository {
       categoryName: product.categoryName,
       name: product.name,
       sku: product.sku,
+      barcode: product.barcode,
       description: product.description,
       salePrice: product.salePrice,
       costPrice: product.costPrice,

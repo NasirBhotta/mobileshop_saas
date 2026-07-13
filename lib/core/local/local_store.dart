@@ -177,10 +177,12 @@ class LocalStore {
             ? _productOrderSql(sortOption)
             : '''
         CASE
-          WHEN p.sku = ? COLLATE NOCASE THEN 0
-          WHEN p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 1
-          WHEN p.name LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 2
-          ELSE 3
+          WHEN p.barcode = ? COLLATE NOCASE THEN 0
+          WHEN p.sku = ? COLLATE NOCASE THEN 1
+          WHEN p.barcode LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 2
+          WHEN p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 3
+          WHEN p.name LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 4
+          ELSE 5
         END,
         ${_productOrderSql(sortOption)}
       ''';
@@ -192,11 +194,13 @@ class LocalStore {
         AND (
           p.name LIKE ? ESCAPE '\\' COLLATE NOCASE
           OR p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE
+          OR p.barcode LIKE ? ESCAPE '\\' COLLATE NOCASE
           OR p.name LIKE ? ESCAPE '\\' COLLATE NOCASE
           OR p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE
+          OR p.barcode LIKE ? ESCAPE '\\' COLLATE NOCASE
         )
       ''';
-      args.addAll([prefix, prefix, contains, contains]);
+      args.addAll([prefix, prefix, prefix, contains, contains, contains]);
     }
 
     final rows = await LocalDatabase.select(
@@ -221,6 +225,8 @@ class LocalStore {
         ...args,
         if (normalizedQuery.isNotEmpty) ...[
           normalizedQuery,
+          normalizedQuery,
+          '${_escapeLike(normalizedQuery)}%',
           '${_escapeLike(normalizedQuery)}%',
           '${_escapeLike(normalizedQuery)}%',
         ],
@@ -253,10 +259,10 @@ class LocalStore {
     await LocalDatabase.execute(
       '''
       INSERT OR REPLACE INTO products(
-        id, tenant_id, branch_id, category_id, name, sku, description,
+        id, tenant_id, branch_id, category_id, name, sku, barcode, description,
         sale_price, cost_price, reorder_threshold, imei_tracked, is_active,
         created_at, updated_at
-      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         product.id,
@@ -265,6 +271,7 @@ class LocalStore {
         product.categoryId,
         product.name,
         product.sku,
+        product.barcode,
         product.description,
         product.salePrice,
         product.costPrice,

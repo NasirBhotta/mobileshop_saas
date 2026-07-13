@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
+import '../../../../shared/widgets/barcode_camera_scanner.dart';
 import '../../../inventory/data/models/product_model.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
 import '../../data/models/cart_item_model.dart';
@@ -19,15 +21,87 @@ class ProductSearchPanel extends ConsumerStatefulWidget {
 
 class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
   final _searchCtrl = TextEditingController();
+  final _searchFocus = FocusNode();
   Timer? _debounce;
   String _query = '';
   String _debouncedQuery = '';
+  bool _resolvingBarcode = false;
 
   @override
   void dispose() {
     _debounce?.cancel();
     _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
+  }
+
+  bool get _cameraScannerSupported =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
+  Future<void> _openCameraScanner() async {
+    final value = await BarcodeCameraScanner.open(context);
+    if (value != null && mounted) await _resolveBarcode(value);
+  }
+
+  Future<void> _resolveBarcode(String rawValue) async {
+    final code = rawValue.trim();
+    if (code.isEmpty || _resolvingBarcode) return;
+    setState(() => _resolvingBarcode = true);
+
+    try {
+      final products = await ref
+          .read(inventoryRepositoryProvider)
+          .searchProducts(query: code, limit: 20);
+      final normalized = code.toLowerCase();
+      final matches = products.where(
+        (product) =>
+            product.barcode?.trim().toLowerCase() == normalized ||
+            product.sku?.trim().toLowerCase() == normalized,
+      );
+      final product = matches.firstOrNull;
+      if (!mounted) return;
+
+      if (product == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Barcode "$code" ka product nahi mila')),
+        );
+      } else {
+        final cartItem =
+            ref
+                .read(cartProvider)
+                .items
+                .where((item) => item.productId == product.id)
+                .firstOrNull;
+        if (product.isOutOfStock ||
+            (cartItem != null && cartItem.quantity >= product.stock)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${product.name} ka stock available nahi')),
+          );
+        } else {
+          ref
+              .read(cartProvider.notifier)
+              .addItem(CartItemModel.fromProduct(product));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${product.name} cart mein add ho gaya'),
+              duration: const Duration(milliseconds: 900),
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        _searchCtrl.clear();
+        setState(() {
+          _query = '';
+          _debouncedQuery = '';
+          _resolvingBarcode = false;
+        });
+        _searchFocus.requestFocus();
+      }
+    }
   }
 
   void _setQuery(String value) {
@@ -53,7 +127,10 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
           padding: const EdgeInsets.all(12),
           child: TextField(
             controller: _searchCtrl,
+            focusNode: _searchFocus,
+            autofocus: true,
             onChanged: _setQuery,
+            onSubmitted: _resolveBarcode,
             decoration: InputDecoration(
               hintText: AppStrings.searchProductsPos,
               prefixIcon: const Icon(
@@ -62,7 +139,12 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
                 size: 20,
               ),
               suffixIcon:
-                  _query.isNotEmpty
+                  _resolvingBarcode
+                      ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : _query.isNotEmpty
                       ? IconButton(
                         icon: const Icon(Icons.close_rounded, size: 18),
                         onPressed: () {
@@ -74,7 +156,16 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
                           });
                         },
                       )
-                      : null,
+                      : _cameraScannerSupported
+                      ? IconButton(
+                        icon: const Icon(Icons.qr_code_scanner_rounded),
+                        tooltip: 'Camera se barcode scan karein',
+                        onPressed: _openCameraScanner,
+                      )
+                      : const Icon(
+                        Icons.qr_code_2_rounded,
+                        color: AppColors.textHint,
+                      ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
                 vertical: 10,
