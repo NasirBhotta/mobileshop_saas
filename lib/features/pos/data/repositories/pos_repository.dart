@@ -16,6 +16,8 @@ import '../models/held_cart_model.dart';
 import '../models/sale_model.dart';
 import '../models/sale_payment_model.dart';
 import '../models/sale_return_model.dart';
+import 'customer_settlement_sync.dart';
+import 'sale_return_parent_recovery.dart';
 
 class PosRepository {
   final SupabaseClient _client = Supabase.instance.client;
@@ -2514,27 +2516,40 @@ class PosRepository {
               break;
 
             case 'customer_settlement':
-              await _client
-                  .from('customer_settlements')
-                  .upsert(mutation.payload, onConflict: 'id');
               final customerId = mutation.payload['customer_id'] as String;
-              final customer = await OfflineStore.loadCustomerById(customerId);
-              if (customer != null) {
-                try {
-                  await _client
-                      .from('customers')
-                      .update({
-                        'outstanding_balance': customer.outstandingBalance,
-                      })
-                      .eq('id', customerId)
-                      .eq('branch_id', customer.branchId);
-                } catch (e) {
-                  if (!_isMissingCustomerCreditSchema(e)) rethrow;
-                }
-              }
-              await LocalStore.markCustomerSettlementSynced(
-                mutation.payload['id'] as String,
+              final settlementSync = CustomerSettlementSyncService(
+                findRemoteById: (settlementId) async {
+                  return _client
+                      .from('customer_settlements')
+                      .select(
+                        'id, customer_id, branch_id, user_id, amount, method, notes, created_at',
+                      )
+                      .eq('id', settlementId)
+                      .maybeSingle();
+                },
+                insertRemote: (payload) async {
+                  await _client.from('customer_settlements').insert(payload);
+                },
+                afterRemoteInsert: () async {
+                  final customer = await OfflineStore.loadCustomerById(
+                    customerId,
+                  );
+                  if (customer == null) return;
+                  try {
+                    await _client
+                        .from('customers')
+                        .update({
+                          'outstanding_balance': customer.outstandingBalance,
+                        })
+                        .eq('id', customerId)
+                        .eq('branch_id', customer.branchId);
+                  } catch (e) {
+                    if (!_isMissingCustomerCreditSchema(e)) rethrow;
+                  }
+                },
+                markLocalSynced: LocalStore.markCustomerSettlementSynced,
               );
+              await settlementSync.sync(mutation.payload);
               break;
 
             case 'sale_return':
@@ -2543,6 +2558,7 @@ class PosRepository {
                 remaining.add(mutation);
                 break;
               }
+              await _ensureRemoteSaleForReturn(saleReturn.originalSaleId);
               await _syncReturnRemote(saleReturn);
               await _markReturnSynced(saleReturn.id);
               break;
@@ -2553,6 +2569,7 @@ class PosRepository {
                 remaining.add(mutation);
                 break;
               }
+              await _ensureRemoteSaleForReturn(saleReturn.originalSaleId);
               await _syncReturnRemote(saleReturn);
               await _markReturnSynced(saleReturn.id);
               break;
@@ -2582,5 +2599,115 @@ class PosRepository {
 
       await OfflineStore.saveMutations(userId, remaining);
     } catch (_) {}
+  }
+
+  Future<void> _ensureRemoteSaleForReturn(String saleId) async {
+    final recovery = SaleReturnParentRecoveryService(
+      remoteSaleExists: (id) async {
+        final row = await _client
+            .from('sales')
+            .select('id, sale_items(id), sale_payments(id)')
+            .eq('id', id)
+            .maybeSingle()
+            .timeout(Network.networkTimeout);
+        if (row == null) return false;
+        final items = row['sale_items'] as List? ?? const [];
+        final payments = row['sale_payments'] as List? ?? const [];
+        return items.isNotEmpty && payments.isNotEmpty;
+      },
+      loadLocalSnapshot: _loadLocalSaleSnapshot,
+      restoreRemoteSale: _restoreRemoteSaleSnapshot,
+    );
+    await recovery.ensureRemoteParent(saleId);
+  }
+
+  Future<Map<String, dynamic>?> _loadLocalSaleSnapshot(String saleId) async {
+    final sales = await LocalDatabase.select(
+      'SELECT * FROM sales WHERE id = ? LIMIT 1',
+      [saleId],
+    );
+    if (sales.isEmpty) return null;
+
+    final items = await LocalDatabase.select(
+      'SELECT * FROM sale_items WHERE sale_id = ?',
+      [saleId],
+    );
+    final payments = await LocalDatabase.select(
+      'SELECT * FROM sale_payments WHERE sale_id = ?',
+      [saleId],
+    );
+    if (items.isEmpty || payments.isEmpty) return null;
+
+    return {
+      'sale': Map<String, dynamic>.from(sales.first),
+      'items': items.map(Map<String, dynamic>.from).toList(),
+      'payments': payments.map(Map<String, dynamic>.from).toList(),
+    };
+  }
+
+  Future<void> _restoreRemoteSaleSnapshot(Map<String, dynamic> snapshot) async {
+    final sale = Map<String, dynamic>.from(snapshot['sale'] as Map);
+    final items =
+        (snapshot['items'] as List)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+    final payments =
+        (snapshot['payments'] as List)
+            .map((payment) => Map<String, dynamic>.from(payment as Map))
+            .toList();
+    final saleId = sale['id'] as String;
+
+    await _client.from('sales').upsert({
+      'id': saleId,
+      'branch_id': sale['branch_id'],
+      'customer_id': sale['customer_id'],
+      'user_id': sale['user_id'],
+      'status': sale['status'],
+      'subtotal': sale['subtotal'],
+      'discount_amount': sale['discount_amount'],
+      'tax_amount': sale['tax_amount'],
+      'total': sale['total'],
+      'notes': sale['notes'],
+      'created_at': sale['created_at'],
+    }, onConflict: 'id');
+
+    await _client.from('sale_items').delete().eq('sale_id', saleId);
+    await _client.from('sale_payments').delete().eq('sale_id', saleId);
+
+    await _client
+        .from('sale_items')
+        .insert(
+          items
+              .map(
+                (item) => {
+                  'sale_id': saleId,
+                  'product_id': item['product_id'],
+                  'product_name': item['product_name'],
+                  'product_sku': item['product_sku'],
+                  'quantity': item['quantity'],
+                  'unit_price': item['unit_price'],
+                  'unit_cost_at_sale': item['unit_cost_at_sale'],
+                  'discount_amount': item['discount_amount'],
+                  'tax_rate': item['tax_rate'],
+                  'cogs_total': item['cogs_total'],
+                  'line_total': item['line_total'],
+                },
+              )
+              .toList(),
+        );
+
+    await _client
+        .from('sale_payments')
+        .insert(
+          payments
+              .map(
+                (payment) => {
+                  'sale_id': saleId,
+                  'method': payment['method'],
+                  'amount': payment['amount'],
+                },
+              )
+              .toList(),
+        );
   }
 }
