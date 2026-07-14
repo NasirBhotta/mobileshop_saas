@@ -4,6 +4,7 @@ import 'package:mobileshop_saas/core/extensions/product_sort_ext.dart';
 import 'package:flutter/rendering.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/adjustment_extention.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/category_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/csv_import_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/price_history_model.dart';
@@ -47,7 +48,8 @@ class InventoryRepository {
             'updated_at': updatedAt,
           }, onConflict: 'branch_id,product_id')
           .timeout(_networkTimeout);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'branch_threshold',
@@ -83,7 +85,8 @@ class InventoryRepository {
           .eq('tenant_id', tenantId)
           .eq('branch_id', branchId)
           .timeout(_networkTimeout);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'category_threshold',
@@ -188,6 +191,7 @@ class InventoryRepository {
       );
     } catch (e) {
       if (e.toString().contains('Stock zero se neeche')) rethrow;
+      OfflineErrorClassifier.rethrowIfTerminal(e);
 
       final currentStock = product.stock;
       final newStock =
@@ -329,7 +333,8 @@ class InventoryRepository {
           .from('tenant_settings')
           .upsert(settings, onConflict: 'tenant_id')
           .timeout(_networkTimeout);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'tenant_settings',
@@ -676,7 +681,8 @@ class InventoryRepository {
       final savedProduct = await fetchProduct(productId);
       await OfflineStore.upsertCachedProduct(savedProduct);
       return savedProduct;
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       final offlineProduct = await _offlineProduct(
         product: product,
         tenantId: tenantId,
@@ -719,7 +725,8 @@ class InventoryRepository {
       final savedProduct = await fetchProduct(product.id);
       await OfflineStore.upsertCachedProduct(savedProduct);
       return savedProduct;
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       final offlineProduct = await _offlineProduct(
         product: product,
         tenantId: tenantId,
@@ -790,7 +797,8 @@ class InventoryRepository {
           .eq('tenant_id', tenantId)
           .eq('branch_id', branchId)
           .timeout(_networkTimeout);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'delete_product',
@@ -1162,7 +1170,8 @@ class InventoryRepository {
               'updated_at': DateTime.now().toIso8601String(),
             }, onConflict: 'branch_id,product_id')
             .timeout(_networkTimeout);
-      } catch (_) {
+      } catch (e) {
+        OfflineErrorClassifier.rethrowIfTerminal(e);
         await OfflineStore.enqueueMutation(
           userId: userId,
           type: 'upsert_product',
@@ -1271,7 +1280,8 @@ class InventoryRepository {
             onConflict: 'branch_id,product_id',
           )
           .timeout(_networkTimeout);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       for (final product in products) {
         await OfflineStore.enqueueMutation(
           userId: userId,
@@ -1436,7 +1446,8 @@ class InventoryRepository {
       final savedCategory = CategoryModel.fromMap(created);
       await _upsertCachedCategory(branchId, savedCategory);
       return savedCategory;
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: userId,
         type: 'upsert_category',
@@ -1526,7 +1537,8 @@ class InventoryRepository {
             .timeout(_networkTimeout);
 
         if ((updatedRows as List).isEmpty) continue;
-      } catch (_) {
+      } catch (e) {
+        OfflineErrorClassifier.rethrowIfTerminal(e);
         await OfflineStore.enqueueMutation(
           userId: _currentUser.id,
           type: 'upsert_product',
@@ -1656,7 +1668,8 @@ class InventoryRepository {
         ]..sort((a, b) => a.name.compareTo(b.name)),
       );
       return savedCategory;
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       final categories = await OfflineStore.loadCategories(branchId);
       await OfflineStore.saveCategories(
         branchId,
@@ -1683,7 +1696,8 @@ class InventoryRepository {
           .eq('tenant_id', tenantId)
           .eq('branch_id', branchId)
           .timeout(_networkTimeout);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'delete_category',

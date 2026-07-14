@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/reports/data/local/business_report_local_store.dart';
 import 'package:mobileshop_saas/features/reports/data/models/business_report_models.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -559,6 +560,7 @@ class BusinessReportRepository {
 
       return saved ?? schedule;
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'create_business_report_schedule',
@@ -751,6 +753,7 @@ class BusinessReportRepository {
         await update.eq('branch_id', branchId).timeout(_networkTimeout);
       }
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'update_business_report_schedule_status',

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/offline/offline_store.dart';
+import '../../../../core/utils/offline_error_classifier.dart';
 import '../models/shop_setup_model.dart';
 
 final setupFlowRepositoryProvider = Provider<SetupFlowRepository>((ref) {
@@ -418,7 +419,8 @@ class SetupFlowRepository {
           .update({'branch_id': branchId})
           .eq('id', userId)
           .timeout(_networkTimeout);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: userId,
         type: 'select_branch',

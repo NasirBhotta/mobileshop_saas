@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/inventory_unit_model.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_status_log_model.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
@@ -338,6 +339,7 @@ class RepairRepository {
 
       return savedTicket;
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       // Remote fail hua, lekin local save already ho chuka hai.
       //
       // Ab mutation queue mein daal do taake baad mein sync ho sake.
@@ -537,6 +539,7 @@ class RepairRepository {
 
       return savedTicket;
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: userId,
         type: 'update_repair_ticket_status',

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/accounts/data/local/accounts_local_store.dart';
 import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -151,6 +152,7 @@ class AccountsRepository {
           .upsert(account.toMap())
           .timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'upsert_account',
@@ -199,6 +201,7 @@ class AccountsRepository {
     try {
       await _recordTransactionRemote(transaction).timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'record_account_transaction',
@@ -266,6 +269,7 @@ class AccountsRepository {
     try {
       await _recordTransferRemote(outgoing, incoming).timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'record_account_transfer',
@@ -445,6 +449,7 @@ class AccountsRepository {
           .upsert(account.toMap())
           .timeout(_networkTimeout)
           .catchError((e) {
+            OfflineErrorClassifier.rethrowIfTerminal(e);
             return OfflineStore.enqueueMutation(
               userId: _currentUser.id,
               type: 'upsert_account',

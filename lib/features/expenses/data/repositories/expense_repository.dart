@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/expenses/data/local/expense_local_store.dart';
 import 'package:mobileshop_saas/features/expenses/data/models/expense_models.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -179,6 +180,7 @@ class ExpenseRepository {
       await ExpenseLocalStore.saveCategory(saved);
       return saved;
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'upsert_expense_category',
@@ -312,6 +314,7 @@ class ExpenseRepository {
       await ExpenseLocalStore.saveExpense(saved);
       return saved;
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'upsert_expense',
@@ -514,6 +517,7 @@ class ExpenseRepository {
         await ExpenseLocalStore.saveExpense(refreshed);
       }
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'confirm_expense',
@@ -545,6 +549,7 @@ class ExpenseRepository {
           .eq('id', expense.id)
           .timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'void_expense',
@@ -626,6 +631,7 @@ class ExpenseRepository {
       await ExpenseLocalStore.saveRecurringRule(saved);
       return saved;
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'upsert_recurring_expense_rule',
@@ -772,6 +778,7 @@ class ExpenseRepository {
           .eq('id', rule.id)
           .timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'update_recurring_expense_rule_status',

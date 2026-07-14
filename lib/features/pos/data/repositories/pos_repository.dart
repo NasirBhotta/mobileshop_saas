@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/local/local_store.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/network.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -539,6 +540,7 @@ class PosRepository {
 
       debugPrint('✅ Sale complete remotely: $saleId, Total: ₨$total');
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       debugPrint('Offline checkout: Saving locally. Error: $e');
 
       // Save locally (synced = 0 by default in SQLite / LocalStore)
@@ -765,7 +767,8 @@ class PosRepository {
           'UPDATE discount_audit_logs SET synced = 1 WHERE id = ?',
           [id],
         );
-      } catch (_) {
+      } catch (e) {
+        OfflineErrorClassifier.rethrowIfTerminal(e);
         await OfflineStore.enqueueMutation(
           userId: _currentUser.id,
           type: 'discount_audit',
@@ -826,6 +829,7 @@ class PosRepository {
 
       debugPrint('✅ Cart held remotely: $cartId');
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       debugPrint(
         'Offline holdCart: saved locally. Queueing mutation. Error: $e',
       );
@@ -897,7 +901,8 @@ class PosRepository {
           .from('tenant_settings')
           .upsert(settings, onConflict: 'tenant_id')
           .timeout(Network.networkTimeout);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'tenant_settings',
@@ -925,6 +930,7 @@ class PosRepository {
           .eq('branch_id', branchId)
           .timeout(Network.networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       debugPrint('Offline deleteHeldCart: Queued delete mutation. Error: $e');
       await OfflineStore.enqueueMutation(
         userId: user.id,
@@ -960,6 +966,7 @@ class PosRepository {
 
       debugPrint('✅ Cart voided remotely, reason: $reason');
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       debugPrint('Offline voidCart: Queued void mutation. Error: $e');
       await OfflineStore.enqueueMutation(
         userId: user.id,
@@ -1161,6 +1168,7 @@ class PosRepository {
       await _syncReturnRemote(saleReturn);
       await _markReturnSynced(saleReturn.id);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       debugPrint('Offline return: saved locally. Queueing mutation. Error: $e');
       await _queueReturnMutation(saleReturn, type: 'sale_return');
     }
@@ -1301,6 +1309,7 @@ class PosRepository {
       await _syncReturnRemote(approved);
       await _markReturnSynced(approved.id);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       debugPrint('Offline return approval queued. Error: $e');
       await _queueReturnMutation(approved, type: 'sale_return_approval');
     }
@@ -1791,10 +1800,14 @@ class PosRepository {
           await OfflineStore.saveCustomer(savedCustomer);
           return savedCustomer;
         } catch (fallbackError) {
+          OfflineErrorClassifier.rethrowIfTerminal(fallbackError);
           debugPrint(
             'Customer insert fallback failed. Queueing mutation. Error: $fallbackError',
           );
         }
+      }
+      if (!_isMissingCustomerCreditSchema(e)) {
+        OfflineErrorClassifier.rethrowIfTerminal(e);
       }
       debugPrint(
         'Offline addCustomer: saved locally. Queueing mutation. Error: $e',
@@ -1954,7 +1967,8 @@ class PosRepository {
           .eq('id', customerId)
           .eq('branch_id', customer.branchId)
           .timeout(Network.networkTimeout);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: user.id,
         type: 'customer_credit_limit',
@@ -2195,7 +2209,8 @@ class PosRepository {
         if (!_isMissingCustomerCreditSchema(e)) rethrow;
       }
       await LocalStore.markCustomerSettlementSynced(settlement.id);
-    } catch (_) {
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'customer_settlement',

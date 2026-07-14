@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/suppliers/data/local/procurement_local_store.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -116,6 +117,7 @@ class ProcurementRepository {
       await ProcurementLocalStore.saveSupplier(saved);
       return saved;
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'upsert_supplier',
@@ -240,6 +242,7 @@ class ProcurementRepository {
       final saved = await fetchPurchaseOrderById(po.id);
       return saved ?? po;
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'create_purchase_order',
@@ -380,6 +383,7 @@ class ProcurementRepository {
           .eq('id', po.id)
           .timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'mark_po_sent',
@@ -422,6 +426,7 @@ class ProcurementRepository {
 
       await fetchPurchaseOrderById(po.id);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'receive_po_goods',
@@ -481,6 +486,7 @@ class ProcurementRepository {
           )
           .timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'record_supplier_payment',

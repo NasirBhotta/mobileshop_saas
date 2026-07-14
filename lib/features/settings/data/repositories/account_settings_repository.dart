@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/onboarding/data/models/shop_setup_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -118,6 +119,7 @@ class AccountSettingsRepository {
           .eq('id', _currentUser.id)
           .timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'update_account_profile',
@@ -159,6 +161,7 @@ class AccountSettingsRepository {
           .eq('id', tenantId)
           .timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'update_shop_profile',
@@ -207,6 +210,7 @@ class AccountSettingsRepository {
           .eq('tenant_id', tenantId)
           .timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'update_branch_profile',
@@ -235,6 +239,7 @@ class AccountSettingsRepository {
           .eq('id', _currentUser.id)
           .timeout(_networkTimeout);
     } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'select_branch',
