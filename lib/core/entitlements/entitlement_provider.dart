@@ -46,6 +46,7 @@ final entitlementRealtimeRefreshProvider = Provider<void>((ref) {
     'tenant_subscriptions',
     'tenant_feature_overrides',
     'plan_features',
+    'features',
     'plans',
   ]) {
     channel.onPostgresChanges(
