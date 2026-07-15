@@ -475,8 +475,8 @@ int _shellIndexForLocation(String location) {
   if (location.startsWith('/suppliers')) return 5;
   if (location.startsWith('/purchase-orders')) return 5;
   if (location.startsWith('/expenses')) return 6;
-  if (location.startsWith('/reports')) return 7;
-  if (location.startsWith('/settings')) return 8;
-  if (location.startsWith('/accounts')) return 9;
+  if (location.startsWith('/accounts')) return 7;
+  if (location.startsWith('/reports')) return 8;
+  if (location.startsWith('/settings')) return 9;
   return 0;
 }

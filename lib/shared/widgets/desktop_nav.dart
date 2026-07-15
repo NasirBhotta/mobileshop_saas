@@ -62,6 +62,12 @@ class DesktopNav extends ConsumerWidget {
       feature: 'expenses.core',
     ),
     (
+      icon: Icons.account_balance_wallet_rounded,
+      label: AppStrings.navAccounts,
+      path: '/accounts',
+      feature: 'accounts.core',
+    ),
+    (
       icon: Icons.insights_rounded,
       label: AppStrings.navReports,
       path: '/reports',
@@ -160,50 +166,51 @@ class DesktopNav extends ConsumerWidget {
                       final item = visibleItems[index];
                       final isSelected = currentIndex == item.originalIndex;
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 4),
-                        decoration: BoxDecoration(
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Material(
                           color:
                               isSelected
                                   ? AppColors.primary.withValues(alpha: 0.1)
                                   : Colors.transparent,
                           borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: ListTile(
-                          dense: true,
-                          leading: Icon(
-                            item.icon,
-                            size: 20,
-                            color:
-                                isSelected
-                                    ? AppColors.primary
-                                    : AppColors.textSecondary,
-                          ),
-                          title: Text(
-                            item.label,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight:
-                                  isSelected
-                                      ? FontWeight.w600
-                                      : FontWeight.normal,
+                          clipBehavior: Clip.antiAlias,
+                          child: ListTile(
+                            dense: true,
+                            leading: Icon(
+                              item.icon,
+                              size: 20,
                               color:
                                   isSelected
                                       ? AppColors.primary
                                       : AppColors.textSecondary,
                             ),
+                            title: Text(
+                              item.label,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight:
+                                    isSelected
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                color:
+                                    isSelected
+                                        ? AppColors.primary
+                                        : AppColors.textSecondary,
+                              ),
+                            ),
+                            onTap:
+                                isSelected
+                                    ? null
+                                    : () {
+                                      ref
+                                          .read(
+                                            navigationLoadingProvider.notifier,
+                                          )
+                                          .showFor();
+                                      context.go(item.path);
+                                    },
                           ),
-                          onTap:
-                              isSelected
-                                  ? null
-                                  : () {
-                                    ref
-                                        .read(
-                                          navigationLoadingProvider.notifier,
-                                        )
-                                        .showFor();
-                                    context.go(item.path);
-                                  },
                         ),
                       );
                     },

@@ -45,6 +45,18 @@ Future<bool> hasFeatureWithCompatibility(
   EntitlementEvaluator evaluator,
   String key,
 ) async {
+  const parentFeatures = {
+    'expenses.': 'expenses.access',
+    'accounts.': 'accounts.access',
+  };
+  for (final entry in parentFeatures.entries) {
+    if (key.startsWith(entry.key) && key != entry.value) {
+      final specific = await evaluator.evaluateFeature(key);
+      return specific.source == EntitlementValueSource.unavailable
+          ? evaluator.hasFeature(entry.value)
+          : specific.isEnabled;
+    }
+  }
   if (key.startsWith('pos.') && key != 'pos.access') {
     final specific = await evaluator.evaluateFeature(key);
     return specific.source == EntitlementValueSource.unavailable

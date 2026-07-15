@@ -17,7 +17,10 @@ class ExpenseDateRange {
 }
 
 Future<void> _requireExpense(Ref ref, String feature) async {
-  if (!await ref.read(entitlementEvaluatorProvider).hasFeature(feature)) {
+  if (!await hasFeatureWithCompatibility(
+    ref.read(entitlementEvaluatorProvider),
+    feature,
+  )) {
     throw EntitlementDeniedException(feature);
   }
 }
@@ -434,9 +437,10 @@ class ExpenseSyncController extends StateNotifier<AsyncValue<void>> {
       final repository = _ref.read(expenseRepositoryProvider);
 
       await repository.syncOfflineMutations();
-      if (await _ref
-          .read(entitlementEvaluatorProvider)
-          .hasFeature('expenses.recurring')) {
+      if (await hasFeatureWithCompatibility(
+        _ref.read(entitlementEvaluatorProvider),
+        'expenses.recurring',
+      )) {
         await repository.generateDueRecurringDrafts();
       }
 

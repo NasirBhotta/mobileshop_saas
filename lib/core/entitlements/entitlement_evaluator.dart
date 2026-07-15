@@ -133,6 +133,8 @@ class EntitlementEvaluator {
   final EntitlementDataSource _dataSource;
   final DateTime Function() _clock;
   final Map<String, _ResolvedEntitlements> _cache = {};
+  final Map<String, TenantEntitlementContext> _contextCache = {};
+  final Map<String, Future<_LoadedEntitlements?>> _inFlightLoads = {};
 
   EntitlementEvaluator({
     required EntitlementDataSource dataSource,
@@ -190,8 +192,24 @@ class EntitlementEvaluator {
   Future<_LoadedEntitlements?> _load() async {
     final userId = _dataSource.currentUserId;
     if (userId == null) return null;
-    final context = await _dataSource.loadTenantContext(userId);
+    final pending = _inFlightLoads[userId];
+    if (pending != null) return pending;
+
+    late final Future<_LoadedEntitlements?> load;
+    load = _loadForUser(userId).whenComplete(() {
+      if (identical(_inFlightLoads[userId], load)) {
+        _inFlightLoads.remove(userId);
+      }
+    });
+    _inFlightLoads[userId] = load;
+    return load;
+  }
+
+  Future<_LoadedEntitlements?> _loadForUser(String userId) async {
+    final context =
+        _contextCache[userId] ?? await _dataSource.loadTenantContext(userId);
     if (context == null) return null;
+    _contextCache[userId] = context;
     final cached = _cache[context.tenantId];
     if (cached != null) {
       return _LoadedEntitlements(context.tenantId, cached, true);
@@ -286,7 +304,11 @@ class EntitlementEvaluator {
 
   void planChanged() => invalidateAll();
 
-  void invalidateAll() => _cache.clear();
+  void invalidateAll() {
+    _cache.clear();
+    _contextCache.clear();
+    _inFlightLoads.clear();
+  }
 
   static num? _normalizeLimit(num? value) =>
       value != null && value < 0 ? null : value;

@@ -12,7 +12,10 @@ final accountsRepositoryProvider = Provider<AccountsRepository>((ref) {
 });
 
 Future<void> _requireAccount(Ref ref, String feature) async {
-  if (!await ref.read(entitlementEvaluatorProvider).hasFeature(feature)) {
+  if (!await hasFeatureWithCompatibility(
+    ref.read(entitlementEvaluatorProvider),
+    feature,
+  )) {
     throw EntitlementDeniedException(feature);
   }
 }

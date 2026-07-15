@@ -12,7 +12,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 class ProcurementRepository {
-  static const _networkTimeout = Duration(milliseconds: 1200);
+  // Procurement RPCs perform multiple transactional writes. A 1.2 second
+  // timeout was short enough to classify successful server commits as offline.
+  static const _networkTimeout = Duration(seconds: 8);
 
   final SupabaseClient _client;
   final ProcurementEntitlementGate _entitlements;
@@ -525,8 +527,24 @@ class ProcurementRepository {
     if (mutations.isEmpty) return;
 
     final remaining = <OfflineMutation>[];
+    final failedPurchaseOrderIds = <String>{};
 
     for (final mutation in mutations) {
+      final dependentPoId = switch (mutation.type) {
+        'mark_po_sent' => mutation.payload['po_id'] as String?,
+        'receive_po_goods' =>
+          (mutation.payload['po'] as Map?)?['id'] as String?,
+        _ => null,
+      };
+
+      // Preserve queue dependency: do not send child mutations when creating
+      // their parent PO failed earlier in this sync pass.
+      if (dependentPoId != null &&
+          failedPurchaseOrderIds.contains(dependentPoId)) {
+        remaining.add(mutation);
+        continue;
+      }
+
       try {
         switch (mutation.type) {
           case 'upsert_supplier':
@@ -610,6 +628,11 @@ class ProcurementRepository {
         }
       } catch (e) {
         debugPrint('Procurement sync failed: $e');
+        if (mutation.type == 'create_purchase_order') {
+          final po = mutation.payload['po'] as Map?;
+          final poId = po?['id'] as String?;
+          if (poId != null) failedPurchaseOrderIds.add(poId);
+        }
         remaining.add(mutation);
       }
     }

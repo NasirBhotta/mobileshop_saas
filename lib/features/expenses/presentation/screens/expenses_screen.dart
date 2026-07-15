@@ -592,7 +592,7 @@ class _ExpenseCard extends ConsumerWidget {
   void _confirmVoid(BuildContext context, WidgetRef ref, ExpenseModel expense) {
     showDialog(
       context: context,
-      builder: (_) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Void Expense?'),
           content: const Text(
@@ -600,7 +600,7 @@ class _ExpenseCard extends ConsumerWidget {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -609,9 +609,9 @@ class _ExpenseCard extends ConsumerWidget {
                     .read(expenseControllerProvider.notifier)
                     .voidExpense(expense);
 
-                if (!context.mounted) return;
+                if (!dialogContext.mounted || !context.mounted) return;
 
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(

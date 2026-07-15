@@ -451,12 +451,12 @@ begin
     raise exception 'Cannot receive goods against cancelled PO.';
   end if;
 
-  if v_po.status = 'received' then
-    raise exception 'PO is already fully received.';
-  end if;
-
   if exists (select 1 from public.goods_receipts where id = p_receipt_id) then
     return p_receipt_id;
+  end if;
+
+  if v_po.status = 'received' then
+    raise exception 'PO is already fully received.';
   end if;
 
   if jsonb_array_length(p_items) = 0 then

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 
 void main() {
@@ -101,6 +102,30 @@ void main() {
     expect(await evaluator.getLimit('expenses.history_days'), 365);
   });
 
+  test('module access enables missing granular expense and account keys', () async {
+    final evaluator = EntitlementEvaluator(
+      dataSource: _FakeEntitlementDataSource(
+        snapshot: const TenantEntitlementSnapshot(
+          subscriptionPlanKey: 'starter',
+          planFeatures: [
+            EntitlementFeatureValue(key: 'expenses.access', enabled: true),
+            EntitlementFeatureValue(key: 'accounts.access', enabled: true),
+          ],
+        ),
+      ),
+      clock: () => now,
+    );
+
+    expect(
+      await hasFeatureWithCompatibility(evaluator, 'expenses.core'),
+      isTrue,
+    );
+    expect(
+      await hasFeatureWithCompatibility(evaluator, 'accounts.core'),
+      isTrue,
+    );
+  });
+
   test(
     'cache invalidates after subscription, plan, and override changes',
     () async {
@@ -140,6 +165,34 @@ void main() {
       expect(source.loadCount, 5);
     },
   );
+
+  test(
+    'concurrent feature checks share one context and snapshot load',
+    () async {
+      final source = _FakeEntitlementDataSource(
+        snapshot: const TenantEntitlementSnapshot(
+          subscriptionPlanKey: 'starter',
+          planFeatures: [
+            EntitlementFeatureValue(key: 'inventory.access', enabled: true),
+          ],
+        ),
+      );
+      final evaluator = EntitlementEvaluator(dataSource: source);
+
+      final results = await Future.wait([
+        for (var index = 0; index < 12; index++)
+          evaluator.hasFeature('inventory.access'),
+      ]);
+
+      expect(results, everyElement(isTrue));
+      expect(source.contextLoadCount, 1);
+      expect(source.loadCount, 1);
+
+      await evaluator.hasFeature('inventory.access');
+      expect(source.contextLoadCount, 1);
+      expect(source.loadCount, 1);
+    },
+  );
 }
 
 class _FakeEntitlementDataSource implements EntitlementDataSource {
@@ -148,6 +201,7 @@ class _FakeEntitlementDataSource implements EntitlementDataSource {
   String? compatibilityPlanKey;
   TenantEntitlementSnapshot snapshot;
   int loadCount = 0;
+  int contextLoadCount = 0;
 
   _FakeEntitlementDataSource({
     required this.snapshot,
@@ -158,11 +212,13 @@ class _FakeEntitlementDataSource implements EntitlementDataSource {
   String? get currentUserId => userId;
 
   @override
-  Future<TenantEntitlementContext?> loadTenantContext(String userId) async =>
-      TenantEntitlementContext(
-        tenantId: tenantId,
-        compatibilityPlanKey: compatibilityPlanKey,
-      );
+  Future<TenantEntitlementContext?> loadTenantContext(String userId) async {
+    contextLoadCount++;
+    return TenantEntitlementContext(
+      tenantId: tenantId,
+      compatibilityPlanKey: compatibilityPlanKey,
+    );
+  }
 
   @override
   Future<TenantEntitlementSnapshot> loadSnapshot(String tenantId) async {

@@ -12,7 +12,7 @@ class NavigationLoadingController extends StateNotifier<bool> {
 
   Timer? _timer;
 
-  void showFor([Duration duration = const Duration(milliseconds: 700)]) {
+  void showFor([Duration duration = const Duration(milliseconds: 180)]) {
     _timer?.cancel();
     state = true;
     _timer = Timer(duration, () => state = false);

@@ -69,7 +69,7 @@ create table if not exists public.expenses (
   due_date date,
 
   category_id uuid references public.expense_categories(id) on delete set null,
-  category_name text not null,
+  category_name text,
 
   amount numeric not null default 0 check (amount >= 0),
   payment_mode text not null default 'cash',
