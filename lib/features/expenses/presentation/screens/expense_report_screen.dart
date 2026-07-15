@@ -11,6 +11,7 @@ class ExpenseReportScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final reportAsync = ref.watch(expenseReportProvider);
     final range = ref.watch(expenseDateRangeProvider);
+    final historyLimit = ref.watch(expenseHistoryLimitProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Expense Report')),
@@ -60,6 +61,7 @@ class ExpenseReportScreen extends ConsumerWidget {
                                           Expanded(
                                             child: _ExpenseSummaryCard(
                                               report: report,
+                                              historyLimit: historyLimit,
                                             ),
                                           ),
                                         ],
@@ -67,7 +69,10 @@ class ExpenseReportScreen extends ConsumerWidget {
                                     else ...[
                                       _ProfitSummaryCard(report: report),
                                       const SizedBox(height: 12),
-                                      _ExpenseSummaryCard(report: report),
+                                      _ExpenseSummaryCard(
+                                        report: report,
+                                        historyLimit: historyLimit,
+                                      ),
                                     ],
                                     const SizedBox(height: 16),
                                     if (isWide)
@@ -386,8 +391,9 @@ class _ProfitSummaryCard extends StatelessWidget {
 
 class _ExpenseSummaryCard extends StatelessWidget {
   final ExpenseProfitReportModel report;
+  final AsyncValue<num?> historyLimit;
 
-  const _ExpenseSummaryCard({required this.report});
+  const _ExpenseSummaryCard({required this.report, required this.historyLimit});
 
   @override
   Widget build(BuildContext context) {
@@ -406,7 +412,14 @@ class _ExpenseSummaryCard extends StatelessWidget {
           label: 'Report Range',
           value: '${_dateText(report.dateFrom)} - ${_dateText(report.dateTo)}',
         ),
-        _PlainInfoRow(label: 'Plan Limit', value: _planLimitText(report.plan)),
+        _PlainInfoRow(
+          label: 'Plan Limit',
+          value: historyLimit.when(
+            data: _historyLimitText,
+            loading: () => 'Loading...',
+            error: (_, _) => 'Unavailable',
+          ),
+        ),
       ],
     );
   }
@@ -642,18 +655,14 @@ class _ReportErrorView extends StatelessWidget {
   }
 }
 
-String _planLimitText(String plan) {
-  final normalized = plan.toLowerCase();
-
-  if (normalized == 'starter') {
+String _historyLimitText(num? days) {
+  if (days == 30) {
     return 'Last 30 days';
   }
-
-  if (normalized == 'business') {
+  if (days == 365) {
     return 'Up to 1 year';
   }
-
-  return 'Unlimited';
+  return days == null ? 'Unlimited' : 'Last ${days.toInt()} days';
 }
 
 String _dateText(DateTime date) {

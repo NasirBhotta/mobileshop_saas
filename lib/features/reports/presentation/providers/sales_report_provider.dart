@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/core/authorization/permission_provider.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/reports/data/models/sales_report_models.dart';
 import 'package:mobileshop_saas/features/reports/data/repositories/sales_report_repository.dart';
 
@@ -18,6 +19,7 @@ class SalesReportDateRange {
 final salesReportRepositoryProvider = Provider<SalesReportRepository>((ref) {
   return SalesReportRepository(
     permissions: ref.watch(permissionEvaluatorProvider),
+    entitlements: ref.watch(entitlementEvaluatorProvider),
   );
 });
 

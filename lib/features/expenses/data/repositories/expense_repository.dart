@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/expenses/data/local/expense_local_store.dart';
@@ -13,7 +14,14 @@ class ExpenseRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
   static const _receiptBucket = 'expense-receipts';
 
-  final SupabaseClient _client = Supabase.instance.client;
+  final SupabaseClient _client;
+  final EntitlementEvaluator _entitlements;
+
+  ExpenseRepository({
+    SupabaseClient? client,
+    required EntitlementEvaluator entitlements,
+  }) : _client = client ?? Supabase.instance.client,
+       _entitlements = entitlements;
 
   User get _currentUser {
     final user = _client.auth.currentUser;
@@ -802,7 +810,12 @@ class ExpenseRepository {
     final branchId = await _branchId(tenantId);
     final plan = await _tenantPlan(tenantId);
 
-    _validateReportRangeByPlan(plan: plan, dateFrom: dateFrom, dateTo: dateTo);
+    final historyLimit = await _entitlements.getLimit('expenses.history_days');
+    _validateReportRange(
+      historyLimit: historyLimit,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+    );
 
     try {
       final data = await _client
@@ -833,8 +846,8 @@ class ExpenseRepository {
     }
   }
 
-  void _validateReportRangeByPlan({
-    required String plan,
+  void _validateReportRange({
+    required num? historyLimit,
     required DateTime dateFrom,
     required DateTime dateTo,
   }) {
@@ -844,12 +857,16 @@ class ExpenseRepository {
 
     final days = dateTo.difference(dateFrom).inDays + 1;
 
-    if (plan == 'starter' && days > 30) {
-      throw Exception('Starter plan can view only last 30 days.');
-    }
-
-    if (plan == 'business' && days > 365) {
-      throw Exception('Business plan can view up to 1 year.');
+    if (historyLimit != null && days > historyLimit) {
+      if (historyLimit == 30) {
+        throw Exception('Starter plan can view only last 30 days.');
+      }
+      if (historyLimit == 365) {
+        throw Exception('Business plan can view up to 1 year.');
+      }
+      throw Exception(
+        'Expense history is limited to ${historyLimit.toInt()} days.',
+      );
     }
   }
 

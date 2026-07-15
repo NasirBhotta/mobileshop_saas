@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/expenses/data/models/expense_models.dart';
 import 'package:mobileshop_saas/features/expenses/data/repositories/expense_repository.dart';
 
@@ -15,7 +16,15 @@ class ExpenseDateRange {
 }
 
 final expenseRepositoryProvider = Provider<ExpenseRepository>((ref) {
-  return ExpenseRepository();
+  return ExpenseRepository(
+    entitlements: ref.watch(entitlementEvaluatorProvider),
+  );
+});
+
+final expenseHistoryLimitProvider = FutureProvider<num?>((ref) {
+  return ref
+      .watch(entitlementEvaluatorProvider)
+      .getLimit('expenses.history_days');
 });
 
 // ════════════════════════════════════════

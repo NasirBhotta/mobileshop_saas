@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/authorization/permission_evaluator.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/reports/data/local/sales_report_local_store.dart';
@@ -14,12 +15,15 @@ class SalesReportRepository {
 
   final SupabaseClient _client;
   final PermissionEvaluator _permissions;
+  final EntitlementEvaluator _entitlements;
 
   SalesReportRepository({
     SupabaseClient? client,
     required PermissionEvaluator permissions,
+    required EntitlementEvaluator entitlements,
   }) : _client = client ?? Supabase.instance.client,
-       _permissions = permissions;
+       _permissions = permissions,
+       _entitlements = entitlements;
 
   User get _currentUser {
     final user = _client.auth.currentUser;
@@ -125,11 +129,6 @@ class SalesReportRepository {
     }
   }
 
-  bool _exportAllowedByPlan(String plan) {
-    final normalized = plan.toLowerCase();
-    return normalized == 'business' || normalized == 'enterprise';
-  }
-
   Future<bool> _canAccessAllBranches() async {
     return (await _permissions.can('report.all_branches.view')).isAllowed;
   }
@@ -160,7 +159,7 @@ class SalesReportRepository {
 
     final branchId = allBranches ? null : await _branchId(tenantId);
     final plan = await _tenantPlan(tenantId);
-    final exportAllowed = _exportAllowedByPlan(plan);
+    final exportAllowed = await _entitlements.hasFeature('reports.export');
 
     try {
       final report = await SalesReportLocalStore.buildLocalReport(
@@ -230,14 +229,11 @@ class SalesReportRepository {
     required DateTime dateTo,
     bool allBranches = false,
   }) async {
-    final tenantId = await _tenantId();
     if (allBranches) {
       await _ensureAllBranchesAccess();
     }
 
-    final plan = await _tenantPlan(tenantId);
-
-    if (!_exportAllowedByPlan(plan)) {
+    if (!await _entitlements.hasFeature('reports.export')) {
       throw Exception(
         'CSV/PDF export is available only on Business and Enterprise plans.',
       );
@@ -388,13 +384,11 @@ class SalesReportRepository {
   }) async {
     final tenantId = await _tenantId();
     final currentBranchId = await _branchId(tenantId);
-    final plan = await _tenantPlan(tenantId);
-
     if (reportScope == SalesReportScope.allBranches) {
       await _ensureAllBranchesAccess();
     }
 
-    if (!_exportAllowedByPlan(plan)) {
+    if (!await _entitlements.hasFeature('reports.scheduling')) {
       throw Exception(
         'Scheduled reports are available only on Business and Enterprise plans.',
       );

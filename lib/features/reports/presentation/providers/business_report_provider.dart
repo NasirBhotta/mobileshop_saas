@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/core/authorization/permission_provider.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/reports/data/models/business_report_models.dart';
 import 'package:mobileshop_saas/features/reports/data/repositories/business_report_repository.dart';
 
@@ -24,6 +25,7 @@ final businessReportRepositoryProvider = Provider<BusinessReportRepository>((
 ) {
   return BusinessReportRepository(
     permissions: ref.watch(permissionEvaluatorProvider),
+    entitlements: ref.watch(entitlementEvaluatorProvider),
   );
 });
 
