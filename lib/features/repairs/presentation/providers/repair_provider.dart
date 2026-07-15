@@ -5,6 +5,8 @@ import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import '../../data/models/repair_status_log_model.dart';
 import '../../data/models/repair_ticket_model.dart';
 import '../../data/repositories/repair_repository.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
+import '../../../../core/entitlements/entitlement_evaluator.dart';
 
 /// Repository provider.
 ///
@@ -16,7 +18,9 @@ import '../../data/repositories/repair_repository.dart';
 /// - dependency centralized
 /// - future mein mock repository lagana easy
 final repairRepositoryProvider = Provider<RepairRepository>((ref) {
-  return RepairRepository();
+  return RepairRepository(
+    entitlementEvaluator: ref.watch(entitlementEvaluatorProvider),
+  );
 });
 
 /// Status filter provider.
@@ -128,6 +132,17 @@ class RepairTicketController
     state = const AsyncLoading();
 
     try {
+      if (!await _ref
+          .read(entitlementEvaluatorProvider)
+          .hasFeature('repairs.tickets')) {
+        throw const EntitlementDeniedException('repairs.tickets');
+      }
+      if (imei?.trim().isNotEmpty == true &&
+          !await _ref
+              .read(entitlementEvaluatorProvider)
+              .hasFeature('repairs.imei_linking')) {
+        throw const EntitlementDeniedException('repairs.imei_linking');
+      }
       final repository = _ref.read(repairRepositoryProvider);
 
       final ticket = await repository.createRepairTicket(
@@ -170,6 +185,11 @@ class RepairTicketController
     state = const AsyncLoading();
 
     try {
+      if (!await _ref
+          .read(entitlementEvaluatorProvider)
+          .hasFeature('repairs.tickets')) {
+        throw const EntitlementDeniedException('repairs.tickets');
+      }
       final repository = _ref.read(repairRepositoryProvider);
 
       final updatedTicket = await repository.updateRepairTicketStatus(

@@ -47,13 +47,13 @@ class DesktopNav extends ConsumerWidget {
       icon: Icons.build_rounded,
       label: AppStrings.navRepairs,
       path: '/repairs',
-      feature: 'repairs.access',
+      feature: 'repairs.tickets',
     ),
     (
       icon: Icons.local_shipping_rounded,
       label: AppStrings.navSuppliers,
       path: '/suppliers',
-      feature: 'suppliers.access',
+      feature: 'procurement.suppliers',
     ),
     (
       icon: Icons.receipt_long_rounded,
@@ -94,7 +94,9 @@ class DesktopNav extends ConsumerWidget {
         >[];
     for (var index = 0; index < _items.length; index++) {
       final item = _items[index];
-      final access = ref.watch(featureEntitlementProvider(item.feature));
+      final access = ref.watch(
+        compatibleFeatureEntitlementProvider(item.feature),
+      );
       if (access.value != false) {
         visibleItems.add((
           originalIndex: index,

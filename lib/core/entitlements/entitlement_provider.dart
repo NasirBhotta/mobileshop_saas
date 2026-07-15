@@ -37,6 +37,26 @@ final featureEntitlementProvider = FutureProvider.family<bool, String>((
 
 bool isEntitledActionVisible(bool? enabled) => enabled != false;
 
+Future<bool> hasFeatureWithCompatibility(
+  EntitlementEvaluator evaluator,
+  String key,
+) async {
+  if (!key.startsWith('procurement.')) return evaluator.hasFeature(key);
+  final specific = await evaluator.evaluateFeature(key);
+  return specific.source == EntitlementValueSource.unavailable
+      ? evaluator.hasFeature('purchases.procurement')
+      : specific.isEnabled;
+}
+
+final compatibleFeatureEntitlementProvider =
+    FutureProvider.family<bool, String>((ref, key) {
+      ref.watch(entitlementRevisionProvider);
+      return hasFeatureWithCompatibility(
+        ref.watch(entitlementEvaluatorProvider),
+        key,
+      );
+    });
+
 final entitlementRealtimeRefreshProvider = Provider<void>((ref) {
   final client = Supabase.instance.client;
   final channel = client.channel('tenant-entitlement-refresh');
@@ -86,7 +106,19 @@ const posActionRouteEntitlements = <String, String>{
   '/pos/reprint': 'pos.receipt_printing',
 };
 
+const repairProcurementRouteEntitlements = <String, String>{
+  '/purchase-orders/receive': 'procurement.goods_receipts',
+  '/repairs': 'repairs.tickets',
+  '/suppliers': 'procurement.suppliers',
+  '/purchase-orders': 'procurement.purchase_orders',
+};
+
 String? requiredFeatureForLocation(String location) {
+  for (final entry in repairProcurementRouteEntitlements.entries) {
+    if (location == entry.key || location.startsWith('${entry.key}/')) {
+      return entry.value;
+    }
+  }
   for (final entry in posActionRouteEntitlements.entries) {
     if (location == entry.key || location.startsWith('${entry.key}/')) {
       return entry.value;

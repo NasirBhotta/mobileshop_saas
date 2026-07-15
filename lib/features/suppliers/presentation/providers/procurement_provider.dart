@@ -1,11 +1,22 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
 import 'package:mobileshop_saas/features/suppliers/data/repositories/procurement_repository.dart';
 
 final procurementRepositoryProvider = Provider<ProcurementRepository>((ref) {
-  return ProcurementRepository();
+  return ProcurementRepository(
+    entitlementEvaluator: ref.watch(entitlementEvaluatorProvider),
+  );
 });
+
+Future<void> _requireProcurement(Ref ref, String feature) async {
+  final evaluator = ref.read(entitlementEvaluatorProvider);
+  if (!await hasFeatureWithCompatibility(evaluator, feature)) {
+    throw EntitlementDeniedException(feature);
+  }
+}
 
 final suppliersProvider = FutureProvider.autoDispose<List<SupplierModel>>((
   ref,
@@ -50,6 +61,7 @@ class SupplierController extends StateNotifier<AsyncValue<SupplierModel?>> {
     state = const AsyncLoading();
 
     try {
+      await _requireProcurement(_ref, 'procurement.suppliers');
       final supplier = await _ref
           .read(procurementRepositoryProvider)
           .createSupplier(
@@ -95,6 +107,7 @@ class PurchaseOrderController
     state = const AsyncLoading();
 
     try {
+      await _requireProcurement(_ref, 'procurement.purchase_orders');
       final po = await _ref
           .read(procurementRepositoryProvider)
           .createPurchaseOrder(
@@ -117,6 +130,7 @@ class PurchaseOrderController
     state = const AsyncLoading();
 
     try {
+      await _requireProcurement(_ref, 'procurement.purchase_orders');
       await _ref.read(procurementRepositoryProvider).markPurchaseOrderSent(po);
       state = AsyncData(po.copyWith(status: PurchaseOrderStatus.sent));
       _ref.invalidate(purchaseOrdersProvider);
@@ -144,6 +158,7 @@ class ReceiveGoodsController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
+      await _requireProcurement(_ref, 'procurement.goods_receipts');
       await _ref
           .read(procurementRepositoryProvider)
           .receiveGoods(po: po, note: note, inputs: inputs);
@@ -177,6 +192,7 @@ class SupplierPaymentController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
+      await _requireProcurement(_ref, 'procurement.supplier_payments');
       await _ref
           .read(procurementRepositoryProvider)
           .recordSupplierPayment(

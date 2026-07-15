@@ -25,6 +25,10 @@ class MobileNav extends ConsumerWidget {
     for (final key in routeFeatureEntitlements.values.toSet()) {
       enabled[key] = ref.watch(featureEntitlementProvider(key)).value != false;
     }
+    for (final key in const ['repairs.tickets', 'procurement.suppliers']) {
+      enabled[key] =
+          ref.watch(compatibleFeatureEntitlementProvider(key)).value != false;
+    }
     final items = <({int originalIndex, String? path, Widget destination})>[
       if (enabled['dashboard.access']!)
         (
@@ -55,7 +59,7 @@ class MobileNav extends ConsumerWidget {
             label: AppStrings.navPos,
           ),
         ),
-      if (enabled['repairs.access']!)
+      if (enabled['repairs.tickets']!)
         (
           originalIndex: 3,
           path: '/repairs',
@@ -138,7 +142,7 @@ class MobileNav extends ConsumerWidget {
                         context.go('/customers');
                       },
                     ),
-                  if (enabled['suppliers.access']!)
+                  if (enabled['procurement.suppliers']!)
                     ListTile(
                       leading: const Icon(
                         Icons.local_shipping_rounded,

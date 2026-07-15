@@ -1,17 +1,32 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/suppliers/data/local/procurement_local_store.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
+import 'package:mobileshop_saas/features/suppliers/domain/procurement_entitlement_gate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 class ProcurementRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
 
-  final SupabaseClient _client = Supabase.instance.client;
+  final SupabaseClient _client;
+  final ProcurementEntitlementGate _entitlements;
+
+  ProcurementRepository({
+    SupabaseClient? client,
+    EntitlementEvaluator? entitlementEvaluator,
+  }) : _client = client ?? Supabase.instance.client,
+       _entitlements = ProcurementEntitlementGate(
+         entitlementEvaluator ??
+             EntitlementEvaluator(
+               dataSource: SupabaseEntitlementDataSource(client: client),
+             ),
+       );
 
   User get _currentUser {
     final user = _client.auth.currentUser;
@@ -81,6 +96,7 @@ class ProcurementRepository {
     String? paymentTerms,
     String? notes,
   }) async {
+    await _entitlements.require('procurement.suppliers');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -129,6 +145,7 @@ class ProcurementRepository {
   }
 
   Future<List<SupplierModel>> fetchSuppliers() async {
+    await _entitlements.require('procurement.suppliers');
     final tenantId = await _tenantId();
 
     final cached = await ProcurementLocalStore.loadSuppliers(tenantId);
@@ -175,6 +192,7 @@ class ProcurementRepository {
     String? notes,
     required List<PurchaseOrderItemModel> items,
   }) async {
+    await _entitlements.require('procurement.purchase_orders');
     if (items.isEmpty) throw Exception('Add at least one product.');
 
     final tenantId = await _tenantId();
@@ -259,6 +277,7 @@ class ProcurementRepository {
   Future<List<PurchaseOrderModel>> fetchPurchaseOrders({
     PurchaseOrderStatus? status,
   }) async {
+    await _entitlements.require('procurement.purchase_orders');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -285,6 +304,7 @@ class ProcurementRepository {
   }
 
   Future<PurchaseOrderModel?> fetchPurchaseOrderById(String poId) async {
+    await _entitlements.require('procurement.purchase_orders');
     try {
       final poRows = await _client
           .from('purchase_orders')
@@ -366,6 +386,7 @@ class ProcurementRepository {
   }
 
   Future<void> markPurchaseOrderSent(PurchaseOrderModel po) async {
+    await _entitlements.require('procurement.purchase_orders');
     final updated = po.copyWith(
       status: PurchaseOrderStatus.sent,
       sentAt: DateTime.now(),
@@ -398,6 +419,7 @@ class ProcurementRepository {
     String? note,
     required List<GoodsReceiptItemInput> inputs,
   }) async {
+    await _entitlements.require('procurement.goods_receipts');
     final receiptId = const Uuid().v4();
     final receiptNo = _generateNo('GR', receiptId, DateTime.now());
 
@@ -449,6 +471,7 @@ class ProcurementRepository {
     String? method,
     String? note,
   }) async {
+    await _entitlements.require('procurement.supplier_payments');
     if (amount <= 0) throw Exception('Amount must be greater than zero.');
 
     final tenantId = await _tenantId();

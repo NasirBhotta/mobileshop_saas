@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/providers/procurement_provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/procurement_models.dart';
 
 class SuppliersScreen extends ConsumerWidget {
@@ -22,6 +23,15 @@ class _SuppliersBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final suppliersAsync = ref.watch(suppliersProvider);
     final syncState = ref.watch(procurementSyncControllerProvider);
+    final purchaseOrdersEnabled =
+        ref
+            .watch(
+              compatibleFeatureEntitlementProvider(
+                'procurement.purchase_orders',
+              ),
+            )
+            .value !=
+        false;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -54,14 +64,20 @@ class _SuppliersBody extends ConsumerWidget {
                             : const Icon(Icons.sync_rounded),
                     color: AppColors.textSecondary,
                   );
-                  final purchaseOrdersButton = OutlinedButton.icon(
-                    onPressed:
-                        syncState.isLoading
-                            ? null
-                            : () => context.go('/purchase-orders'),
-                    icon: const Icon(Icons.receipt_long_rounded, size: 18),
-                    label: const Text('POs'),
-                  );
+                  final purchaseOrdersButton =
+                      purchaseOrdersEnabled
+                          ? OutlinedButton.icon(
+                            onPressed:
+                                syncState.isLoading
+                                    ? null
+                                    : () => context.go('/purchase-orders'),
+                            icon: const Icon(
+                              Icons.receipt_long_rounded,
+                              size: 18,
+                            ),
+                            label: const Text('POs'),
+                          )
+                          : const SizedBox.shrink();
                   final addButton = FilledButton.icon(
                     onPressed:
                         syncState.isLoading
@@ -297,6 +313,24 @@ class _SupplierCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final paymentsEnabled =
+        ref
+            .watch(
+              compatibleFeatureEntitlementProvider(
+                'procurement.supplier_payments',
+              ),
+            )
+            .value !=
+        false;
+    final purchaseOrdersEnabled =
+        ref
+            .watch(
+              compatibleFeatureEntitlementProvider(
+                'procurement.purchase_orders',
+              ),
+            )
+            .value !=
+        false;
     return Card(
       elevation: 0,
       clipBehavior: Clip.antiAlias,
@@ -333,9 +367,15 @@ class _SupplierCard extends ConsumerWidget {
             const SizedBox(height: 10),
             _SupplierCardActions(
               compact: compact,
-              onPayment: () => _showPaymentDialog(context, ref, supplier),
+              onPayment:
+                  paymentsEnabled
+                      ? () => _showPaymentDialog(context, ref, supplier)
+                      : null,
               onNewPo:
-                  () => context.go('/purchase-orders/new', extra: supplier),
+                  purchaseOrdersEnabled
+                      ? () =>
+                          context.go('/purchase-orders/new', extra: supplier)
+                      : null,
             ),
           ],
         ),
@@ -437,8 +477,8 @@ class _SupplierDetailLine extends StatelessWidget {
 
 class _SupplierCardActions extends StatelessWidget {
   final bool compact;
-  final VoidCallback onPayment;
-  final VoidCallback onNewPo;
+  final VoidCallback? onPayment;
+  final VoidCallback? onNewPo;
 
   const _SupplierCardActions({
     required this.compact,
@@ -452,27 +492,38 @@ class _SupplierCardActions extends StatelessWidget {
       builder: (context, constraints) {
         final stackButtons = compact || constraints.maxWidth < 320;
 
-        final paymentButton = OutlinedButton(
-          onPressed: onPayment,
-          child: const Text('Payment', overflow: TextOverflow.ellipsis),
-        );
-        final poButton = FilledButton(
-          onPressed: onNewPo,
-          child: const Text('New PO', overflow: TextOverflow.ellipsis),
-        );
+        final buttons = <Widget>[
+          if (onPayment != null)
+            OutlinedButton(
+              onPressed: onPayment,
+              child: const Text('Payment', overflow: TextOverflow.ellipsis),
+            ),
+          if (onNewPo != null)
+            FilledButton(
+              onPressed: onNewPo,
+              child: const Text('New PO', overflow: TextOverflow.ellipsis),
+            ),
+        ];
+        if (buttons.isEmpty) return const SizedBox.shrink();
 
         if (stackButtons) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [paymentButton, const SizedBox(height: 8), poButton],
+            children: [
+              for (var index = 0; index < buttons.length; index++) ...[
+                if (index > 0) const SizedBox(height: 8),
+                buttons[index],
+              ],
+            ],
           );
         }
 
         return Row(
           children: [
-            Expanded(child: paymentButton),
-            const SizedBox(width: 8),
-            Expanded(child: poButton),
+            for (var index = 0; index < buttons.length; index++) ...[
+              if (index > 0) const SizedBox(width: 8),
+              Expanded(child: buttons[index]),
+            ],
           ],
         );
       },

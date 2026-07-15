@@ -126,9 +126,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (location != '/locked-feature') {
         final featureKey = requiredFeatureForLocation(location);
         if (featureKey != null) {
-          final enabled = await ref
-              .read(entitlementEvaluatorProvider)
-              .hasFeature(featureKey);
+          final enabled = await hasFeatureWithCompatibility(
+            ref.read(entitlementEvaluatorProvider),
+            featureKey,
+          );
           if (!enabled) {
             return Uri(
               path: '/locked-feature',

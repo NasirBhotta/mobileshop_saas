@@ -9,11 +9,26 @@ import 'package:mobileshop_saas/features/repairs/data/models/repair_status_log_m
 import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
+import 'package:mobileshop_saas/features/repairs/domain/repair_entitlement_gate.dart';
 
 class RepairRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
 
-  final SupabaseClient _client = Supabase.instance.client;
+  final SupabaseClient _client;
+  final EntitlementEvaluator _entitlements;
+  late final RepairEntitlementGate _gate = RepairEntitlementGate(_entitlements);
+
+  RepairRepository({
+    SupabaseClient? client,
+    EntitlementEvaluator? entitlementEvaluator,
+  }) : _client = client ?? Supabase.instance.client,
+       _entitlements =
+           entitlementEvaluator ??
+           EntitlementEvaluator(
+             dataSource: SupabaseEntitlementDataSource(client: client),
+           );
 
   User get _currentUser {
     final user = _client.auth.currentUser;
@@ -199,6 +214,10 @@ class RepairRepository {
     DateTime? estimatedCompletionAt,
     String? estimateNote,
   }) async {
+    await _gate.require('repairs.tickets');
+    if (imei?.trim().isNotEmpty == true) {
+      await _gate.require('repairs.imei_linking');
+    }
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final userId = _currentUser.id;
@@ -372,6 +391,7 @@ class RepairRepository {
   Future<List<RepairTicketModel>> fetchRepairTickets({
     RepairTicketStatus? status,
   }) async {
+    await _gate.require('repairs.tickets');
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
 
@@ -444,6 +464,7 @@ class RepairRepository {
   // ════════════════════════════════════════
 
   Future<List<RepairStatusLogModel>> fetchStatusLogs(String ticketId) async {
+    await _gate.require('repairs.tickets');
     final cachedLogs = await OfflineStore.loadRepairStatusLogs(ticketId);
 
     if (cachedLogs.isNotEmpty) {
@@ -480,6 +501,7 @@ class RepairRepository {
     String? note,
     double? totalCost,
   }) async {
+    await _gate.require('repairs.tickets');
     if (ticket.status == status) return ticket;
 
     if (!ticket.status.canMoveTo(status)) {

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/providers/procurement_provider.dart';
 
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/procurement_models.dart';
 
 class PurchaseOrdersScreen extends ConsumerWidget {
@@ -12,6 +13,15 @@ class PurchaseOrdersScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ordersAsync = ref.watch(purchaseOrdersProvider);
     final selectedStatus = ref.watch(selectedPOStatusProvider);
+    final canCreate =
+        ref
+            .watch(
+              compatibleFeatureEntitlementProvider(
+                'procurement.purchase_orders',
+              ),
+            )
+            .value !=
+        false;
 
     return Scaffold(
       appBar: AppBar(
@@ -30,11 +40,14 @@ class PurchaseOrdersScreen extends ConsumerWidget {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go('/purchase-orders/new'),
-        icon: const Icon(Icons.add),
-        label: const Text('New PO'),
-      ),
+      floatingActionButton:
+          canCreate
+              ? FloatingActionButton.extended(
+                onPressed: () => context.go('/purchase-orders/new'),
+                icon: const Icon(Icons.add),
+                label: const Text('New PO'),
+              )
+              : null,
       body: Column(
         children: [
           SizedBox(
@@ -126,6 +139,15 @@ class _POCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final goodsReceiptsEnabled =
+        ref
+            .watch(
+              compatibleFeatureEntitlementProvider(
+                'procurement.goods_receipts',
+              ),
+            )
+            .value !=
+        false;
     final canSend = po.status == PurchaseOrderStatus.draft;
     final canReceive =
         po.status == PurchaseOrderStatus.sent ||
@@ -170,7 +192,7 @@ class _POCard extends ConsumerWidget {
                     },
                     child: const Text('Send'),
                   ),
-                if (canReceive)
+                if (canReceive && goodsReceiptsEnabled)
                   FilledButton(
                     onPressed:
                         () => context.go('/purchase-orders/receive', extra: po),

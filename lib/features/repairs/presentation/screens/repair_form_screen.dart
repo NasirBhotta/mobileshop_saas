@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/providers/repair_provider.dart';
@@ -58,6 +59,9 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final imeiEnabled =
+        ref.watch(featureEntitlementProvider('repairs.imei_linking')).value !=
+        false;
     final productsAsync = ref.watch(productsProvider);
     final createState = ref.watch(repairTicketControllerProvider);
     final isSaving = createState.isLoading;
@@ -183,13 +187,14 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                               hint: 'Example: Black',
                               enabled: !isSaving,
                             ),
-                            _AppTextField(
-                              controller: _imeiController,
-                              label: 'IMEI optional',
-                              hint: 'Example: 356789XXXXXXXXX',
-                              enabled: !isSaving,
-                              keyboardType: TextInputType.number,
-                            ),
+                            if (imeiEnabled)
+                              _AppTextField(
+                                controller: _imeiController,
+                                label: 'IMEI optional',
+                                hint: 'Example: 356789XXXXXXXXX',
+                                enabled: !isSaving,
+                                keyboardType: TextInputType.number,
+                              ),
                           ],
                         ),
                       ],
