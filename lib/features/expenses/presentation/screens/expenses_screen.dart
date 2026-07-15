@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/expenses/presentation/providers/expense_provider.dart';
 
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/expense_models.dart';
 
 class ExpensesScreen extends ConsumerWidget {
@@ -12,21 +13,29 @@ class ExpensesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final expensesAsync = ref.watch(expensesProvider);
     final syncState = ref.watch(expenseSyncControllerProvider);
+    final reportingEnabled =
+        ref.watch(featureEntitlementProvider('expenses.reporting')).value !=
+        false;
+    final recurringEnabled =
+        ref.watch(featureEntitlementProvider('expenses.recurring')).value !=
+        false;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Expenses'),
         actions: [
-          IconButton(
-            tooltip: 'Report',
-            onPressed: () => context.push('/expenses/report'),
-            icon: const Icon(Icons.analytics_outlined),
-          ),
-          IconButton(
-            tooltip: 'Recurring Expenses',
-            onPressed: () => context.push('/expenses/recurring'),
-            icon: const Icon(Icons.repeat),
-          ),
+          if (reportingEnabled)
+            IconButton(
+              tooltip: 'Report',
+              onPressed: () => context.push('/expenses/report'),
+              icon: const Icon(Icons.analytics_outlined),
+            ),
+          if (recurringEnabled)
+            IconButton(
+              tooltip: 'Recurring Expenses',
+              onPressed: () => context.push('/expenses/recurring'),
+              icon: const Icon(Icons.repeat),
+            ),
           IconButton(
             tooltip: 'Sync',
             onPressed:

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobileshop_saas/core/constants/app_colors.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
 import 'package:mobileshop_saas/features/accounts/presentation/providers/accounts_provider.dart';
 
@@ -93,6 +94,9 @@ class _AccountsContent extends ConsumerWidget {
       0,
       (sum, account) => sum + account.currentBalance,
     );
+    final transfersEnabled =
+        ref.watch(featureEntitlementProvider('accounts.transfers')).value !=
+        false;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -107,7 +111,7 @@ class _AccountsContent extends ConsumerWidget {
                     ? null
                     : () => _showEntryDialog(context, ref, accounts),
             onTransfer:
-                accounts.length < 2
+                accounts.length < 2 || !transfersEnabled
                     ? null
                     : () => _showTransferDialog(context, ref, accounts),
           ),
@@ -191,11 +195,12 @@ class _AccountsHeader extends StatelessWidget {
                   : const Icon(Icons.sync_rounded),
         );
         final actions = [
-          OutlinedButton.icon(
-            onPressed: onTransfer,
-            icon: const Icon(Icons.swap_horiz_rounded, size: 18),
-            label: const Text('Transfer'),
-          ),
+          if (onTransfer != null)
+            OutlinedButton.icon(
+              onPressed: onTransfer,
+              icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+              label: const Text('Transfer'),
+            ),
           OutlinedButton.icon(
             onPressed: onAddAccount,
             icon: const Icon(Icons.account_balance_wallet_rounded, size: 18),

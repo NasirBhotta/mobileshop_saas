@@ -1,11 +1,21 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
 import 'package:mobileshop_saas/features/accounts/data/repositories/accounts_repository.dart';
 
 final accountsRepositoryProvider = Provider<AccountsRepository>((ref) {
-  return AccountsRepository();
+  return AccountsRepository(
+    entitlementEvaluator: ref.watch(entitlementEvaluatorProvider),
+  );
 });
+
+Future<void> _requireAccount(Ref ref, String feature) async {
+  if (!await ref.read(entitlementEvaluatorProvider).hasFeature(feature)) {
+    throw EntitlementDeniedException(feature);
+  }
+}
 
 final accountsProvider = FutureProvider.autoDispose<List<AccountModel>>((ref) {
   return ref.read(accountsRepositoryProvider).fetchAccounts();
@@ -35,6 +45,7 @@ class AccountController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
+      await _requireAccount(_ref, 'accounts.core');
       await _ref
           .read(accountsRepositoryProvider)
           .createAccount(
@@ -62,6 +73,7 @@ class AccountController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
+      await _requireAccount(_ref, 'accounts.core');
       await _ref
           .read(accountsRepositoryProvider)
           .recordTransaction(
@@ -89,6 +101,7 @@ class AccountController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
+      await _requireAccount(_ref, 'accounts.transfers');
       await _ref
           .read(accountsRepositoryProvider)
           .transfer(

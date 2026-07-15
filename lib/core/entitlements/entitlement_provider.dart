@@ -113,7 +113,19 @@ const repairProcurementRouteEntitlements = <String, String>{
   '/purchase-orders': 'procurement.purchase_orders',
 };
 
+const expenseAccountRouteEntitlements = <String, String>{
+  '/expenses/recurring': 'expenses.recurring',
+  '/expenses/report': 'expenses.reporting',
+  '/expenses': 'expenses.core',
+  '/accounts': 'accounts.core',
+};
+
 String? requiredFeatureForLocation(String location) {
+  for (final entry in expenseAccountRouteEntitlements.entries) {
+    if (location == entry.key || location.startsWith('${entry.key}/')) {
+      return entry.value;
+    }
+  }
   for (final entry in repairProcurementRouteEntitlements.entries) {
     if (location == entry.key || location.startsWith('${entry.key}/')) {
       return entry.value;

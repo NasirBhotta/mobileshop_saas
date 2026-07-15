@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/features/expenses/data/models/expense_models.dart';
 import 'package:mobileshop_saas/features/expenses/data/repositories/expense_repository.dart';
 
@@ -12,6 +13,12 @@ class ExpenseDateRange {
 
   ExpenseDateRange copyWith({DateTime? from, DateTime? to}) {
     return ExpenseDateRange(from: from ?? this.from, to: to ?? this.to);
+  }
+}
+
+Future<void> _requireExpense(Ref ref, String feature) async {
+  if (!await ref.read(entitlementEvaluatorProvider).hasFeature(feature)) {
+    throw EntitlementDeniedException(feature);
   }
 }
 
@@ -134,6 +141,7 @@ class ExpenseCategoryController
     state = const AsyncLoading();
 
     try {
+      await _requireExpense(_ref, 'expenses.core');
       final repository = _ref.read(expenseRepositoryProvider);
 
       final category = await repository.createCategory(
@@ -186,6 +194,10 @@ class ExpenseController extends StateNotifier<AsyncValue<ExpenseModel?>> {
     state = const AsyncLoading();
 
     try {
+      await _requireExpense(_ref, 'expenses.core');
+      if (localReceiptPath?.trim().isNotEmpty == true) {
+        await _requireExpense(_ref, 'expenses.receipts');
+      }
       final repository = _ref.read(expenseRepositoryProvider);
 
       final expense = await repository.createExpense(
@@ -220,6 +232,10 @@ class ExpenseController extends StateNotifier<AsyncValue<ExpenseModel?>> {
     state = const AsyncLoading();
 
     try {
+      await _requireExpense(_ref, 'expenses.core');
+      if (localReceiptPath?.trim().isNotEmpty == true) {
+        await _requireExpense(_ref, 'expenses.receipts');
+      }
       final repository = _ref.read(expenseRepositoryProvider);
 
       await repository.confirmExpense(
@@ -250,6 +266,7 @@ class ExpenseController extends StateNotifier<AsyncValue<ExpenseModel?>> {
     state = const AsyncLoading();
 
     try {
+      await _requireExpense(_ref, 'expenses.core');
       final repository = _ref.read(expenseRepositoryProvider);
 
       await repository.voidExpense(expense);
@@ -314,6 +331,7 @@ class RecurringExpenseController
     state = const AsyncLoading();
 
     try {
+      await _requireExpense(_ref, 'expenses.recurring');
       final repository = _ref.read(expenseRepositoryProvider);
 
       final rule = await repository.createRecurringRule(
@@ -350,6 +368,7 @@ class RecurringExpenseController
     state = const AsyncLoading();
 
     try {
+      await _requireExpense(_ref, 'expenses.recurring');
       final repository = _ref.read(expenseRepositoryProvider);
 
       await repository.updateRecurringRuleStatus(rule: rule, status: status);
@@ -370,6 +389,7 @@ class RecurringExpenseController
     state = const AsyncLoading();
 
     try {
+      await _requireExpense(_ref, 'expenses.recurring');
       final repository = _ref.read(expenseRepositoryProvider);
 
       final count = await repository.generateDueRecurringDrafts();
@@ -414,7 +434,11 @@ class ExpenseSyncController extends StateNotifier<AsyncValue<void>> {
       final repository = _ref.read(expenseRepositoryProvider);
 
       await repository.syncOfflineMutations();
-      await repository.generateDueRecurringDrafts();
+      if (await _ref
+          .read(entitlementEvaluatorProvider)
+          .hasFeature('expenses.recurring')) {
+        await repository.generateDueRecurringDrafts();
+      }
 
       state = const AsyncData(null);
 

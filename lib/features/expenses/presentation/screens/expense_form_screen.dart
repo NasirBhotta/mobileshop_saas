@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/expenses/presentation/providers/expense_provider.dart';
 
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/expense_models.dart';
 
 class ExpenseFormScreen extends ConsumerStatefulWidget {
@@ -46,6 +47,9 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
     final categoriesAsync = ref.watch(expenseCategoriesProvider);
     final controllerState = ref.watch(expenseControllerProvider);
     final saving = controllerState.isLoading;
+    final receiptsEnabled =
+        ref.watch(featureEntitlementProvider('expenses.receipts')).value !=
+        false;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Add Expense')),
@@ -165,11 +169,12 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                               label: 'Payee Optional',
                               hint: 'Landlord / WAPDA / Staff member',
                             ),
-                            _AppField(
-                              controller: _receiptPathController,
-                              label: 'Receipt Local Path Optional',
-                              hint: 'For now paste file path if available',
-                            ),
+                            if (receiptsEnabled)
+                              _AppField(
+                                controller: _receiptPathController,
+                                label: 'Receipt Local Path Optional',
+                                hint: 'For now paste file path if available',
+                              ),
                           ],
                         ),
                         const SizedBox(height: 12),

@@ -25,7 +25,12 @@ class MobileNav extends ConsumerWidget {
     for (final key in routeFeatureEntitlements.values.toSet()) {
       enabled[key] = ref.watch(featureEntitlementProvider(key)).value != false;
     }
-    for (final key in const ['repairs.tickets', 'procurement.suppliers']) {
+    for (final key in const [
+      'repairs.tickets',
+      'procurement.suppliers',
+      'expenses.core',
+      'accounts.core',
+    ]) {
       enabled[key] =
           ref.watch(compatibleFeatureEntitlementProvider(key)).value != false;
     }
@@ -158,7 +163,7 @@ class MobileNav extends ConsumerWidget {
                         context.go('/suppliers');
                       },
                     ),
-                  if (enabled['expenses.access']!)
+                  if (enabled['expenses.core']!)
                     ListTile(
                       leading: const Icon(
                         Icons.receipt_long_rounded,
@@ -174,7 +179,7 @@ class MobileNav extends ConsumerWidget {
                         context.go('/expenses');
                       },
                     ),
-                  if (enabled['accounts.access']!)
+                  if (enabled['accounts.core']!)
                     ListTile(
                       leading: const Icon(
                         Icons.account_balance_wallet_rounded,

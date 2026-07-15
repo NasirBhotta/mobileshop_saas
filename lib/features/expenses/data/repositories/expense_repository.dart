@@ -7,6 +7,7 @@ import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/expenses/data/local/expense_local_store.dart';
 import 'package:mobileshop_saas/features/expenses/data/models/expense_models.dart';
+import 'package:mobileshop_saas/features/expenses/domain/expense_entitlement_gate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -16,6 +17,9 @@ class ExpenseRepository {
 
   final SupabaseClient _client;
   final EntitlementEvaluator _entitlements;
+  late final ExpenseEntitlementGate _gate = ExpenseEntitlementGate(
+    _entitlements,
+  );
 
   ExpenseRepository({
     SupabaseClient? client,
@@ -124,6 +128,7 @@ class ExpenseRepository {
   // ════════════════════════════════════════
 
   Future<List<ExpenseCategoryModel>> fetchCategories() async {
+    await _gate.require('expenses.core');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -157,6 +162,7 @@ class ExpenseRepository {
     required String name,
     String? description,
   }) async {
+    await _gate.require('expenses.core');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final now = DateTime.now();
@@ -268,6 +274,10 @@ class ExpenseRepository {
     String? localReceiptPath,
     ExpenseStatus status = ExpenseStatus.confirmed,
   }) async {
+    await _gate.require('expenses.core');
+    if (localReceiptPath?.trim().isNotEmpty == true) {
+      await _gate.require('expenses.receipts');
+    }
     if (amount < 0) {
       throw Exception('Expense amount cannot be negative.');
     }
@@ -341,6 +351,7 @@ class ExpenseRepository {
     ExpenseStatus? status,
     ExpenseSource? source,
   }) async {
+    await _gate.require('expenses.core');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -393,6 +404,7 @@ class ExpenseRepository {
   }
 
   Future<ExpenseModel?> fetchExpenseById(String expenseId) async {
+    await _gate.require('expenses.core');
     try {
       final data = await _client
           .from('expenses')
@@ -488,6 +500,10 @@ class ExpenseRepository {
     double? actualAmount,
     String? localReceiptPath,
   }) async {
+    await _gate.require('expenses.core');
+    if (localReceiptPath?.trim().isNotEmpty == true) {
+      await _gate.require('expenses.receipts');
+    }
     if (actualAmount != null && actualAmount < 0) {
       throw Exception('Expense amount cannot be negative.');
     }
@@ -541,6 +557,7 @@ class ExpenseRepository {
   }
 
   Future<void> voidExpense(ExpenseModel expense) async {
+    await _gate.require('expenses.core');
     await ExpenseLocalStore.voidExpenseLocally(
       expenseId: expense.id,
       voidedBy: _currentUser.id,
@@ -586,6 +603,7 @@ class ExpenseRepository {
     DateTime? endDate,
     int reminderDaysBefore = 3,
   }) async {
+    await _gate.require('expenses.recurring');
     if (estimatedAmount < 0) {
       throw Exception('Estimated amount cannot be negative.');
     }
@@ -654,6 +672,7 @@ class ExpenseRepository {
   Future<List<RecurringExpenseRuleModel>> fetchRecurringRules({
     bool activeOnly = false,
   }) async {
+    await _gate.require('expenses.recurring');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -722,6 +741,7 @@ class ExpenseRepository {
   }
 
   Future<int> generateDueRecurringDrafts() async {
+    await _gate.require('expenses.recurring');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -760,6 +780,7 @@ class ExpenseRepository {
     required RecurringExpenseRuleModel rule,
     required String status,
   }) async {
+    await _gate.require('expenses.recurring');
     if (!['active', 'paused', 'cancelled'].contains(status)) {
       throw Exception('Invalid recurring rule status.');
     }
@@ -806,6 +827,7 @@ class ExpenseRepository {
     required DateTime dateTo,
     String? categoryId,
   }) async {
+    await _gate.require('expenses.reporting');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final plan = await _tenantPlan(tenantId);

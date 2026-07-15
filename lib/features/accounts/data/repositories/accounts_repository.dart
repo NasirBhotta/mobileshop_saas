@@ -1,17 +1,32 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/accounts/data/local/accounts_local_store.dart';
 import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
+import 'package:mobileshop_saas/features/accounts/domain/account_entitlement_gate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 class AccountsRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
 
-  final SupabaseClient _client = Supabase.instance.client;
+  final SupabaseClient _client;
+  final AccountEntitlementGate _entitlements;
+
+  AccountsRepository({
+    SupabaseClient? client,
+    EntitlementEvaluator? entitlementEvaluator,
+  }) : _client = client ?? Supabase.instance.client,
+       _entitlements = AccountEntitlementGate(
+         entitlementEvaluator ??
+             EntitlementEvaluator(
+               dataSource: SupabaseEntitlementDataSource(client: client),
+             ),
+       );
 
   User get _currentUser {
     final user = _client.auth.currentUser;
@@ -72,6 +87,7 @@ class AccountsRepository {
   }
 
   Future<List<AccountModel>> fetchAccounts() async {
+    await _entitlements.require('accounts.core');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -96,6 +112,7 @@ class AccountsRepository {
   Future<List<AccountTransactionModel>> fetchTransactions({
     int limit = 80,
   }) async {
+    await _entitlements.require('accounts.core');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -126,6 +143,7 @@ class AccountsRepository {
     double openingBalance = 0,
     String? note,
   }) async {
+    await _entitlements.require('accounts.core');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final now = DateTime.now();
@@ -174,6 +192,7 @@ class AccountsRepository {
     String? referenceId,
     DateTime? transactionAt,
   }) async {
+    await _entitlements.require('accounts.core');
     if (amount <= 0) throw Exception('Amount must be greater than zero.');
 
     final account = await AccountsLocalStore.loadAccountById(accountId);
@@ -219,6 +238,7 @@ class AccountsRepository {
     required double amount,
     String? description,
   }) async {
+    await _entitlements.require('accounts.transfers');
     if (amount <= 0) throw Exception('Amount must be greater than zero.');
     if (fromAccountId == toAccountId) {
       throw Exception('Select two different accounts.');

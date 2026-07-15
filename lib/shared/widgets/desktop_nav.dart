@@ -59,7 +59,7 @@ class DesktopNav extends ConsumerWidget {
       icon: Icons.receipt_long_rounded,
       label: AppStrings.navExpenses,
       path: '/expenses',
-      feature: 'expenses.access',
+      feature: 'expenses.core',
     ),
     (
       icon: Icons.insights_rounded,
