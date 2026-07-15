@@ -605,13 +605,13 @@ class _ExpenseCard extends ConsumerWidget {
             ),
             FilledButton(
               onPressed: () async {
+                Navigator.pop(dialogContext);
+
                 final ok = await ref
                     .read(expenseControllerProvider.notifier)
                     .voidExpense(expense);
 
-                if (!dialogContext.mounted || !context.mounted) return;
-
-                Navigator.pop(dialogContext);
+                if (!context.mounted) return;
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
