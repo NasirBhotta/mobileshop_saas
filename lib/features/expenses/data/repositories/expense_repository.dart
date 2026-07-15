@@ -12,7 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 class ExpenseRepository {
-  static const _networkTimeout = Duration(milliseconds: 1200);
+  static const _networkTimeout = Duration(seconds: 8);
   static const _receiptBucket = 'expense-receipts';
 
   final SupabaseClient _client;
@@ -490,6 +490,35 @@ class ExpenseRepository {
     final expenses =
         (data as List).map((row) => ExpenseModel.fromMap(row)).toList();
 
+    for (var index = 0; index < expenses.length; index++) {
+      var expense = expenses[index];
+      final ruleId = expense.recurringRuleId;
+      final dueDate = expense.recurringDueDate;
+      if (ruleId == null || dueDate == null) continue;
+
+      final localOccurrences = await ExpenseLocalStore.loadRecurringOccurrence(
+        ruleId: ruleId,
+        dueDate: dueDate,
+      );
+      final locallyVoided = localOccurrences.any(
+        (local) => local.status == ExpenseStatus.voided,
+      );
+      if (locallyVoided && expense.status != ExpenseStatus.voided) {
+        await _client.rpc('void_expense', params: {'p_expense_id': expense.id});
+        expense = expense.copyWith(
+          status: ExpenseStatus.voided,
+          updatedAt: DateTime.now(),
+        );
+        expenses[index] = expense;
+      }
+
+      await ExpenseLocalStore.deleteRecurringOccurrenceDuplicates(
+        ruleId: ruleId,
+        dueDate: dueDate,
+        keepExpenseId: expense.id,
+      );
+    }
+
     await ExpenseLocalStore.saveExpenses(expenses);
 
     return expenses;
@@ -565,21 +594,28 @@ class ExpenseRepository {
 
     try {
       await _client
-          .from('expenses')
-          .update({
-            'status': ExpenseStatus.voided.code,
-            'voided_by': _currentUser.id,
-            'voided_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', expense.id)
+          .rpc('void_expense', params: {'p_expense_id': expense.id})
           .timeout(_networkTimeout);
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
-      await OfflineStore.enqueueMutation(
-        userId: _currentUser.id,
-        type: 'void_expense',
-        payload: {'expense_id': expense.id},
-      );
+      try {
+        await OfflineStore.enqueueMutation(
+          userId: _currentUser.id,
+          type: 'void_expense',
+          payload: {
+            'expense_id': expense.id,
+            'recurring_rule_id': expense.recurringRuleId,
+            'recurring_due_date':
+                expense.recurringDueDate == null
+                    ? null
+                    : _dateOnly(expense.recurringDueDate!),
+          },
+        );
+      } catch (queueError) {
+        // The local void has already succeeded. Do not report it as failed
+        // merely because another concurrent sync is writing the queue.
+        debugPrint('Expense void queue save failed: $queueError');
+      }
 
       debugPrint('Expense void saved offline: $e');
     }
@@ -763,7 +799,6 @@ class ExpenseRepository {
       await _fetchRemoteExpenses(
         tenantId: tenantId,
         branchId: branchId,
-        status: ExpenseStatus.draft,
         source: ExpenseSource.recurring,
       );
 
@@ -955,7 +990,18 @@ class ExpenseRepository {
   }
 
   Future<void> _syncExpense(Map<String, dynamic> payload) async {
-    final expense = ExpenseModel.fromMap(payload);
+    final queuedExpense = ExpenseModel.fromMap(payload);
+    final remote = await _loadRemoteExpense(queuedExpense.id);
+    if (remote?.status == ExpenseStatus.voided) {
+      await ExpenseLocalStore.saveExpense(remote!);
+      return;
+    }
+    // A later local action (for example void) may have changed the expense
+    // after this upsert was queued. Never replay the stale queued status over
+    // the current local state.
+    final expense =
+        await ExpenseLocalStore.loadExpenseById(queuedExpense.id) ??
+        queuedExpense;
 
     final uploadedReceiptPath = await _uploadReceiptIfNeeded(expense: expense);
 
@@ -971,7 +1017,7 @@ class ExpenseRepository {
             .select()
             .single();
 
-    await ExpenseLocalStore.saveExpense(ExpenseModel.fromMap(data));
+    await ExpenseLocalStore.saveExpenses([ExpenseModel.fromMap(data)]);
   }
 
   Future<void> _syncConfirmExpense(Map<String, dynamic> payload) async {
@@ -980,6 +1026,16 @@ class ExpenseRepository {
     final localReceiptPath = payload['local_receipt_path'] as String?;
 
     final local = await ExpenseLocalStore.loadExpenseById(expenseId);
+
+    // A queued confirmation is obsolete once the expense has subsequently
+    // been voided locally.
+    if (local?.status == ExpenseStatus.voided) return;
+
+    final remote = await _loadRemoteExpense(expenseId);
+    if (remote?.status == ExpenseStatus.voided) {
+      await ExpenseLocalStore.saveExpense(remote!);
+      return;
+    }
 
     String? uploadedReceiptPath;
 
@@ -1007,15 +1063,51 @@ class ExpenseRepository {
   }
 
   Future<void> _syncVoidExpense(Map<String, dynamic> payload) async {
-    await _client
-        .from('expenses')
-        .update({
-          'status': ExpenseStatus.voided.code,
-          'voided_by': _currentUser.id,
-          'voided_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', payload['expense_id']);
+    var expenseId = payload['expense_id'] as String;
+    if (!_isUuid(expenseId)) {
+      final local = await ExpenseLocalStore.loadExpenseById(expenseId);
+      final ruleId =
+          payload['recurring_rule_id'] as String? ?? local?.recurringRuleId;
+      final dueDate =
+          payload['recurring_due_date'] as String? ??
+          (local?.recurringDueDate == null
+              ? null
+              : _dateOnly(local!.recurringDueDate!));
+      if (ruleId == null || dueDate == null) {
+        throw Exception('Offline recurring expense identity is incomplete.');
+      }
+
+      final remote = await _client
+          .from('expenses')
+          .select('id')
+          .eq('recurring_rule_id', ruleId)
+          .eq('recurring_due_date', dueDate)
+          .maybeSingle();
+      if (remote == null) {
+        throw Exception('Recurring expense is not generated remotely yet.');
+      }
+      expenseId = remote['id'] as String;
+    }
+
+    await _client.rpc(
+      'void_expense',
+      params: {'p_expense_id': expenseId},
+    );
   }
+
+  Future<ExpenseModel?> _loadRemoteExpense(String expenseId) async {
+    final data =
+        await _client
+            .from('expenses')
+            .select()
+            .eq('id', expenseId)
+            .maybeSingle();
+    return data == null ? null : ExpenseModel.fromMap(data);
+  }
+
+  bool _isUuid(String value) => RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+  ).hasMatch(value);
 
   Future<void> _syncRecurringRule(Map<String, dynamic> payload) async {
     final data =

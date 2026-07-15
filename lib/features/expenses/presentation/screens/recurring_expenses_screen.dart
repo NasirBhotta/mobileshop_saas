@@ -18,7 +18,7 @@ class RecurringExpensesScreen extends ConsumerWidget {
         title: const Text('Recurring Expenses'),
         actions: [
           IconButton(
-            tooltip: 'Generate Due Drafts',
+            tooltip: 'Sync Due Expenses',
             onPressed:
                 controllerState.isLoading
                     ? null
@@ -34,7 +34,7 @@ class RecurringExpensesScreen extends ConsumerWidget {
                         SnackBar(
                           content: Text(
                             count > 0
-                                ? '$count recurring draft expense(s) generated'
+                                ? '$count recurring expense(s) generated'
                                 : 'No due recurring expenses',
                           ),
                         ),
@@ -241,7 +241,7 @@ class _RecurringRuleCard extends ConsumerWidget {
   ) {
     showDialog(
       context: context,
-      builder: (_) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Cancel Recurring Rule?'),
           content: Text(
@@ -249,12 +249,12 @@ class _RecurringRuleCard extends ConsumerWidget {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Back'),
             ),
             FilledButton(
               onPressed: () async {
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
 
                 await _updateStatus(context, ref, rule, 'cancelled');
               },

@@ -160,6 +160,14 @@ class ExpenseLocalStore {
 
   static Future<void> saveExpenses(List<ExpenseModel> expenses) async {
     for (final expense in expenses) {
+      final existing = await loadExpenseById(expense.id);
+      final localUpdatedAt = existing?.updatedAt;
+      final remoteUpdatedAt = expense.updatedAt;
+      if (localUpdatedAt != null &&
+          remoteUpdatedAt != null &&
+          localUpdatedAt.isAfter(remoteUpdatedAt)) {
+        continue;
+      }
       await saveExpense(expense);
     }
   }
@@ -228,6 +236,38 @@ class ExpenseLocalStore {
 
     if (rows.isEmpty) return null;
     return ExpenseModel.fromMap(rows.first);
+  }
+
+  static Future<List<ExpenseModel>> loadRecurringOccurrence({
+    required String ruleId,
+    required DateTime dueDate,
+  }) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT *
+      FROM expenses
+      WHERE recurring_rule_id = ?
+        AND recurring_due_date = ?
+      ''',
+      [ruleId, _dateOnly(dueDate)],
+    );
+    return rows.map(ExpenseModel.fromMap).toList();
+  }
+
+  static Future<void> deleteRecurringOccurrenceDuplicates({
+    required String ruleId,
+    required DateTime dueDate,
+    required String keepExpenseId,
+  }) async {
+    await LocalDatabase.execute(
+      '''
+      DELETE FROM expenses
+      WHERE recurring_rule_id = ?
+        AND recurring_due_date = ?
+        AND id <> ?
+      ''',
+      [ruleId, _dateOnly(dueDate), keepExpenseId],
+    );
   }
 
   static Future<void> confirmExpenseLocally({
@@ -461,59 +501,82 @@ class ExpenseLocalStore {
 
     var createdCount = 0;
 
+    await LocalDatabase.execute(
+      '''
+      UPDATE expenses
+      SET status = ?,
+          confirmed_by = COALESCE(confirmed_by, ?),
+          confirmed_at = COALESCE(confirmed_at, ?),
+          updated_at = ?
+      WHERE branch_id = ?
+        AND source = ?
+        AND status = ?
+        AND expense_date <= ?
+      ''',
+      [
+        ExpenseStatus.confirmed.code,
+        userId,
+        today.toIso8601String(),
+        today.toIso8601String(),
+        branchId,
+        ExpenseSource.recurring.code,
+        ExpenseStatus.draft.code,
+        _dateOnly(today),
+      ],
+    );
+
     for (final rule in rules) {
       final reminderDate = today.add(Duration(days: rule.reminderDaysBefore));
 
-      if (rule.nextDueDate.isAfter(reminderDate)) {
-        continue;
-      }
-
-      if (rule.endDate != null && rule.nextDueDate.isAfter(rule.endDate!)) {
-        continue;
-      }
-
-      final alreadyExists = await _recurringDraftExists(
-        ruleId: rule.id,
-        dueDate: rule.nextDueDate,
-      );
-
-      if (!alreadyExists) {
-        final now = DateTime.now();
-
-        final expense = ExpenseModel(
-          id: _localId(),
-          tenantId: tenantId,
-          branchId: branchId,
-          categoryId: rule.categoryId,
-          categoryName: rule.categoryName,
-          title: rule.title,
-          expenseDate: rule.nextDueDate,
-          amount: rule.estimatedAmount,
-          paymentMode: rule.paymentMode,
-          payee: rule.payee,
-          notes: rule.note,
-          status: ExpenseStatus.draft,
-          source: ExpenseSource.recurring,
-          recurringRuleId: rule.id,
-          recurringDueDate: rule.nextDueDate,
-          createdBy: userId,
-          createdAt: now,
-          updatedAt: now,
+      var dueDate = rule.nextDueDate;
+      while (!dueDate.isAfter(reminderDate) &&
+          (rule.endDate == null || !dueDate.isAfter(rule.endDate!))) {
+        final alreadyExists = await _recurringDraftExists(
+          ruleId: rule.id,
+          dueDate: dueDate,
         );
 
-        await saveExpense(expense);
-        createdCount++;
-      }
+        if (!alreadyExists) {
+          final now = DateTime.now();
+          final isDue = !dueDate.isAfter(today);
 
-      final nextDueDate = _nextRecurringDate(
-        rule.nextDueDate,
-        rule.frequency,
-        rule.intervalCount,
-      );
+          await saveExpense(
+            ExpenseModel(
+              id: _localId(),
+              tenantId: tenantId,
+              branchId: branchId,
+              categoryId: rule.categoryId,
+              categoryName: rule.categoryName,
+              title: rule.title,
+              expenseDate: dueDate,
+              amount: rule.estimatedAmount,
+              paymentMode: rule.paymentMode,
+              payee: rule.payee,
+              notes: rule.note,
+              status: isDue ? ExpenseStatus.confirmed : ExpenseStatus.draft,
+              source: ExpenseSource.recurring,
+              recurringRuleId: rule.id,
+              recurringDueDate: dueDate,
+              createdBy: userId,
+              confirmedBy: isDue ? userId : null,
+              confirmedAt: isDue ? now : null,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+          createdCount++;
+        }
+
+        dueDate = _nextRecurringDate(
+          dueDate,
+          rule.frequency,
+          rule.intervalCount,
+        );
+      }
 
       await updateRecurringRuleNextDueDate(
         ruleId: rule.id,
-        nextDueDate: nextDueDate,
+        nextDueDate: dueDate,
       );
     }
 

@@ -112,7 +112,11 @@ class ExpensesScreen extends ConsumerWidget {
                               ),
                           itemCount: expenses.length,
                           itemBuilder: (_, index) {
-                            return _ExpenseCard(expense: expenses[index]);
+                            final expense = expenses[index];
+                            return _ExpenseCard(
+                              key: ValueKey(expense.id),
+                              expense: expense,
+                            );
                           },
                         );
                       }
@@ -122,7 +126,11 @@ class ExpensesScreen extends ConsumerWidget {
                         itemCount: expenses.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 10),
                         itemBuilder: (_, index) {
-                          return _ExpenseCard(expense: expenses[index]);
+                          final expense = expenses[index];
+                          return _ExpenseCard(
+                            key: ValueKey(expense.id),
+                            expense: expense,
+                          );
                         },
                       );
                     },
@@ -354,7 +362,7 @@ class _FilterChip extends StatelessWidget {
 class _ExpenseCard extends ConsumerWidget {
   final ExpenseModel expense;
 
-  const _ExpenseCard({required this.expense});
+  const _ExpenseCard({super.key, required this.expense});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -613,9 +621,15 @@ class _ExpenseCard extends ConsumerWidget {
 
                 if (!context.mounted) return;
 
+                final error = ref.read(expenseControllerProvider).asError;
+
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(ok ? 'Expense voided' : 'Expense not voided'),
+                    content: Text(
+                      ok
+                          ? 'Expense voided'
+                          : error?.error.toString() ?? 'Expense not voided',
+                    ),
                   ),
                 );
               },

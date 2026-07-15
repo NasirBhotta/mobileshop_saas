@@ -78,6 +78,13 @@ final expensesProvider = FutureProvider.autoDispose<List<ExpenseModel>>((
 ) async {
   final repository = ref.read(expenseRepositoryProvider);
 
+  if (await hasFeatureWithCompatibility(
+    ref.read(entitlementEvaluatorProvider),
+    'expenses.recurring',
+  )) {
+    await repository.generateDueRecurringDrafts();
+  }
+
   final range = ref.watch(expenseDateRangeProvider);
   final categoryId = ref.watch(selectedExpenseCategoryProvider);
   final status = ref.watch(selectedExpenseStatusProvider);
@@ -109,6 +116,13 @@ final activeRecurringExpenseRulesProvider =
 final expenseReportProvider =
     FutureProvider.autoDispose<ExpenseProfitReportModel>((ref) async {
       final repository = ref.read(expenseRepositoryProvider);
+
+      if (await hasFeatureWithCompatibility(
+        ref.read(entitlementEvaluatorProvider),
+        'expenses.recurring',
+      )) {
+        await repository.generateDueRecurringDrafts();
+      }
 
       final range = ref.watch(expenseDateRangeProvider);
       final categoryId = ref.watch(selectedExpenseCategoryProvider);
@@ -352,10 +366,14 @@ class RecurringExpenseController
         reminderDaysBefore: reminderDaysBefore,
       );
 
+      await repository.generateDueRecurringDrafts();
+
       state = AsyncData(rule);
 
       _ref.invalidate(recurringExpenseRulesProvider);
       _ref.invalidate(activeRecurringExpenseRulesProvider);
+      _ref.invalidate(expensesProvider);
+      _ref.invalidate(expenseReportProvider);
 
       return rule;
     } catch (e, st) {
