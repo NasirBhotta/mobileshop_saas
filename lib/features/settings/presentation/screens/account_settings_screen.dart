@@ -5,11 +5,20 @@ import 'package:mobileshop_saas/features/onboarding/data/models/shop_setup_model
 import 'package:mobileshop_saas/features/settings/data/repositories/account_settings_repository.dart';
 import 'package:mobileshop_saas/features/settings/presentation/providers/account_settings_provider.dart';
 
+import '../providers/role_management_provider.dart';
+import '../widgets/roles_permissions_section.dart';
+
 class AccountSettingsScreen extends ConsumerWidget {
   const AccountSettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final rolesAccess = ref.watch(roleManagementAccessProvider);
+    final canManageRoles = rolesAccess.when(
+      data: (result) => result.isAllowed,
+      loading: () => false,
+      error: (_, _) => false,
+    );
     final settingsAsync = ref.watch(accountSettingsProvider);
     final controllerState = ref.watch(accountSettingsControllerProvider);
 
@@ -33,6 +42,7 @@ class AccountSettingsScreen extends ConsumerWidget {
                 child: _SettingsContent(
                   settings: settings,
                   saving: controllerState.isLoading,
+                  canManageRoles: canManageRoles,
                 ),
               ),
         ),
@@ -44,8 +54,13 @@ class AccountSettingsScreen extends ConsumerWidget {
 class _SettingsContent extends ConsumerWidget {
   final AccountSettingsData settings;
   final bool saving;
+  final bool canManageRoles;
 
-  const _SettingsContent({required this.settings, required this.saving});
+  const _SettingsContent({
+    required this.settings,
+    required this.saving,
+    required this.canManageRoles,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -74,6 +89,10 @@ class _SettingsContent extends ConsumerWidget {
           ],
         );
         final branches = _BranchesSection(settings: settings, saving: saving);
+        final roles =
+            canManageRoles
+                ? const RolesPermissionsSection()
+                : const SizedBox.shrink();
 
         if (isWide) {
           return ListView(
@@ -87,7 +106,16 @@ class _SettingsContent extends ConsumerWidget {
                 children: [
                   Expanded(flex: 5, child: profileAndShop),
                   const SizedBox(width: 12),
-                  Expanded(flex: 6, child: branches),
+                  Expanded(
+                    flex: 6,
+                    child: Column(
+                      children: [
+                        branches,
+                        if (canManageRoles) const SizedBox(height: 12),
+                        roles,
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -103,6 +131,8 @@ class _SettingsContent extends ConsumerWidget {
             profileAndShop,
             const SizedBox(height: 12),
             branches,
+            if (canManageRoles) const SizedBox(height: 12),
+            roles,
           ],
         );
       },
