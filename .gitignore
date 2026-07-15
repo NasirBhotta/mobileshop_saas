@@ -11,6 +11,7 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+admin_panel_export/
 
 # IntelliJ related
 *.iml

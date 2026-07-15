@@ -1,0 +1,11 @@
+{
+  "name": "Mobile Shop Platform Admin",
+  "short_name": "Platform Admin",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#F5F7FB",
+  "theme_color": "#3157D5",
+  "description": "Mobile Shop platform administration portal",
+  "orientation": "landscape-primary",
+  "prefer_related_applications": false
+}
