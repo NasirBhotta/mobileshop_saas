@@ -18,6 +18,28 @@ class ManagedRole {
   });
 
   bool get isProtectedOwner => isSystem && code == 'owner';
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'code': code,
+    'name': name,
+    'description': description,
+    'is_system': isSystem,
+    'is_active': isActive,
+    'permission_keys': permissionKeys.toList()..sort(),
+  };
+
+  factory ManagedRole.fromMap(Map<String, dynamic> map) => ManagedRole(
+    id: map['id'] as String,
+    code: map['code'] as String,
+    name: map['name'] as String,
+    description: map['description'] as String?,
+    isSystem: map['is_system'] as bool? ?? false,
+    isActive: map['is_active'] as bool? ?? false,
+    permissionKeys: Set<String>.from(
+      map['permission_keys'] as List? ?? const [],
+    ),
+  );
 }
 
 class ManagedPermission {
@@ -32,6 +54,21 @@ class ManagedPermission {
     required this.name,
     required this.description,
   });
+
+  Map<String, dynamic> toMap() => {
+    'key': key,
+    'module': module,
+    'name': name,
+    'description': description,
+  };
+
+  factory ManagedPermission.fromMap(Map<String, dynamic> map) =>
+      ManagedPermission(
+        key: map['key'] as String,
+        module: map['module'] as String,
+        name: map['name'] as String,
+        description: map['description'] as String?,
+      );
 }
 
 class ManagedUserRole {
@@ -46,6 +83,20 @@ class ManagedUserRole {
     required this.email,
     required this.roleId,
   });
+
+  Map<String, dynamic> toMap() => {
+    'user_id': userId,
+    'full_name': fullName,
+    'email': email,
+    'role_id': roleId,
+  };
+
+  factory ManagedUserRole.fromMap(Map<String, dynamic> map) => ManagedUserRole(
+    userId: map['user_id'] as String,
+    fullName: map['full_name'] as String,
+    email: map['email'] as String,
+    roleId: map['role_id'] as String?,
+  );
 }
 
 class RoleManagementData {
@@ -53,13 +104,46 @@ class RoleManagementData {
   final List<ManagedRole> roles;
   final List<ManagedPermission> permissions;
   final List<ManagedUserRole> users;
+  final bool isOffline;
+  final DateTime? cachedAt;
 
   const RoleManagementData({
     required this.tenantId,
     required this.roles,
     required this.permissions,
     required this.users,
+    this.isOffline = false,
+    this.cachedAt,
   });
+
+  Map<String, dynamic> toMap() => {
+    'tenant_id': tenantId,
+    'cached_at': (cachedAt ?? DateTime.now().toUtc()).toIso8601String(),
+    'roles': roles.map((role) => role.toMap()).toList(),
+    'permissions': permissions.map((permission) => permission.toMap()).toList(),
+    'users': users.map((user) => user.toMap()).toList(),
+  };
+
+  factory RoleManagementData.fromMap(
+    Map<String, dynamic> map, {
+    bool isOffline = false,
+  }) => RoleManagementData(
+    tenantId: map['tenant_id'] as String,
+    roles: [
+      for (final row in map['roles'] as List? ?? const [])
+        ManagedRole.fromMap(Map<String, dynamic>.from(row as Map)),
+    ],
+    permissions: [
+      for (final row in map['permissions'] as List? ?? const [])
+        ManagedPermission.fromMap(Map<String, dynamic>.from(row as Map)),
+    ],
+    users: [
+      for (final row in map['users'] as List? ?? const [])
+        ManagedUserRole.fromMap(Map<String, dynamic>.from(row as Map)),
+    ],
+    isOffline: isOffline,
+    cachedAt: DateTime.tryParse(map['cached_at'] as String? ?? ''),
+  );
 
   Map<String, List<ManagedPermission>> get permissionsByModule {
     final grouped = <String, List<ManagedPermission>>{};

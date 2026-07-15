@@ -1,6 +1,10 @@
+import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/utils/network.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'permission_evaluator.dart';
+import 'persistent_permission_cache.dart';
 
 class SupabasePermissionDataSource implements PermissionDataSource {
   final SupabaseClient _client;
@@ -13,17 +17,55 @@ class SupabasePermissionDataSource implements PermissionDataSource {
 
   @override
   Future<String?> loadTenantId(String userId) async {
-    final profile =
-        await _client
-            .from('users')
-            .select('tenant_id')
-            .eq('id', userId)
-            .maybeSingle();
-    return profile?['tenant_id'] as String?;
+    try {
+      final profile = await _client
+          .from('users')
+          .select('tenant_id')
+          .eq('id', userId)
+          .maybeSingle()
+          .timeout(Network.networkTimeout);
+      final tenantId = profile?['tenant_id'] as String?;
+      if (tenantId != null) {
+        final cached =
+            await OfflineStore.loadProfile(userId) ?? <String, dynamic>{};
+        cached['id'] ??= userId;
+        cached['tenant_id'] = tenantId;
+        await OfflineStore.saveProfile(userId, cached);
+      }
+      return tenantId;
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      return (await OfflineStore.loadProfile(userId))?['tenant_id'] as String?;
+    }
   }
 
   @override
   Future<List<PermissionRoleAssignment>> loadRoleAssignments({
+    required String userId,
+    required String tenantId,
+  }) async {
+    try {
+      final assignments = await _loadRemoteAssignments(
+        userId: userId,
+        tenantId: tenantId,
+      ).timeout(Network.networkTimeout);
+      await PersistentPermissionCache.save(
+        userId: userId,
+        tenantId: tenantId,
+        assignments: assignments,
+      );
+      return assignments;
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      return await PersistentPermissionCache.load(
+            userId: userId,
+            tenantId: tenantId,
+          ) ??
+          const [];
+    }
+  }
+
+  Future<List<PermissionRoleAssignment>> _loadRemoteAssignments({
     required String userId,
     required String tenantId,
   }) async {

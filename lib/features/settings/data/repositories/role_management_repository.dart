@@ -1,7 +1,19 @@
 import 'package:mobileshop_saas/core/authorization/permission_evaluator.dart';
+import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/utils/network.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../local/role_management_cache.dart';
 import '../models/role_management_models.dart';
+
+class RoleManagementOnlineRequiredException implements Exception {
+  const RoleManagementOnlineRequiredException();
+
+  @override
+  String toString() =>
+      'Security changes ke liye internet connection required hai.';
+}
 
 class RoleManagementRepository {
   final SupabaseClient _client;
@@ -17,15 +29,37 @@ class RoleManagementRepository {
     await _requireAccess();
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw Exception('User not logged in');
-    final profile =
-        await _client
-            .from('users')
-            .select('tenant_id')
-            .eq('id', userId)
-            .single();
-    final tenantId = profile['tenant_id'] as String?;
+    final tenantId = await _tenantId(userId);
     if (tenantId == null) throw Exception('Tenant not found');
 
+    try {
+      final data = await _loadRemote(tenantId).timeout(Network.networkTimeout);
+      await RoleManagementCache.save(data);
+      return data;
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      final cached = await RoleManagementCache.load(tenantId);
+      if (cached != null) return cached;
+      rethrow;
+    }
+  }
+
+  Future<String?> _tenantId(String userId) async {
+    try {
+      final profile = await _client
+          .from('users')
+          .select('tenant_id')
+          .eq('id', userId)
+          .single()
+          .timeout(Network.networkTimeout);
+      return profile['tenant_id'] as String?;
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      return (await OfflineStore.loadProfile(userId))?['tenant_id'] as String?;
+    }
+  }
+
+  Future<RoleManagementData> _loadRemote(String tenantId) async {
     final results = await Future.wait([
       _client
           .from('roles')
@@ -108,6 +142,7 @@ class RoleManagementRepository {
             roleId: roleByUser[row['id'] as String],
           ),
       ],
+      cachedAt: DateTime.now().toUtc(),
     );
   }
 
@@ -155,8 +190,17 @@ class RoleManagementRepository {
 
   Future<void> _mutate(String function, Map<String, dynamic> parameters) async {
     await _requireAccess();
-    await _client.rpc(function, params: parameters);
-    _permissions.invalidateAll();
+    try {
+      await _client
+          .rpc(function, params: parameters)
+          .timeout(Network.networkTimeout);
+      _permissions.invalidateAll();
+    } catch (error) {
+      if (OfflineErrorClassifier.isRetryable(error)) {
+        throw const RoleManagementOnlineRequiredException();
+      }
+      rethrow;
+    }
   }
 
   Future<void> _requireAccess() => _permissions.require(

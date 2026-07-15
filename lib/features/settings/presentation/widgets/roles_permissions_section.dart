@@ -13,6 +13,12 @@ class RolesPermissionsSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final dataState = ref.watch(roleManagementProvider);
     final saving = ref.watch(roleManagementControllerProvider).isLoading;
+    final offline = dataState.when(
+      data: (data) => data.isOffline,
+      error: (_, _) => false,
+      loading: () => false,
+    );
+    final readOnly = saving || offline;
 
     return Container(
       decoration: BoxDecoration(
@@ -51,7 +57,7 @@ class RolesPermissionsSection extends ConsumerWidget {
                   ),
                 ),
                 FilledButton.icon(
-                  onPressed: saving ? null : () => _createRole(context, ref),
+                  onPressed: readOnly ? null : () => _createRole(context, ref),
                   icon: const Icon(Icons.add_rounded, size: 18),
                   label: const Text('New Role'),
                 ),
@@ -68,11 +74,26 @@ class RolesPermissionsSection extends ConsumerWidget {
               data:
                   (data) => Column(
                     children: [
+                      if (data.isOffline) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.warning.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'Offline cached access dikhaya ja raha hai. Security changes ke liye internet required hai.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       for (final role in data.roles)
                         _RoleTile(
                           role: role,
                           assignmentCount: data.assignmentCount(role.id),
-                          busy: saving,
+                          busy: readOnly,
                           onRename: () => _renameRole(context, ref, role),
                           onPermissions:
                               () => _editPermissions(context, ref, data, role),
@@ -81,7 +102,7 @@ class RolesPermissionsSection extends ConsumerWidget {
                       const Divider(height: 28),
                       _UserAssignments(
                         data: data,
-                        busy: saving,
+                        busy: readOnly,
                         onAssign:
                             (userId, roleId) =>
                                 _assignUser(context, ref, userId, roleId),

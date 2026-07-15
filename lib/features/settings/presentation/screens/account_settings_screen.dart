@@ -38,6 +38,7 @@ class AccountSettingsScreen extends ConsumerWidget {
                   await ref
                       .read(accountSettingsControllerProvider.notifier)
                       .sync();
+                  ref.invalidate(roleManagementProvider);
                 },
                 child: _SettingsContent(
                   settings: settings,

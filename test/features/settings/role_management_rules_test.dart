@@ -1,7 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/features/settings/data/models/role_management_models.dart';
+import 'package:mobileshop_saas/features/settings/data/local/role_management_cache.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   const owner = ManagedRole(
     id: 'owner-role',
     code: 'owner',
@@ -80,4 +84,19 @@ void main() {
     expect(data.assignmentCount('custom-role'), 1);
     expect(data.assignmentCount('owner-role'), 0);
   });
+
+  test(
+    'role-management snapshot is restored as offline read-only data',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      await RoleManagementCache.save(data);
+
+      final restored = await RoleManagementCache.load('tenant-1');
+
+      expect(restored, isNotNull);
+      expect(restored!.isOffline, isTrue);
+      expect(restored.roles.map((role) => role.id), contains('owner-role'));
+      expect(restored.assignmentCount('custom-role'), 1);
+    },
+  );
 }
