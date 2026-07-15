@@ -35,6 +35,8 @@ final featureEntitlementProvider = FutureProvider.family<bool, String>((
   return ref.watch(entitlementEvaluatorProvider).hasFeature(key);
 });
 
+bool isEntitledActionVisible(bool? enabled) => enabled != false;
+
 final entitlementRealtimeRefreshProvider = Provider<void>((ref) {
   final client = Supabase.instance.client;
   final channel = client.channel('tenant-entitlement-refresh');
@@ -74,7 +76,17 @@ const routeFeatureEntitlements = <String, String>{
   '/settings': 'settings.access',
 };
 
+const inventoryActionRouteEntitlements = <String, String>{
+  '/inventory/import': 'inventory.csv_import',
+  '/inventory/adjust': 'inventory.stock_adjustments',
+};
+
 String? requiredFeatureForLocation(String location) {
+  for (final entry in inventoryActionRouteEntitlements.entries) {
+    if (location == entry.key || location.startsWith('${entry.key}/')) {
+      return entry.value;
+    }
+  }
   String? match;
   for (final prefix in routeFeatureEntitlements.keys) {
     if ((location == prefix || location.startsWith('$prefix/')) &&

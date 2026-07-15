@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../../shared/widgets/loading_overlay.dart';
 import '../../../../shared/widgets/barcode_camera_scanner.dart';
 import '../../data/models/category_model.dart';
@@ -192,8 +193,11 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     final categoriesState = ref.watch(categoriesProvider);
     final isLoading = ref.watch(productControllerProvider).isLoading;
     final isDesktop = Responsive.isDesktop(context);
+    final imeiTrackingEnabled = isEntitledActionVisible(
+      ref.watch(featureEntitlementProvider('inventory.imei_tracking')).value,
+    );
     final hasActiveImeiUnits =
-        _isEdit
+        _isEdit && imeiTrackingEnabled
             ? ref.watch(activeImeiUnitsProvider(widget.product!.id))
             : const AsyncData(false);
     final isImeiDisableLocked =
@@ -448,52 +452,53 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                     ),
 
                     // ── IMEI Toggle ──
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceVariant,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Row(
-                        children: [
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  AppStrings.fieldImeiTracked,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textPrimary,
+                    if (imeiTrackingEnabled)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceVariant,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    AppStrings.fieldImeiTracked,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textPrimary,
+                                    ),
                                   ),
-                                ),
-                                Text(
-                                  'Har unit ka IMEI track hoga',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textSecondary,
+                                  Text(
+                                    'Har unit ka IMEI track hoga',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                          Switch(
-                            value: _imeiTracked,
-                            onChanged:
-                                isImeiDisableLocked
-                                    ? null
-                                    : (val) =>
-                                        setState(() => _imeiTracked = val),
-                            activeThumbColor: AppColors.primary,
-                          ),
-                        ],
+                            Switch(
+                              value: _imeiTracked,
+                              onChanged:
+                                  isImeiDisableLocked
+                                      ? null
+                                      : (val) =>
+                                          setState(() => _imeiTracked = val),
+                              activeThumbColor: AppColors.primary,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    if (isImeiDisableLocked) ...[
+                    if (imeiTrackingEnabled && isImeiDisableLocked) ...[
                       const SizedBox(height: 8),
                       const Text(
                         'Locked because active IMEI units exist for this product.',

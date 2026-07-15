@@ -12,10 +12,30 @@ import 'package:mobileshop_saas/features/inventory/data/models/product_model.dar
 import 'package:mobileshop_saas/features/inventory/data/models/stock_adjustment_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
+import 'package:mobileshop_saas/features/inventory/domain/inventory_entitlement_gate.dart';
 
 class InventoryRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
-  final SupabaseClient _client = Supabase.instance.client;
+  final SupabaseClient _client;
+  final EntitlementEvaluator _entitlements;
+  late final InventoryEntitlementGate _entitlementGate =
+      InventoryEntitlementGate(_entitlements);
+
+  InventoryRepository({
+    SupabaseClient? client,
+    EntitlementEvaluator? entitlementEvaluator,
+  }) : _client = client ?? Supabase.instance.client,
+       _entitlements =
+           entitlementEvaluator ??
+           EntitlementEvaluator(
+             dataSource: SupabaseEntitlementDataSource(client: client),
+           );
+
+  Future<void> _requireFeature(String key) async {
+    await _entitlementGate.require(key);
+  }
 
   User get _currentUser {
     final user = _client.auth.currentUser;
@@ -109,6 +129,7 @@ class InventoryRepository {
     bool isOverride = false,
     required ProductModel product,
   }) async {
+    await _requireFeature('inventory.stock_adjustments');
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final user = _currentUser;
@@ -660,6 +681,9 @@ class InventoryRepository {
   }
 
   Future<ProductModel> addProduct(ProductModel product) async {
+    if (product.imeiTracked) {
+      await _requireFeature('inventory.imei_tracking');
+    }
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     await _ensureBarcodeAvailable(branchId: branchId, product: product);
@@ -700,6 +724,9 @@ class InventoryRepository {
   }
 
   Future<ProductModel> updateProduct(ProductModel product) async {
+    if (product.imeiTracked) {
+      await _requireFeature('inventory.imei_tracking');
+    }
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     await _ensureBarcodeAvailable(
@@ -820,6 +847,7 @@ class InventoryRepository {
     void Function(CsvImportProgress progress)? onProgress,
     int batchSize = 500,
   }) async {
+    await _requireFeature('inventory.csv_import');
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final userId = _currentUser.id;
@@ -1474,6 +1502,7 @@ class InventoryRepository {
     required double percentage,
     required String direction,
   }) async {
+    await _requireFeature('inventory.bulk_pricing');
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final branchProducts =

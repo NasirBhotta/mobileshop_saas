@@ -292,6 +292,14 @@ class EntitlementEvaluator {
       value != null && value < 0 ? null : value;
 }
 
+class EntitlementDeniedException implements Exception {
+  final String featureKey;
+  const EntitlementDeniedException(this.featureKey);
+  @override
+  String toString() =>
+      'This feature is not included in the current package: $featureKey';
+}
+
 const _featuresAvailableOnAllCompatibilityPlans = {
   'dashboard.access',
   'branches.access',

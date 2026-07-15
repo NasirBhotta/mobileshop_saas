@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobileshop_saas/core/constants/app_strings.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../data/models/product_model.dart';
 
-class ProductCard extends StatelessWidget {
+class ProductCard extends ConsumerWidget {
   final ProductModel product;
   final VoidCallback onTap;
   final bool isSelectionMode;
@@ -22,9 +24,14 @@ class ProductCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isLowStock = product.stock <= 5;
     final isOutOfStock = product.stock == 0;
+    final stockAdjustmentsEnabled = isEntitledActionVisible(
+      ref
+          .watch(featureEntitlementProvider('inventory.stock_adjustments'))
+          .value,
+    );
 
     return InkWell(
       onTap:
@@ -137,21 +144,22 @@ class ProductCard extends StatelessWidget {
                 ),
                 SizedBox(height: 5),
                 // ProductCard ke andar, bottom mein
-                TextButton.icon(
-                  onPressed:
-                      () => context.push('/inventory/adjust', extra: product),
-                  icon: const Icon(Icons.tune_rounded, size: 16),
-                  label: const Text(AppStrings.stockAdjust),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    padding: EdgeInsets.only(
-                      left: 15,
-                      right: 15,
-                      top: 5,
-                      bottom: 5,
+                if (stockAdjustmentsEnabled)
+                  TextButton.icon(
+                    onPressed:
+                        () => context.push('/inventory/adjust', extra: product),
+                    icon: const Icon(Icons.tune_rounded, size: 16),
+                    label: const Text(AppStrings.stockAdjust),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      padding: EdgeInsets.only(
+                        left: 15,
+                        right: 15,
+                        top: 5,
+                        bottom: 5,
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
           ],

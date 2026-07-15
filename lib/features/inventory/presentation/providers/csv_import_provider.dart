@@ -5,6 +5,8 @@ import 'package:mobileshop_saas/features/inventory/data/models/csv_import_model.
 import 'package:mobileshop_saas/features/inventory/data/repositories/inventory_repository.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
 import 'package:csv/csv.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 
 final csvImportControllerProvider =
     StateNotifierProvider<CsvImportController, AsyncValue<void>>((ref) {
@@ -25,6 +27,11 @@ class CsvImportController extends StateNotifier<AsyncValue<void>> {
   Future<void> pickAndImport() async {
     state = const AsyncLoading();
     try {
+      if (!await _ref
+          .read(entitlementEvaluatorProvider)
+          .hasFeature('inventory.csv_import')) {
+        throw const EntitlementDeniedException('inventory.csv_import');
+      }
       _ref.read(csvImportResultProvider.notifier).state = null;
       _ref
           .read(csvImportProgressProvider.notifier)

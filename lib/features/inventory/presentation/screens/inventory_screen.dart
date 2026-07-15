@@ -10,6 +10,7 @@ import 'package:mobileshop_saas/shared/widgets/search_bar_field.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../../shared/providers/navigation_loading_provider.dart';
 import '../providers/inventory_provider.dart';
 
@@ -107,6 +108,12 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     final isUpdating = ref.watch(productControllerProvider).isLoading;
     final isDesktop = Responsive.isDesktop(context);
     final isTablet = Responsive.isTablet(context);
+    final csvImportEnabled = isEntitledActionVisible(
+      ref.watch(featureEntitlementProvider('inventory.csv_import')).value,
+    );
+    final bulkPricingEnabled = isEntitledActionVisible(
+      ref.watch(featureEntitlementProvider('inventory.bulk_pricing')).value,
+    );
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -135,14 +142,15 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       icon: const Icon(Icons.close_rounded),
                       tooltip: 'Clear selection',
                     ),
-                    FilledButton.icon(
-                      onPressed:
-                          isUpdating
-                              ? null
-                              : () => _showBulkPriceUpdate(context),
-                      icon: const Icon(Icons.percent_rounded, size: 18),
-                      label: const Text('Price'),
-                    ),
+                    if (bulkPricingEnabled)
+                      FilledButton.icon(
+                        onPressed:
+                            isUpdating
+                                ? null
+                                : () => _showBulkPriceUpdate(context),
+                        icon: const Icon(Icons.percent_rounded, size: 18),
+                        label: const Text('Price'),
+                      ),
                   ] else ...[
                     // Categories button
                     IconButton(
@@ -176,12 +184,13 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                     ),
                   ],
 
-                  IconButton(
-                    onPressed: () => context.push('/inventory/import'),
-                    icon: const Icon(Icons.upload_file_rounded),
-                    color: AppColors.textSecondary,
-                    tooltip: 'CSV Import',
-                  ),
+                  if (csvImportEnabled)
+                    IconButton(
+                      onPressed: () => context.push('/inventory/import'),
+                      icon: const Icon(Icons.upload_file_rounded),
+                      color: AppColors.textSecondary,
+                      tooltip: 'CSV Import',
+                    ),
                 ],
               ),
             ),
