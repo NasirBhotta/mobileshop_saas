@@ -411,7 +411,17 @@ class SetupFlowRepository {
     required String userId,
     required String branchId,
   }) async {
-    await OfflineStore.selectBranch(userId: userId, branchId: branchId);
+    final profile = await loadProfile(userId);
+    final tenantId = profile?['tenant_id'] as String?;
+    if (tenantId == null) throw Exception('Tenant setup required');
+
+    final tenantBranches = await loadBranches(tenantId);
+    final belongsToTenant = tenantBranches.any(
+      (branch) => branch.id == branchId,
+    );
+    if (!belongsToTenant) {
+      throw Exception('Selected branch must belong to user tenant');
+    }
 
     try {
       await _client
@@ -419,8 +429,10 @@ class SetupFlowRepository {
           .update({'branch_id': branchId})
           .eq('id', userId)
           .timeout(_networkTimeout);
+      await OfflineStore.selectBranch(userId: userId, branchId: branchId);
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
+      await OfflineStore.selectBranch(userId: userId, branchId: branchId);
       await OfflineStore.enqueueMutation(
         userId: userId,
         type: 'select_branch',

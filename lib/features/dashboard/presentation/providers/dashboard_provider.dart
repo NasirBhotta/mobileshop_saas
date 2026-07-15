@@ -10,15 +10,29 @@ import '../../../pos/data/models/sale_payment_model.dart';
 import '../../../pos/data/models/sale_return_model.dart';
 import '../../../pos/presentation/providers/pos_provider.dart';
 import '../../../repairs/presentation/providers/repair_provider.dart';
+import '../../../repairs/data/models/repair_ticket_model.dart';
 import '../../../../core/extensions/repair_ticket_ext.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 
 final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final branchId = await ref.watch(selectedBranchIdProvider.future);
   final sales = await ref.watch(allSalesProvider.future);
-  final returns = await ref.watch(allApprovedReturnsProvider.future);
+  final returnsEnabled = await ref.watch(
+    featureEntitlementProvider('pos.returns').future,
+  );
+  final repairsEnabled = await ref.watch(
+    featureEntitlementProvider('repairs.tickets').future,
+  );
+  final returns =
+      returnsEnabled
+          ? await ref.watch(allApprovedReturnsProvider.future)
+          : const <SaleReturnModel>[];
   final customers = await ref.watch(allCustomersProvider.future);
   final settlements = await ref.watch(allCustomerSettlementsProvider.future);
-  final repairTickets = await ref.watch(allRepairTicketsProvider.future);
+  final repairTickets =
+      repairsEnabled
+          ? await ref.watch(allRepairTicketsProvider.future)
+          : const <RepairTicketModel>[];
 
   final completedSales =
       sales.where((sale) => sale.status == SaleStatus.completed).toList();

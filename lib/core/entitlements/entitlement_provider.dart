@@ -33,7 +33,10 @@ final featureEntitlementProvider = FutureProvider.family<bool, String>((
   key,
 ) {
   ref.watch(entitlementRevisionProvider);
-  return ref.watch(entitlementEvaluatorProvider).hasFeature(key);
+  return hasFeatureWithCompatibility(
+    ref.watch(entitlementEvaluatorProvider),
+    key,
+  );
 });
 
 bool isEntitledActionVisible(bool? enabled) => enabled != false;
@@ -42,6 +45,18 @@ Future<bool> hasFeatureWithCompatibility(
   EntitlementEvaluator evaluator,
   String key,
 ) async {
+  if (key.startsWith('pos.') && key != 'pos.access') {
+    final specific = await evaluator.evaluateFeature(key);
+    return specific.source == EntitlementValueSource.unavailable
+        ? evaluator.hasFeature('pos.access')
+        : specific.isEnabled;
+  }
+  if (key.startsWith('inventory.') && key != 'inventory.access') {
+    final specific = await evaluator.evaluateFeature(key);
+    return specific.source == EntitlementValueSource.unavailable
+        ? evaluator.hasFeature('inventory.access')
+        : specific.isEnabled;
+  }
   if (!key.startsWith('procurement.')) return evaluator.hasFeature(key);
   final specific = await evaluator.evaluateFeature(key);
   return specific.source == EntitlementValueSource.unavailable

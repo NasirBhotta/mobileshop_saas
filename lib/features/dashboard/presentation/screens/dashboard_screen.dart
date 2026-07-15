@@ -64,7 +64,11 @@ class _MobileDashboard extends ConsumerWidget {
                 const SizedBox(height: 20),
                 const _QuickActions(compact: true),
                 const SizedBox(height: 20),
-                _DashboardAlerts(stats: stats, compact: true),
+                _DashboardAlerts(
+                  stats: stats,
+                  isLoading: isLoading,
+                  compact: true,
+                ),
                 const SizedBox(height: 20),
                 _StatsGrid(
                   stats: stats,
@@ -133,7 +137,10 @@ class _DesktopDashboard extends ConsumerWidget {
                 children: [
                   const Expanded(flex: 5, child: _QuickActions()),
                   const SizedBox(width: 18),
-                  Expanded(flex: 4, child: _DashboardAlerts(stats: stats)),
+                  Expanded(
+                    flex: 4,
+                    child: _DashboardAlerts(stats: stats, isLoading: isLoading),
+                  ),
                 ],
               ),
               const SizedBox(height: 22),
@@ -693,19 +700,35 @@ class _QuickActions extends StatelessWidget {
 
 class _DashboardAlerts extends StatelessWidget {
   final DashboardStats? stats;
+  final bool isLoading;
   final bool compact;
 
-  const _DashboardAlerts({required this.stats, this.compact = false});
+  const _DashboardAlerts({
+    required this.stats,
+    required this.isLoading,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (stats == null) {
+    if (stats == null && isLoading) {
       return const _DashboardPanel(
         title: 'Attention',
         trailing: _StatusBadge(label: 'Loading', color: AppColors.info),
         child: _EmptyPanelMessage(
           icon: Icons.hourglass_empty_rounded,
           message: 'Alerts load ho rahe hain.',
+        ),
+      );
+    }
+
+    if (stats == null) {
+      return const _DashboardPanel(
+        title: 'Attention',
+        trailing: _StatusBadge(label: 'Unavailable', color: AppColors.error),
+        child: _EmptyPanelMessage(
+          icon: Icons.error_outline_rounded,
+          message: 'Alerts load nahi ho sake. Pull down karke retry karein.',
         ),
       );
     }

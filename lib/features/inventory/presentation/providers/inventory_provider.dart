@@ -9,7 +9,7 @@ import '../../data/models/product_model.dart';
 import '../../data/repositories/inventory_repository.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
-import '../../../../core/entitlements/entitlement_evaluator.dart';
+import '../../domain/inventory_entitlement_gate.dart';
 
 class BulkPriceUpdateRequest {
   final List<ProductModel> products;
@@ -87,11 +87,9 @@ class StockAdjustmentController extends StateNotifier<AsyncValue<void>> {
   }) async {
     state = const AsyncLoading();
     try {
-      if (!await _ref
-          .read(entitlementEvaluatorProvider)
-          .hasFeature('inventory.stock_adjustments')) {
-        throw const EntitlementDeniedException('inventory.stock_adjustments');
-      }
+      await InventoryEntitlementGate(
+        _ref.read(entitlementEvaluatorProvider),
+      ).require('inventory.stock_adjustments');
       await _repository.adjustStock(
         productId: productId,
         type: type,
@@ -300,11 +298,10 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
   Future<bool> addProduct(ProductModel product) async {
     state = const AsyncLoading();
     try {
-      if (product.imeiTracked &&
-          !await _ref
-              .read(entitlementEvaluatorProvider)
-              .hasFeature('inventory.imei_tracking')) {
-        throw const EntitlementDeniedException('inventory.imei_tracking');
+      if (product.imeiTracked) {
+        await InventoryEntitlementGate(
+          _ref.read(entitlementEvaluatorProvider),
+        ).require('inventory.imei_tracking');
       }
       await _repository.addProduct(product);
       invalidateProductListProviders(_ref);
@@ -319,11 +316,10 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
   Future<bool> updateProduct(ProductModel product) async {
     state = const AsyncLoading();
     try {
-      if (product.imeiTracked &&
-          !await _ref
-              .read(entitlementEvaluatorProvider)
-              .hasFeature('inventory.imei_tracking')) {
-        throw const EntitlementDeniedException('inventory.imei_tracking');
+      if (product.imeiTracked) {
+        await InventoryEntitlementGate(
+          _ref.read(entitlementEvaluatorProvider),
+        ).require('inventory.imei_tracking');
       }
       await _repository.updateProduct(product);
       invalidateProductListProviders(_ref);
@@ -354,11 +350,9 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
   ) async {
     state = const AsyncLoading();
     try {
-      if (!await _ref
-          .read(entitlementEvaluatorProvider)
-          .hasFeature('inventory.bulk_pricing')) {
-        throw const EntitlementDeniedException('inventory.bulk_pricing');
-      }
+      await InventoryEntitlementGate(
+        _ref.read(entitlementEvaluatorProvider),
+      ).require('inventory.bulk_pricing');
       final updatedCount = await _repository.bulkUpdateProductPrices(
         products: request.products,
         percentage: request.percentage,

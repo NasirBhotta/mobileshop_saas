@@ -53,6 +53,23 @@ void main() {
       );
     },
   );
+
+  test(
+    'POS sub-features inherit pos.access when not separately defined',
+    () async {
+      final evaluator = EntitlementEvaluator(
+        dataSource: const _LegacyPosDataSource(),
+      );
+      await expectLater(
+        PosEntitlementGate(evaluator).require('pos.returns'),
+        completes,
+      );
+      expect(
+        await hasFeatureWithCompatibility(evaluator, 'pos.checkout'),
+        isTrue,
+      );
+    },
+  );
 }
 
 EntitlementEvaluator _entitlements({
@@ -112,4 +129,24 @@ class _PermissionDataSource implements PermissionDataSource {
     required String userId,
     required String tenantId,
   }) async => const [];
+}
+
+class _LegacyPosDataSource implements EntitlementDataSource {
+  const _LegacyPosDataSource();
+  @override
+  String? get currentUserId => 'owner-user';
+  @override
+  Future<TenantEntitlementContext?> loadTenantContext(String userId) async =>
+      const TenantEntitlementContext(
+        tenantId: 'tenant-1',
+        compatibilityPlanKey: 'starter',
+      );
+  @override
+  Future<TenantEntitlementSnapshot> loadSnapshot(String tenantId) async =>
+      const TenantEntitlementSnapshot(
+        subscriptionPlanKey: 'starter',
+        planFeatures: [
+          EntitlementFeatureValue(key: 'pos.access', enabled: true),
+        ],
+      );
 }

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import '../../../../core/authorization/permission_provider.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../../core/entitlements/entitlement_evaluator.dart';
+import '../../domain/pos_entitlement_gate.dart';
 
 import '../../data/models/cart_item_model.dart';
 import '../../data/models/customer_dashboard_model.dart';
@@ -21,9 +22,7 @@ Future<void> _requireEntitlement(
   EntitlementEvaluator evaluator,
   String key,
 ) async {
-  if (!await evaluator.hasFeature(key)) {
-    throw EntitlementDeniedException(key);
-  }
+  await PosEntitlementGate(evaluator).require(key);
 }
 
 // ── Repository Provider ──

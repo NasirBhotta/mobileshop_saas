@@ -48,6 +48,25 @@ void main() {
     );
     await expectLater(gate.require('inventory.imei_tracking'), completes);
   });
+
+  test('undefined inventory sub-feature inherits inventory access', () async {
+    final evaluator = EntitlementEvaluator(
+      dataSource: const _LegacyInventoryDataSource(),
+    );
+    await expectLater(
+      InventoryEntitlementGate(
+        evaluator,
+      ).require('inventory.stock_adjustments'),
+      completes,
+    );
+    expect(
+      await hasFeatureWithCompatibility(
+        evaluator,
+        'inventory.stock_adjustments',
+      ),
+      isTrue,
+    );
+  });
 }
 
 EntitlementEvaluator _evaluator({
@@ -98,4 +117,24 @@ class _InventoryEntitlementDataSource implements EntitlementDataSource {
               ],
     );
   }
+}
+
+class _LegacyInventoryDataSource implements EntitlementDataSource {
+  const _LegacyInventoryDataSource();
+  @override
+  String? get currentUserId => 'owner-user';
+  @override
+  Future<TenantEntitlementContext?> loadTenantContext(String userId) async =>
+      const TenantEntitlementContext(
+        tenantId: 'tenant-1',
+        compatibilityPlanKey: 'starter',
+      );
+  @override
+  Future<TenantEntitlementSnapshot> loadSnapshot(String tenantId) async =>
+      const TenantEntitlementSnapshot(
+        subscriptionPlanKey: 'starter',
+        planFeatures: [
+          EntitlementFeatureValue(key: 'inventory.access', enabled: true),
+        ],
+      );
 }

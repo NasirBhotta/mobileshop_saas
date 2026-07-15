@@ -5,7 +5,12 @@ class InventoryEntitlementGate {
   const InventoryEntitlementGate(this._evaluator);
 
   Future<void> require(String featureKey) async {
-    if (!await _evaluator.hasFeature(featureKey)) {
+    final specific = await _evaluator.evaluateFeature(featureKey);
+    final allowed =
+        specific.source == EntitlementValueSource.unavailable
+            ? await _evaluator.hasFeature('inventory.access')
+            : specific.isEnabled;
+    if (!allowed) {
       throw EntitlementDeniedException(featureKey);
     }
   }

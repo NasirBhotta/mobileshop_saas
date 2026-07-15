@@ -13,19 +13,15 @@ import '../../data/models/shop_setup_model.dart';
 import '../../data/repositories/setup_flow_repository.dart';
 import '../widgets/setup_status_message.dart';
 
-final branchSelectionProvider = FutureProvider<List<BranchInputModel>>((
-  ref,
-) async {
-  final repository = ref.read(setupFlowRepositoryProvider);
-  final user = Supabase.instance.client.auth.currentUser;
-  if (user == null) throw Exception('User not logged in');
+final branchSelectionProvider = FutureProvider.autoDispose
+    .family<List<BranchInputModel>, String>((ref, userId) async {
+      final repository = ref.read(setupFlowRepositoryProvider);
+      final status = await repository.loadStatus(userId);
+      final tenantId = status.profile?['tenant_id'] as String?;
+      if (tenantId == null) throw Exception('Tenant setup required');
 
-  final status = await repository.loadStatus(user.id);
-  final tenantId = status.profile?['tenant_id'] as String?;
-  if (tenantId == null) throw Exception('Tenant setup required');
-
-  return repository.loadBranches(tenantId);
-});
+      return repository.loadBranches(tenantId);
+    });
 
 class BranchSelectionScreen extends ConsumerStatefulWidget {
   const BranchSelectionScreen({super.key});
@@ -41,7 +37,14 @@ class _BranchSelectionScreenState extends ConsumerState<BranchSelectionScreen> {
   @override
   Widget build(BuildContext context) {
     debugPrint("BranchSelectionScreen BUILD");
-    final branchesState = ref.watch(branchSelectionProvider);
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final branchesState =
+        userId == null
+            ? const AsyncValue<List<BranchInputModel>>.error(
+              'User not logged in',
+              StackTrace.empty,
+            )
+            : ref.watch(branchSelectionProvider(userId));
     final isDesktop = Responsive.isDesktop(context);
 
     return Scaffold(
