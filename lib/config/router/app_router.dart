@@ -42,6 +42,7 @@ import 'package:mobileshop_saas/features/reports/presentation/screens/reports_ho
 import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_schedule_form_screen.dart';
 import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_schedules_screen.dart';
 import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_screen.dart';
+import 'package:mobileshop_saas/features/reports/domain/report_entitlement_gate.dart';
 import 'package:mobileshop_saas/features/settings/presentation/screens/account_settings_screen.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/po_document_screen.dart';
@@ -126,10 +127,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (location != '/locked-feature') {
         final featureKey = requiredFeatureForLocation(location);
         if (featureKey != null) {
-          final enabled = await hasFeatureWithCompatibility(
-            ref.read(entitlementEvaluatorProvider),
-            featureKey,
-          );
+          final evaluator = ref.read(entitlementEvaluatorProvider);
+          final enabled =
+              featureKey.startsWith('reports.')
+                  ? await ReportEntitlementGate(evaluator).allows(featureKey)
+                  : await hasFeatureWithCompatibility(evaluator, featureKey);
           if (!enabled) {
             return Uri(
               path: '/locked-feature',

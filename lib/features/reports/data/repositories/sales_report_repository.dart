@@ -7,6 +7,7 @@ import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/reports/data/local/sales_report_local_store.dart';
 import 'package:mobileshop_saas/features/reports/data/models/sales_report_models.dart';
+import 'package:mobileshop_saas/features/reports/domain/report_entitlement_gate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -16,6 +17,7 @@ class SalesReportRepository {
   final SupabaseClient _client;
   final PermissionEvaluator _permissions;
   final EntitlementEvaluator _entitlements;
+  late final ReportEntitlementGate _gate = ReportEntitlementGate(_entitlements);
 
   SalesReportRepository({
     SupabaseClient? client,
@@ -148,6 +150,7 @@ class SalesReportRepository {
     required DateTime dateTo,
     bool allBranches = false,
   }) async {
+    await _gate.require('reports.sales');
     if (dateTo.isBefore(dateFrom)) {
       throw Exception('Invalid date range');
     }
@@ -229,14 +232,10 @@ class SalesReportRepository {
     required DateTime dateTo,
     bool allBranches = false,
   }) async {
+    await _gate.require('reports.sales');
+    await _gate.require('reports.export');
     if (allBranches) {
       await _ensureAllBranchesAccess();
-    }
-
-    if (!await _entitlements.hasFeature('reports.export')) {
-      throw Exception(
-        'CSV/PDF export is available only on Business and Enterprise plans.',
-      );
     }
 
     final report = await fetchSalesReport(
@@ -382,16 +381,12 @@ class SalesReportRepository {
     required String sendToEmail,
     DateTime? nextRunAt,
   }) async {
+    await _gate.require('reports.sales');
+    await _gate.require('reports.scheduled');
     final tenantId = await _tenantId();
     final currentBranchId = await _branchId(tenantId);
     if (reportScope == SalesReportScope.allBranches) {
       await _ensureAllBranchesAccess();
-    }
-
-    if (!await _entitlements.hasFeature('reports.scheduling')) {
-      throw Exception(
-        'Scheduled reports are available only on Business and Enterprise plans.',
-      );
     }
 
     if (!_isValidEmail(sendToEmail)) {
@@ -452,6 +447,8 @@ class SalesReportRepository {
   }
 
   Future<List<SalesReportScheduleModel>> fetchSchedules() async {
+    await _gate.require('reports.sales');
+    await _gate.require('reports.scheduled');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final includeAllBranches = await _canAccessAllBranches();
@@ -490,6 +487,8 @@ class SalesReportRepository {
   }
 
   Future<SalesReportScheduleModel?> fetchScheduleById(String scheduleId) async {
+    await _gate.require('reports.sales');
+    await _gate.require('reports.scheduled');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final includeAllBranches = await _canAccessAllBranches();
@@ -583,6 +582,8 @@ class SalesReportRepository {
     required SalesReportScheduleModel schedule,
     required String status,
   }) async {
+    await _gate.require('reports.sales');
+    await _gate.require('reports.scheduled');
     if (!['active', 'paused', 'cancelled'].contains(status)) {
       throw Exception('Invalid schedule status.');
     }
@@ -639,6 +640,8 @@ class SalesReportRepository {
   }
 
   Future<List<SalesReportDeliveryJobModel>> fetchDeliveryJobs() async {
+    await _gate.require('reports.sales');
+    await _gate.require('reports.scheduled');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final includeAllBranches = await _canAccessAllBranches();

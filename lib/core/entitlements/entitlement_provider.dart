@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../features/reports/domain/report_entitlement_gate.dart';
 
 import 'entitlement_evaluator.dart';
 import 'supabase_entitlement_data_source.dart';
@@ -56,6 +57,16 @@ final compatibleFeatureEntitlementProvider =
         key,
       );
     });
+
+final reportFeatureEntitlementProvider = FutureProvider.family<bool, String>((
+  ref,
+  key,
+) {
+  ref.watch(entitlementRevisionProvider);
+  return ReportEntitlementGate(
+    ref.watch(entitlementEvaluatorProvider),
+  ).allows(key);
+});
 
 final entitlementRealtimeRefreshProvider = Provider<void>((ref) {
   final client = Supabase.instance.client;
@@ -120,7 +131,25 @@ const expenseAccountRouteEntitlements = <String, String>{
   '/accounts': 'accounts.core',
 };
 
+const reportRouteEntitlements = <String, String>{
+  '/reports/sales/schedules': 'reports.scheduled',
+  '/reports/business/schedules': 'reports.scheduled',
+  '/reports/schedules': 'reports.scheduled',
+  '/reports/sales': 'reports.sales',
+  '/reports/business': 'reports.business',
+  '/reports/profit-loss': 'reports.business',
+  '/reports/inventory': 'reports.business',
+  '/reports/customer-credit': 'reports.business',
+  '/reports/cash-flow': 'reports.business',
+  '/reports/repairs': 'reports.business',
+};
+
 String? requiredFeatureForLocation(String location) {
+  for (final entry in reportRouteEntitlements.entries) {
+    if (location == entry.key || location.startsWith('${entry.key}/')) {
+      return entry.value;
+    }
+  }
   for (final entry in expenseAccountRouteEntitlements.entries) {
     if (location == entry.key || location.startsWith('${entry.key}/')) {
       return entry.value;

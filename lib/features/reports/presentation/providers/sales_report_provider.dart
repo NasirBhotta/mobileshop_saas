@@ -4,6 +4,11 @@ import 'package:mobileshop_saas/core/authorization/permission_provider.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/reports/data/models/sales_report_models.dart';
 import 'package:mobileshop_saas/features/reports/data/repositories/sales_report_repository.dart';
+import 'package:mobileshop_saas/features/reports/domain/report_entitlement_gate.dart';
+
+Future<void> _requireReport(Ref ref, String feature) => ReportEntitlementGate(
+  ref.read(entitlementEvaluatorProvider),
+).require(feature);
 
 class SalesReportDateRange {
   final DateTime from;
@@ -99,6 +104,8 @@ class SalesReportScheduleController
     state = const AsyncLoading();
 
     try {
+      await _requireReport(_ref, 'reports.sales');
+      await _requireReport(_ref, 'reports.scheduled');
       final repository = _ref.read(salesReportRepositoryProvider);
 
       final schedule = await repository.createSchedule(
@@ -129,6 +136,8 @@ class SalesReportScheduleController
     state = const AsyncLoading();
 
     try {
+      await _requireReport(_ref, 'reports.sales');
+      await _requireReport(_ref, 'reports.scheduled');
       final repository = _ref.read(salesReportRepositoryProvider);
 
       await repository.updateScheduleStatus(schedule: schedule, status: status);
@@ -169,6 +178,8 @@ class SalesReportExportController extends StateNotifier<AsyncValue<String?>> {
     state = const AsyncLoading();
 
     try {
+      await _requireReport(_ref, 'reports.sales');
+      await _requireReport(_ref, 'reports.export');
       final repository = _ref.read(salesReportRepositoryProvider);
       final range = _ref.read(salesReportDateRangeProvider);
       final allBranches = _ref.read(salesReportAllBranchesProvider);

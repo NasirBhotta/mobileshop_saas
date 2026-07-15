@@ -11,7 +11,12 @@ void main() {
     );
     expect(
       requiredFeatureForLocation('/reports/business/profit-loss'),
-      'reports.access',
+      'reports.business',
+    );
+    expect(requiredFeatureForLocation('/reports/sales'), 'reports.sales');
+    expect(
+      requiredFeatureForLocation('/reports/sales/schedules/new'),
+      'reports.scheduled',
     );
     expect(requiredFeatureForLocation('/login'), isNull);
   });

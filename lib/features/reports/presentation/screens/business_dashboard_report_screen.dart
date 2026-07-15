@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobileshop_saas/features/reports/presentation/providers/business_report_provider.dart';
 import 'package:mobileshop_saas/features/reports/presentation/widgets/reports_back_button.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 
 import '../../data/models/business_report_models.dart';
 
@@ -23,6 +24,9 @@ class BusinessDashboardReportScreen extends ConsumerWidget {
     final range = ref.watch(businessReportDateRangeProvider);
     final allBranches = ref.watch(businessReportAllBranchesProvider);
     final exportState = ref.watch(businessReportExportControllerProvider);
+    final exportEnabled =
+        ref.watch(reportFeatureEntitlementProvider('reports.export')).value !=
+        false;
     final syncState = ref.watch(businessReportSyncControllerProvider);
 
     return Scaffold(
@@ -30,42 +34,43 @@ class BusinessDashboardReportScreen extends ConsumerWidget {
         leading: const ReportsBackButton(),
         title: const Text('Business Analytics'),
         actions: [
-          IconButton(
-            tooltip: 'Sync',
-            onPressed:
-                syncState.isLoading
-                    ? null
-                    : () async {
-                      await ref
-                          .read(businessReportSyncControllerProvider.notifier)
-                          .sync();
+          if (exportEnabled)
+            IconButton(
+              tooltip: 'Sync',
+              onPressed:
+                  syncState.isLoading
+                      ? null
+                      : () async {
+                        await ref
+                            .read(businessReportSyncControllerProvider.notifier)
+                            .sync();
 
-                      if (!context.mounted) return;
+                        if (!context.mounted) return;
 
-                      final error =
-                          ref
-                              .read(businessReportSyncControllerProvider)
-                              .asError;
+                        final error =
+                            ref
+                                .read(businessReportSyncControllerProvider)
+                                .asError;
 
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            error == null
-                                ? 'Business reports synced'
-                                : error.error.toString(),
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              error == null
+                                  ? 'Business reports synced'
+                                  : error.error.toString(),
+                            ),
                           ),
-                        ),
-                      );
-                    },
-            icon:
-                syncState.isLoading
-                    ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                    : const Icon(Icons.sync),
-          ),
+                        );
+                      },
+              icon:
+                  syncState.isLoading
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.sync),
+            ),
           IconButton(
             tooltip: 'Export Dashboard CSV',
             onPressed:

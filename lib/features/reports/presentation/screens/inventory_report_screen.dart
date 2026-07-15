@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobileshop_saas/features/reports/presentation/providers/business_report_provider.dart';
 import 'package:mobileshop_saas/features/reports/presentation/widgets/reports_back_button.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 
 import '../../data/models/business_report_models.dart';
 
@@ -14,25 +15,29 @@ class InventoryReportScreen extends ConsumerWidget {
     final range = ref.watch(businessReportDateRangeProvider);
     final allBranches = ref.watch(businessReportAllBranchesProvider);
     final exportState = ref.watch(businessReportExportControllerProvider);
+    final exportEnabled =
+        ref.watch(reportFeatureEntitlementProvider('reports.export')).value !=
+        false;
 
     return Scaffold(
       appBar: AppBar(
         leading: const ReportsBackButton(),
         title: const Text('Inventory Report'),
         actions: [
-          IconButton(
-            tooltip: 'Export CSV',
-            onPressed:
-                exportState.isLoading ? null : () => _exportCsv(context, ref),
-            icon:
-                exportState.isLoading
-                    ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                    : const Icon(Icons.download),
-          ),
+          if (exportEnabled)
+            IconButton(
+              tooltip: 'Export CSV',
+              onPressed:
+                  exportState.isLoading ? null : () => _exportCsv(context, ref),
+              icon:
+                  exportState.isLoading
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.download),
+            ),
         ],
       ),
       body: SafeArea(

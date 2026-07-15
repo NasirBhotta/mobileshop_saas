@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/reports/presentation/providers/sales_report_provider.dart';
 import 'package:mobileshop_saas/features/reports/presentation/widgets/reports_back_button.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 
 import '../../data/models/sales_report_models.dart';
 
@@ -16,6 +17,14 @@ class SalesReportScreen extends ConsumerWidget {
     final allBranches = ref.watch(salesReportAllBranchesProvider);
     final exportState = ref.watch(salesReportExportControllerProvider);
     final syncState = ref.watch(salesReportSyncControllerProvider);
+    final scheduledEnabled =
+        ref
+            .watch(reportFeatureEntitlementProvider('reports.scheduled'))
+            .value !=
+        false;
+    final exportEnabled =
+        ref.watch(reportFeatureEntitlementProvider('reports.export')).value !=
+        false;
 
     return Scaffold(
       appBar: AppBar(
@@ -56,13 +65,14 @@ class SalesReportScreen extends ConsumerWidget {
                     )
                     : const Icon(Icons.sync),
           ),
-          IconButton(
-            tooltip: 'Scheduled Reports',
-            onPressed: () {
-              context.go('/reports/sales/schedules');
-            },
-            icon: const Icon(Icons.schedule_send_outlined),
-          ),
+          if (scheduledEnabled)
+            IconButton(
+              tooltip: 'Scheduled Reports',
+              onPressed: () {
+                context.go('/reports/sales/schedules');
+              },
+              icon: const Icon(Icons.schedule_send_outlined),
+            ),
         ],
       ),
       body: SafeArea(
@@ -103,7 +113,9 @@ class SalesReportScreen extends ConsumerWidget {
                                       report: report,
                                       exportLoading: exportState.isLoading,
                                       onExportCsv:
-                                          () => _exportCsv(context, ref),
+                                          exportEnabled
+                                              ? () => _exportCsv(context, ref)
+                                              : null,
                                     ),
                                     const SizedBox(height: 14),
                                     _SummaryGrid(report: report),
@@ -349,7 +361,7 @@ class _DateRangeButton extends StatelessWidget {
 class _ReportHeader extends StatelessWidget {
   final SalesAnalyticsReportModel report;
   final bool exportLoading;
-  final VoidCallback onExportCsv;
+  final VoidCallback? onExportCsv;
 
   const _ReportHeader({
     required this.report,
@@ -415,29 +427,19 @@ class _ReportHeader extends StatelessWidget {
                   ),
                   label: Text('Plan: ${report.plan.toUpperCase()}'),
                 ),
-                Chip(
-                  avatar: Icon(
-                    report.exportAllowed ? Icons.lock_open : Icons.lock_outline,
-                    size: 16,
+                if (onExportCsv != null)
+                  FilledButton.icon(
+                    onPressed: exportLoading ? null : onExportCsv,
+                    icon:
+                        exportLoading
+                            ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.download),
+                    label: const Text('CSV'),
                   ),
-                  label: Text(
-                    report.exportAllowed
-                        ? 'Export enabled'
-                        : 'Export Business+',
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: exportLoading ? null : onExportCsv,
-                  icon:
-                      exportLoading
-                          ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                          : const Icon(Icons.download),
-                  label: const Text('CSV'),
-                ),
               ],
             );
 
