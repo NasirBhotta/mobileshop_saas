@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../../../../core/authorization/permission_provider.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
+import '../../../../core/entitlements/entitlement_evaluator.dart';
 
 import '../../data/models/cart_item_model.dart';
 import '../../data/models/customer_dashboard_model.dart';
@@ -15,9 +17,21 @@ import '../../data/repositories/pos_repository.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 
+Future<void> _requireEntitlement(
+  EntitlementEvaluator evaluator,
+  String key,
+) async {
+  if (!await evaluator.hasFeature(key)) {
+    throw EntitlementDeniedException(key);
+  }
+}
+
 // ── Repository Provider ──
 final posRepositoryProvider = Provider<PosRepository>((ref) {
-  return PosRepository(permissions: ref.watch(permissionEvaluatorProvider));
+  return PosRepository(
+    permissions: ref.watch(permissionEvaluatorProvider),
+    entitlementEvaluator: ref.watch(entitlementEvaluatorProvider),
+  );
 });
 
 // ── Cart State ──────────────────────────────────────
@@ -329,6 +343,16 @@ class CheckoutController extends StateNotifier<AsyncValue<SaleModel?>> {
 
     state = const AsyncLoading();
     try {
+      final evaluator = _ref.read(entitlementEvaluatorProvider);
+      await _requireEntitlement(evaluator, 'pos.checkout');
+      if (cart.discountAmount > 0) {
+        await _requireEntitlement(evaluator, 'pos.discounts');
+      }
+      if (cart.payments.any(
+        (payment) => payment.method == PaymentMethod.credit,
+      )) {
+        await _requireEntitlement(evaluator, 'pos.credit_sales');
+      }
       final sale = await _repository.checkout(
         items: cart.items,
         payments: cart.payments,
@@ -456,6 +480,10 @@ class DiscountController extends StateNotifier<AsyncValue<void>> {
   }) async {
     state = const AsyncLoading();
     try {
+      await _requireEntitlement(
+        _ref.read(entitlementEvaluatorProvider),
+        'pos.discounts',
+      );
       final evaluation = await _repository.evaluateDiscount(
         scope: 'item',
         productId: item.productId,
@@ -796,6 +824,10 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
 
     state = const AsyncLoading();
     try {
+      await _requireEntitlement(
+        _ref.read(entitlementEvaluatorProvider),
+        'pos.returns',
+      );
       final result = await _repository.processReturn(
         sale: sale,
         quantitiesByProductId: draft.quantitiesByProductId,

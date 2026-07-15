@@ -20,16 +20,31 @@ import '../models/sale_payment_model.dart';
 import '../models/sale_return_model.dart';
 import 'customer_settlement_sync.dart';
 import 'sale_return_parent_recovery.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
+import 'package:mobileshop_saas/features/pos/domain/pos_entitlement_gate.dart';
 
 class PosRepository {
   final SupabaseClient _client;
   final PermissionEvaluator _permissions;
+  final EntitlementEvaluator _entitlements;
+  late final PosEntitlementGate _entitlementGate = PosEntitlementGate(
+    _entitlements,
+  );
 
   PosRepository({
     SupabaseClient? client,
     required PermissionEvaluator permissions,
+    EntitlementEvaluator? entitlementEvaluator,
   }) : _client = client ?? Supabase.instance.client,
-       _permissions = permissions;
+       _permissions = permissions,
+       _entitlements =
+           entitlementEvaluator ??
+           EntitlementEvaluator(
+             dataSource: SupabaseEntitlementDataSource(client: client),
+           );
+
+  Future<void> _requireFeature(String key) => _entitlementGate.require(key);
 
   double _saleItemLineTotal(Map<String, dynamic> item) {
     final storedLineTotal = (item['line_total'] as num?)?.toDouble();
@@ -180,6 +195,7 @@ class PosRepository {
     required double value,
     String? approvalPin,
   }) async {
+    await _requireFeature('pos.discounts');
     if (value < 0) {
       return const DiscountEvaluation(
         allowed: false,
@@ -333,6 +349,13 @@ class PosRepository {
     String? customerName,
     String? notes,
   }) async {
+    await _requireFeature('pos.checkout');
+    if (items.any((item) => item.discountAmount > 0)) {
+      await _requireFeature('pos.discounts');
+    }
+    if (payments.any((payment) => payment.method == PaymentMethod.credit)) {
+      await _requireFeature('pos.credit_sales');
+    }
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final user = _currentUser;
@@ -999,6 +1022,7 @@ class PosRepository {
   // CUSTOMERS
   // ════════════════════════════════════════
   Future<SaleModel?> findSaleForReturn(String invoiceId) async {
+    await _requireFeature('pos.returns');
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final normalized = invoiceId.trim();
@@ -1036,6 +1060,7 @@ class PosRepository {
   }
 
   Future<Map<String, int>> loadReturnedQuantities(String saleId) async {
+    await _requireFeature('pos.returns');
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final returned = <String, int>{};
@@ -1081,6 +1106,7 @@ class PosRepository {
     required double refundAmount,
     String? overrideReason,
   }) async {
+    await _requireFeature('pos.returns');
     if (sale.id == null) throw Exception('Original invoice ID missing');
 
     final canOverrideWindow =
@@ -1222,6 +1248,7 @@ class PosRepository {
   }
 
   Future<List<SaleReturnModel>> fetchPendingReturns() async {
+    await _requireFeature('pos.returns');
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
 
@@ -1260,6 +1287,7 @@ class PosRepository {
   }
 
   Future<List<SaleReturnModel>> fetchApprovedReturns({int limit = 100}) async {
+    await _requireFeature('pos.returns');
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
 
@@ -1300,6 +1328,7 @@ class PosRepository {
   }
 
   Future<SaleReturnModel> approveReturn(SaleReturnModel pendingReturn) async {
+    await _requireFeature('pos.returns');
     await _permissions.require(
       'pos.return.approve',
       message: 'Manager ya Owner approval required hai',

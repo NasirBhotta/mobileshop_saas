@@ -7,6 +7,8 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/sale_model.dart';
 import '../models/sale_payment_model.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/features/pos/domain/pos_entitlement_gate.dart';
 
 enum ReceiptDeliveryMethod { thermalPrint, whatsapp, email }
 
@@ -97,7 +99,11 @@ class ReceiptService {
     String? footer,
     String? recipient,
     bool duplicate = false,
+    required EntitlementEvaluator entitlementEvaluator,
   }) async {
+    await PosEntitlementGate(
+      entitlementEvaluator,
+    ).require('pos.receipt_printing');
     final invoice = sale.id?.substring(0, 8).toUpperCase() ?? 'SALE';
     if (method == ReceiptDeliveryMethod.thermalPrint) {
       final bytes = await _buildThermalReceipt(

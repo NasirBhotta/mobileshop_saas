@@ -5,6 +5,7 @@ import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../providers/pos_provider.dart';
 import 'cart_item_tile.dart';
 import 'customer_attach_sheet.dart';
@@ -18,6 +19,9 @@ class CartPanel extends ConsumerWidget {
     final cart = ref.watch(cartProvider);
     final checkoutState = ref.watch(checkoutControllerProvider);
     final isLoading = checkoutState.isLoading;
+    final checkoutEnabled = isEntitledActionVisible(
+      ref.watch(featureEntitlementProvider('pos.checkout')).value,
+    );
 
     if (cart.isEmpty) {
       return Center(
@@ -147,41 +151,42 @@ class CartPanel extends ConsumerWidget {
               const SizedBox(height: 12),
 
               // Checkout button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed:
-                      isLoading || !cart.isPaymentComplete
-                          ? null
-                          : () => _handleCheckout(context, ref),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        cart.isPaymentComplete
-                            ? AppColors.success
-                            : AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+              if (checkoutEnabled)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed:
+                        isLoading || !cart.isPaymentComplete
+                            ? null
+                            : () => _handleCheckout(context, ref),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          cart.isPaymentComplete
+                              ? AppColors.success
+                              : AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child:
+                        isLoading
+                            ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                            : Text(
+                              cart.isPaymentComplete
+                                  ? AppStrings.checkoutButton
+                                  : AppStrings.paymentIncomplete,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                   ),
-                  child:
-                      isLoading
-                          ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                          : Text(
-                            cart.isPaymentComplete
-                                ? AppStrings.checkoutButton
-                                : AppStrings.paymentIncomplete,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
                 ),
-              ),
             ],
           ),
         ),

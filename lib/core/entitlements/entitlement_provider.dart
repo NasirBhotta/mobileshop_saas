@@ -81,7 +81,17 @@ const inventoryActionRouteEntitlements = <String, String>{
   '/inventory/adjust': 'inventory.stock_adjustments',
 };
 
+const posActionRouteEntitlements = <String, String>{
+  '/pos/return': 'pos.returns',
+  '/pos/reprint': 'pos.receipt_printing',
+};
+
 String? requiredFeatureForLocation(String location) {
+  for (final entry in posActionRouteEntitlements.entries) {
+    if (location == entry.key || location.startsWith('${entry.key}/')) {
+      return entry.value;
+    }
+  }
   for (final entry in inventoryActionRouteEntitlements.entries) {
     if (location == entry.key || location.startsWith('${entry.key}/')) {
       return entry.value;

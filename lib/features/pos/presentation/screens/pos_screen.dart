@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../providers/pos_provider.dart';
 import '../widgets/cart_panel.dart';
 import '../widgets/product_search_panel.dart';
@@ -24,6 +25,12 @@ class _PosBody extends ConsumerWidget {
     final isDesktop = Responsive.isDesktop(context);
     final isTablet = Responsive.isTablet(context);
     final cart = ref.watch(cartProvider);
+    final returnsEnabled = isEntitledActionVisible(
+      ref.watch(featureEntitlementProvider('pos.returns')).value,
+    );
+    final receiptPrintingEnabled = isEntitledActionVisible(
+      ref.watch(featureEntitlementProvider('pos.receipt_printing')).value,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -53,18 +60,20 @@ class _PosBody extends ConsumerWidget {
           ],
         ),
         actions: [
-          IconButton(
-            onPressed: () => context.push('/pos/return'),
-            icon: const Icon(Icons.assignment_return_rounded),
-            color: AppColors.textSecondary,
-            tooltip: 'Return / Refund',
-          ),
-          IconButton(
-            onPressed: () => context.push('/pos/reprint'),
-            icon: const Icon(Icons.receipt_long_rounded),
-            color: AppColors.textSecondary,
-            tooltip: 'Reprint Receipt',
-          ),
+          if (returnsEnabled)
+            IconButton(
+              onPressed: () => context.push('/pos/return'),
+              icon: const Icon(Icons.assignment_return_rounded),
+              color: AppColors.textSecondary,
+              tooltip: 'Return / Refund',
+            ),
+          if (receiptPrintingEnabled)
+            IconButton(
+              onPressed: () => context.push('/pos/reprint'),
+              icon: const Icon(Icons.receipt_long_rounded),
+              color: AppColors.textSecondary,
+              tooltip: 'Reprint Receipt',
+            ),
 
           // Held carts button
           Stack(

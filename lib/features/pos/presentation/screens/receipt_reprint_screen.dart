@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../data/models/sale_model.dart';
 import '../../data/services/receipt_service.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../providers/pos_provider.dart';
 
 class ReceiptReprintScreen extends ConsumerStatefulWidget {
@@ -272,14 +273,14 @@ class _ReceiptListTile extends StatelessWidget {
   }
 }
 
-class _ReceiptPreview extends StatelessWidget {
+class _ReceiptPreview extends ConsumerWidget {
   final SaleModel sale;
   final String? footer;
 
   const _ReceiptPreview({required this.sale, required this.footer});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -311,6 +312,9 @@ class _ReceiptPreview extends StatelessWidget {
                         method: method,
                         footer: footer,
                         duplicate: true,
+                        entitlementEvaluator: ref.read(
+                          entitlementEvaluatorProvider,
+                        ),
                       ),
                   icon: Icon(_iconFor(method)),
                   label: Text(method.label),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/cart_item_model.dart';
 import '../../data/models/discount_approval_model.dart';
 import '../providers/pos_provider.dart';
@@ -14,6 +15,9 @@ class CartItemTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final discountsEnabled = isEntitledActionVisible(
+      ref.watch(featureEntitlementProvider('pos.discounts')).value,
+    );
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -105,55 +109,56 @@ class CartItemTile extends ConsumerWidget {
                   ),
                 ),
               ),
-              GestureDetector(
-                onTap: () => _showDiscountDialog(context, ref),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color:
-                        item.discountAmount > 0
-                            ? AppColors.warning.withValues(alpha: 0.1)
-                            : AppColors.surfaceVariant,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
+              if (discountsEnabled)
+                GestureDetector(
+                  onTap: () => _showDiscountDialog(context, ref),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
                       color:
                           item.discountAmount > 0
-                              ? AppColors.warning
-                              : AppColors.border,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.percent_rounded,
-                        size: 12,
+                              ? AppColors.warning.withValues(alpha: 0.1)
+                              : AppColors.surfaceVariant,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
                         color:
                             item.discountAmount > 0
                                 ? AppColors.warning
-                                : AppColors.textHint,
+                                : AppColors.border,
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        item.discountAmount > 0
-                            ? '-Rs ${item.discountAmount.toStringAsFixed(0)}'
-                            : AppStrings.itemDiscount,
-                        style: TextStyle(
-                          fontSize: 11,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.percent_rounded,
+                          size: 12,
                           color:
                               item.discountAmount > 0
                                   ? AppColors.warning
                                   : AppColors.textHint,
-                          fontWeight: FontWeight.w600,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 4),
+                        Text(
+                          item.discountAmount > 0
+                              ? '-Rs ${item.discountAmount.toStringAsFixed(0)}'
+                              : AppStrings.itemDiscount,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color:
+                                item.discountAmount > 0
+                                    ? AppColors.warning
+                                    : AppColors.textHint,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ],

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/sale_model.dart';
 import '../../data/services/receipt_service.dart';
 import '../providers/pos_provider.dart';
@@ -20,6 +21,9 @@ class SaleCompleteScreen extends ConsumerWidget {
     final footer = ref
         .watch(receiptFooterProvider)
         .maybeWhen(data: (value) => value, orElse: () => null);
+    final receiptPrintingEnabled = isEntitledActionVisible(
+      ref.watch(featureEntitlementProvider('pos.receipt_printing')).value,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -203,38 +207,45 @@ class SaleCompleteScreen extends ConsumerWidget {
                     spacing: 12,
                     runSpacing: 10,
                     children: [
-                      OutlinedButton.icon(
-                        onPressed:
-                            () => _deliverReceipt(
-                              ReceiptDeliveryMethod.thermalPrint,
-                              footer,
-                            ),
-                        icon: const Icon(Icons.print_rounded, size: 18),
-                        label: const Text(AppStrings.printReceipt),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed:
-                            () => _deliverReceipt(
-                              ReceiptDeliveryMethod.whatsapp,
-                              footer,
-                            ),
-                        icon: const Icon(Icons.chat_rounded, size: 18),
-                        label: const Text('WhatsApp'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed:
-                            () => _deliverReceipt(
-                              ReceiptDeliveryMethod.email,
-                              footer,
-                            ),
-                        icon: const Icon(Icons.email_rounded, size: 18),
-                        label: const Text('Email'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _shareReceipt(footer),
-                        icon: const Icon(Icons.share_rounded, size: 18),
-                        label: const Text(AppStrings.shareReceipt),
-                      ),
+                      if (receiptPrintingEnabled)
+                        OutlinedButton.icon(
+                          onPressed:
+                              () => _deliverReceipt(
+                                ReceiptDeliveryMethod.thermalPrint,
+                                footer,
+                                ref,
+                              ),
+                          icon: const Icon(Icons.print_rounded, size: 18),
+                          label: const Text(AppStrings.printReceipt),
+                        ),
+                      if (receiptPrintingEnabled)
+                        OutlinedButton.icon(
+                          onPressed:
+                              () => _deliverReceipt(
+                                ReceiptDeliveryMethod.whatsapp,
+                                footer,
+                                ref,
+                              ),
+                          icon: const Icon(Icons.chat_rounded, size: 18),
+                          label: const Text('WhatsApp'),
+                        ),
+                      if (receiptPrintingEnabled)
+                        OutlinedButton.icon(
+                          onPressed:
+                              () => _deliverReceipt(
+                                ReceiptDeliveryMethod.email,
+                                footer,
+                                ref,
+                              ),
+                          icon: const Icon(Icons.email_rounded, size: 18),
+                          label: const Text('Email'),
+                        ),
+                      if (receiptPrintingEnabled)
+                        OutlinedButton.icon(
+                          onPressed: () => _shareReceipt(footer, ref),
+                          icon: const Icon(Icons.share_rounded, size: 18),
+                          label: const Text(AppStrings.shareReceipt),
+                        ),
                       FilledButton.icon(
                         onPressed: () => context.go('/pos'),
                         icon: const Icon(
@@ -254,15 +265,25 @@ class SaleCompleteScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _deliverReceipt(ReceiptDeliveryMethod method, String? footer) {
-    return ReceiptService.deliver(sale: sale, method: method, footer: footer);
+  Future<void> _deliverReceipt(
+    ReceiptDeliveryMethod method,
+    String? footer,
+    WidgetRef ref,
+  ) {
+    return ReceiptService.deliver(
+      sale: sale,
+      method: method,
+      footer: footer,
+      entitlementEvaluator: ref.read(entitlementEvaluatorProvider),
+    );
   }
 
-  Future<void> _shareReceipt(String? footer) {
+  Future<void> _shareReceipt(String? footer, WidgetRef ref) {
     return ReceiptService.deliver(
       sale: sale,
       method: ReceiptDeliveryMethod.whatsapp,
       footer: footer,
+      entitlementEvaluator: ref.read(entitlementEvaluatorProvider),
     );
   }
 }

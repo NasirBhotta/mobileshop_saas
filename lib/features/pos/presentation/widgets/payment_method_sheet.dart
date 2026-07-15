@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/sale_payment_model.dart';
 import '../providers/pos_provider.dart';
 
@@ -75,19 +76,28 @@ class _PaymentMethodSheetState extends ConsumerState<PaymentMethodSheet> {
     super.dispose();
   }
 
-  double get _totalEntered {
-    return _controllers.values.fold(0, (sum, ctrl) {
-      return sum + _parseAmount(ctrl.text);
-    });
+  double _visibleTotalEntered(bool creditSalesEnabled) {
+    return PaymentMethod.values
+        .where((method) => method != PaymentMethod.credit || creditSalesEnabled)
+        .fold(
+          0,
+          (sum, method) => sum + _parseAmount(_controllers[method]?.text ?? ''),
+        );
   }
 
   void _applyPayments() {
     // Sab payments clear karo
     ref.read(cartProvider.notifier).clearPayments();
     final cart = ref.read(cartProvider);
+    final creditSalesEnabled = isEntitledActionVisible(
+      ref.read(featureEntitlementProvider('pos.credit_sales')).value,
+    );
     final enteredAmounts = <PaymentMethod, double>{
       for (final method in PaymentMethod.values)
-        method: _parseAmount(_controllers[method]?.text ?? ''),
+        method:
+            method == PaymentMethod.credit && !creditSalesEnabled
+                ? 0
+                : _parseAmount(_controllers[method]?.text ?? ''),
     };
     final selectedMethods =
         PaymentMethod.values
@@ -112,11 +122,15 @@ class _PaymentMethodSheetState extends ConsumerState<PaymentMethodSheet> {
   @override
   Widget build(BuildContext context) {
     final cart = ref.watch(cartProvider);
-    final remaining = cart.total - _totalEntered;
+    final creditSalesEnabled = isEntitledActionVisible(
+      ref.watch(featureEntitlementProvider('pos.credit_sales')).value,
+    );
+    final visibleTotalEntered = _visibleTotalEntered(creditSalesEnabled);
+    final remaining = cart.total - visibleTotalEntered;
     final isComplete =
-        _totalEntered > 0 &&
-        (_totalEntered >= cart.total - 0.01 ||
-            _totalEntered.round() == cart.total.round());
+        visibleTotalEntered > 0 &&
+        (visibleTotalEntered >= cart.total - 0.01 ||
+            visibleTotalEntered.round() == cart.total.round());
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -222,16 +236,21 @@ class _PaymentMethodSheetState extends ConsumerState<PaymentMethodSheet> {
           const SizedBox(height: 16),
 
           // Payment methods
-          ...PaymentMethod.values.map((method) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _PaymentMethodRow(
-                method: method,
-                controller: _controllers[method]!,
-                onChanged: () => setState(() {}),
-              ),
-            );
-          }),
+          ...PaymentMethod.values
+              .where(
+                (method) =>
+                    method != PaymentMethod.credit || creditSalesEnabled,
+              )
+              .map((method) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _PaymentMethodRow(
+                    method: method,
+                    controller: _controllers[method]!,
+                    onChanged: () => setState(() {}),
+                  ),
+                );
+              }),
 
           // Summary
           Container(

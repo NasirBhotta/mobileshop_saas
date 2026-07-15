@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/network.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'entitlement_evaluator.dart';
 
@@ -61,7 +64,9 @@ class SupabaseEntitlementDataSource implements EntitlementDataSource {
           .maybeSingle()
           .timeout(Network.networkTimeout);
       if (subscription == null) {
-        return const TenantEntitlementSnapshot(subscriptionPlanKey: null);
+        const snapshot = TenantEntitlementSnapshot(subscriptionPlanKey: null);
+        await _saveSnapshot(tenantId, snapshot);
+        return snapshot;
       }
 
       final planId = subscription['plan_id'] as String;
@@ -89,18 +94,99 @@ class SupabaseEntitlementDataSource implements EntitlementDataSource {
             .eq('tenant_id', tenantId),
       ]).timeout(Network.networkTimeout);
 
-      return TenantEntitlementSnapshot(
+      final snapshot = TenantEntitlementSnapshot(
         subscriptionPlanKey: plan['key'] as String,
         planFeatures: _featureValues(results[0]),
         planLimits: _limitValues(results[1]),
         featureOverrides: _featureValues(results[2]),
         limitOverrides: _limitValues(results[3]),
       );
+      await _saveSnapshot(tenantId, snapshot);
+      return snapshot;
     } catch (error) {
       OfflineErrorClassifier.rethrowIfTerminal(error);
-      return const TenantEntitlementSnapshot(subscriptionPlanKey: null);
+      return await _loadSavedSnapshot(tenantId) ??
+          const TenantEntitlementSnapshot(subscriptionPlanKey: null);
     }
   }
+
+  Future<void> _saveSnapshot(
+    String tenantId,
+    TenantEntitlementSnapshot snapshot,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'offline.entitlements.$tenantId',
+      jsonEncode({
+        'subscription_plan_key': snapshot.subscriptionPlanKey,
+        'plan_features': snapshot.planFeatures.map(_featureMap).toList(),
+        'feature_overrides':
+            snapshot.featureOverrides.map(_featureMap).toList(),
+        'plan_limits': snapshot.planLimits.map(_limitMap).toList(),
+        'limit_overrides': snapshot.limitOverrides.map(_limitMap).toList(),
+      }),
+    );
+  }
+
+  Future<TenantEntitlementSnapshot?> _loadSavedSnapshot(String tenantId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('offline.entitlements.$tenantId');
+    if (raw == null) return null;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      return TenantEntitlementSnapshot(
+        subscriptionPlanKey: map['subscription_plan_key'] as String?,
+        planFeatures: _savedFeatures(map['plan_features']),
+        featureOverrides: _savedFeatures(map['feature_overrides']),
+        planLimits: _savedLimits(map['plan_limits']),
+        limitOverrides: _savedLimits(map['limit_overrides']),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Map<String, dynamic> _featureMap(EntitlementFeatureValue value) => {
+    'key': value.key,
+    'enabled': value.enabled,
+    'is_active': value.isActive,
+    'starts_at': value.startsAt?.toIso8601String(),
+    'expires_at': value.expiresAt?.toIso8601String(),
+    'deleted_at': value.deletedAt?.toIso8601String(),
+  };
+
+  Map<String, dynamic> _limitMap(EntitlementLimitValue value) => {
+    'key': value.key,
+    'value': value.value,
+    'is_active': value.isActive,
+    'starts_at': value.startsAt?.toIso8601String(),
+    'expires_at': value.expiresAt?.toIso8601String(),
+    'deleted_at': value.deletedAt?.toIso8601String(),
+  };
+
+  List<EntitlementFeatureValue> _savedFeatures(dynamic values) => [
+    for (final raw in values as List? ?? const [])
+      EntitlementFeatureValue(
+        key: raw['key'] as String,
+        enabled: raw['enabled'] as bool? ?? false,
+        isActive: raw['is_active'] as bool? ?? false,
+        startsAt: _date(raw['starts_at']),
+        expiresAt: _date(raw['expires_at']),
+        deletedAt: _date(raw['deleted_at']),
+      ),
+  ];
+
+  List<EntitlementLimitValue> _savedLimits(dynamic values) => [
+    for (final raw in values as List? ?? const [])
+      EntitlementLimitValue(
+        key: raw['key'] as String,
+        value: raw['value'] as num,
+        isActive: raw['is_active'] as bool? ?? false,
+        startsAt: _date(raw['starts_at']),
+        expiresAt: _date(raw['expires_at']),
+        deletedAt: _date(raw['deleted_at']),
+      ),
+  ];
 
   List<EntitlementFeatureValue> _featureValues(List<dynamic> rows) => [
     for (final raw in rows)
