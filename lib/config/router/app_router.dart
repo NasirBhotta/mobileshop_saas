@@ -52,6 +52,8 @@ import 'package:mobileshop_saas/features/suppliers/presentation/screens/supplier
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/suppliers_screen.dart';
 import 'package:mobileshop_saas/shared/widgets/app_layout.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
+import 'package:mobileshop_saas/core/entitlements/locked_feature_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 final profileCompleteProvider = FutureProvider<bool>((ref) async {
@@ -65,6 +67,8 @@ final profileCompleteProvider = FutureProvider<bool>((ref) async {
 });
 
 final appRouterProvider = Provider<GoRouter>((ref) {
+  ref.watch(entitlementRealtimeRefreshProvider);
+  ref.watch(entitlementRevisionProvider);
   return GoRouter(
     initialLocation: '/',
     redirect: (context, state) async {
@@ -119,6 +123,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return '/dashboard';
       }
 
+      if (location != '/locked-feature') {
+        final featureKey = requiredFeatureForLocation(location);
+        if (featureKey != null) {
+          final enabled = await ref
+              .read(entitlementEvaluatorProvider)
+              .hasFeature(featureKey);
+          if (!enabled) {
+            return Uri(
+              path: '/locked-feature',
+              queryParameters: {'feature': featureKey},
+            ).toString();
+          }
+        }
+      }
+
       return null;
     },
     routes: [
@@ -149,6 +168,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/select-branch',
         builder: (context, state) => const BranchSelectionScreen(),
+      ),
+      GoRoute(
+        path: '/locked-feature',
+        builder:
+            (context, state) => LockedFeatureScreen(
+              featureKey: state.uri.queryParameters['feature'] ?? 'unknown',
+            ),
       ),
       ShellRoute(
         builder: (context, state, child) {

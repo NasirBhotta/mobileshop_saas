@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
+import '../../core/entitlements/entitlement_provider.dart';
 import '../../features/onboarding/data/repositories/setup_flow_repository.dart';
 import '../providers/navigation_loading_provider.dart';
 
@@ -17,28 +18,61 @@ class DesktopNav extends ConsumerWidget {
     required this.currentIndex,
   });
 
-  static const _tabs = [
-    '/dashboard',
-    '/pos',
-    '/inventory',
-    '/customers',
-    '/repairs',
-    '/suppliers',
-    '/expenses',
-    '/reports',
-    '/settings',
-  ];
-
   static const _items = [
-    (icon: Icons.grid_view_rounded, label: AppStrings.navDashboard),
-    (icon: Icons.point_of_sale_rounded, label: AppStrings.navPos),
-    (icon: Icons.inventory_2_rounded, label: AppStrings.navInventory),
-    (icon: Icons.people_rounded, label: AppStrings.navCustomers),
-    (icon: Icons.build_rounded, label: AppStrings.navRepairs),
-    (icon: Icons.local_shipping_rounded, label: AppStrings.navSuppliers),
-    (icon: Icons.receipt_long_rounded, label: AppStrings.navExpenses),
-    (icon: Icons.insights_rounded, label: AppStrings.navReports),
-    (icon: Icons.settings_rounded, label: AppStrings.navSettings),
+    (
+      icon: Icons.grid_view_rounded,
+      label: AppStrings.navDashboard,
+      path: '/dashboard',
+      feature: 'dashboard.access',
+    ),
+    (
+      icon: Icons.point_of_sale_rounded,
+      label: AppStrings.navPos,
+      path: '/pos',
+      feature: 'pos.access',
+    ),
+    (
+      icon: Icons.inventory_2_rounded,
+      label: AppStrings.navInventory,
+      path: '/inventory',
+      feature: 'inventory.access',
+    ),
+    (
+      icon: Icons.people_rounded,
+      label: AppStrings.navCustomers,
+      path: '/customers',
+      feature: 'customers.access',
+    ),
+    (
+      icon: Icons.build_rounded,
+      label: AppStrings.navRepairs,
+      path: '/repairs',
+      feature: 'repairs.access',
+    ),
+    (
+      icon: Icons.local_shipping_rounded,
+      label: AppStrings.navSuppliers,
+      path: '/suppliers',
+      feature: 'suppliers.access',
+    ),
+    (
+      icon: Icons.receipt_long_rounded,
+      label: AppStrings.navExpenses,
+      path: '/expenses',
+      feature: 'expenses.access',
+    ),
+    (
+      icon: Icons.insights_rounded,
+      label: AppStrings.navReports,
+      path: '/reports',
+      feature: 'reports.access',
+    ),
+    (
+      icon: Icons.settings_rounded,
+      label: AppStrings.navSettings,
+      path: '/settings',
+      feature: 'settings.access',
+    ),
   ];
 
   @override
@@ -48,6 +82,29 @@ class DesktopNav extends ConsumerWidget {
       data: (status) => status.branches.length >= 2,
       orElse: () => false,
     );
+    final visibleItems =
+        <
+          ({
+            int originalIndex,
+            IconData icon,
+            String label,
+            String path,
+            String feature,
+          })
+        >[];
+    for (var index = 0; index < _items.length; index++) {
+      final item = _items[index];
+      final access = ref.watch(featureEntitlementProvider(item.feature));
+      if (access.value != false) {
+        visibleItems.add((
+          originalIndex: index,
+          icon: item.icon,
+          label: item.label,
+          path: item.path,
+          feature: item.feature,
+        ));
+      }
+    }
 
     return Scaffold(
       body: Row(
@@ -96,10 +153,10 @@ class DesktopNav extends ConsumerWidget {
                 Expanded(
                   child: ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: _items.length,
+                    itemCount: visibleItems.length,
                     itemBuilder: (context, index) {
-                      final item = _items[index];
-                      final isSelected = currentIndex == index;
+                      final item = visibleItems[index];
+                      final isSelected = currentIndex == item.originalIndex;
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 4),
@@ -143,7 +200,7 @@ class DesktopNav extends ConsumerWidget {
                                           navigationLoadingProvider.notifier,
                                         )
                                         .showFor();
-                                    context.go(_tabs[index]);
+                                    context.go(item.path);
                                   },
                         ),
                       );

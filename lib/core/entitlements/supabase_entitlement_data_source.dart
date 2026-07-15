@@ -56,6 +56,8 @@ class SupabaseEntitlementDataSource implements EntitlementDataSource {
           .from('tenant_subscriptions')
           .select('plan_id, plans!inner(key)')
           .eq('tenant_id', tenantId)
+          .eq('is_active', true)
+          .isFilter('deleted_at', null)
           .maybeSingle()
           .timeout(Network.networkTimeout);
       if (subscription == null) {
