@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:mobileshop_saas/core/authorization/permission_evaluator.dart';
 import 'package:mobileshop_saas/core/local/local_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/local/local_store.dart';
@@ -21,7 +22,14 @@ import 'customer_settlement_sync.dart';
 import 'sale_return_parent_recovery.dart';
 
 class PosRepository {
-  final SupabaseClient _client = Supabase.instance.client;
+  final SupabaseClient _client;
+  final PermissionEvaluator _permissions;
+
+  PosRepository({
+    SupabaseClient? client,
+    required PermissionEvaluator permissions,
+  }) : _client = client ?? Supabase.instance.client,
+       _permissions = permissions;
 
   double _saleItemLineTotal(Map<String, dynamic> item) {
     final storedLineTotal = (item['line_total'] as num?)?.toDouble();
@@ -299,13 +307,19 @@ class PosRepository {
       final tenantId = await _currentTenantId();
       final approver = await _client
           .from('users')
-          .select('id')
+          .select('id, tenant_id')
           .eq('tenant_id', tenantId)
-          .inFilter('role', ['manager', 'owner'])
           .eq('approval_pin', pin)
           .maybeSingle()
           .timeout(Network.networkTimeout);
-      return approver?['id'] as String?;
+      final approverId = approver?['id'] as String?;
+      if (approverId == null) return null;
+      final access = await _permissions.canFor(
+        userId: approverId,
+        tenantId: tenantId,
+        permissionKey: 'pos.discount.approve',
+      );
+      return access.isAllowed ? approverId : null;
     } catch (_) {
       return null;
     }
@@ -1069,10 +1083,9 @@ class PosRepository {
   }) async {
     if (sale.id == null) throw Exception('Original invoice ID missing');
 
-    final profile = await _currentProfile();
-    final role = (profile['role'] as String? ?? 'cashier').toLowerCase();
-    final isOwner = role == 'owner';
-    final canApprove = isOwner || role == 'manager';
+    final canOverrideWindow =
+        (await _permissions.can('pos.return.override')).isAllowed;
+    final canApprove = (await _permissions.can('pos.return.approve')).isAllowed;
     final settings = await _returnSettings();
     final approvalThreshold =
         (settings['return_approval_threshold'] as num?)?.toDouble() ?? 25000;
@@ -1115,7 +1128,7 @@ class PosRepository {
     if (saleDate != null) {
       final lastReturnDate = saleDate.add(Duration(days: returnWindowDays));
       if (DateTime.now().isAfter(lastReturnDate)) {
-        if (!isOwner) {
+        if (!canOverrideWindow) {
           throw Exception(
             'Return window $returnWindowDays din ki hai. Owner override required hai.',
           );
@@ -1287,11 +1300,10 @@ class PosRepository {
   }
 
   Future<SaleReturnModel> approveReturn(SaleReturnModel pendingReturn) async {
-    final profile = await _currentProfile();
-    final role = (profile['role'] as String? ?? 'cashier').toLowerCase();
-    if (role != 'manager' && role != 'owner') {
-      throw Exception('Manager ya Owner approval required hai');
-    }
+    await _permissions.require(
+      'pos.return.approve',
+      message: 'Manager ya Owner approval required hai',
+    );
 
     final approved = _returnWithRestockIds(
       pendingReturn.copyWith(
@@ -1752,9 +1764,8 @@ class PosRepository {
     }
     var effectiveCreditLimit = creditLimit;
     if (effectiveCreditLimit != null) {
-      try {
-        await _requireOwner();
-      } catch (_) {
+      final access = await _permissions.can('customer.credit.update');
+      if (!access.isAllowed) {
         effectiveCreditLimit = null;
       }
     }
@@ -1937,20 +1948,15 @@ class PosRepository {
     }
   }
 
-  Future<void> _requireOwner() async {
-    final profile = await _currentProfile();
-    final role = (profile['role'] as String? ?? '').toLowerCase();
-    if (role != 'owner') {
-      throw Exception('Credit limit sirf Owner set kar sakta hai.');
-    }
-  }
-
   Future<CustomerModel> updateCustomerCreditLimit({
     required String customerId,
     double? creditLimit,
     bool clearCreditLimit = false,
   }) async {
-    await _requireOwner();
+    await _permissions.require(
+      'customer.credit.update',
+      message: 'Credit limit sirf Owner set kar sakta hai.',
+    );
     final user = _currentUser;
     final customer = await _loadCustomerById(customerId);
     if (customer == null) throw Exception('Customer profile nahi mila.');

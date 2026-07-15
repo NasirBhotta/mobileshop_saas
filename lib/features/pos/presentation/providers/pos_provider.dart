@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
+import '../../../../core/authorization/permission_provider.dart';
+
 import '../../data/models/cart_item_model.dart';
 import '../../data/models/customer_dashboard_model.dart';
 import '../../data/models/customer_model.dart';
@@ -15,7 +17,7 @@ import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 
 // ── Repository Provider ──
 final posRepositoryProvider = Provider<PosRepository>((ref) {
-  return PosRepository();
+  return PosRepository(permissions: ref.watch(permissionEvaluatorProvider));
 });
 
 // ── Cart State ──────────────────────────────────────

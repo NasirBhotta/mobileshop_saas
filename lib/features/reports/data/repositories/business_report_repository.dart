@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:mobileshop_saas/core/authorization/permission_evaluator.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/reports/data/local/business_report_local_store.dart';
@@ -12,7 +13,14 @@ import 'package:uuid/uuid.dart';
 class BusinessReportRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
 
-  final SupabaseClient _client = Supabase.instance.client;
+  final SupabaseClient _client;
+  final PermissionEvaluator _permissions;
+
+  BusinessReportRepository({
+    SupabaseClient? client,
+    required PermissionEvaluator permissions,
+  }) : _client = client ?? Supabase.instance.client,
+       _permissions = permissions;
 
   User get _currentUser {
     final user = _client.auth.currentUser;
@@ -124,10 +132,7 @@ class BusinessReportRepository {
   }
 
   Future<bool> _canAccessAllBranches() async {
-    final profile = await _currentProfile();
-    final role = (profile['role'] as String? ?? 'cashier').toLowerCase();
-
-    return role == 'owner';
+    return (await _permissions.can('report.all_branches.view')).isAllowed;
   }
 
   Future<void> _ensureAllBranchesAccess() async {

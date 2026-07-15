@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/authorization/permission_provider.dart';
 import '../../../dashboard/presentation/providers/dashboard_provider.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
@@ -47,6 +48,7 @@ final authListenerProvider = StreamProvider<void>((ref) async* {
 });
 
 void _invalidateAuthScopedProviders(Ref ref) {
+  ref.read(permissionEvaluatorProvider).invalidateAll();
   ref.invalidate(setupFlowStatusProvider);
   ref.invalidate(selectedBranchIdProvider);
   ref.invalidate(shopSetupDataProvider);
