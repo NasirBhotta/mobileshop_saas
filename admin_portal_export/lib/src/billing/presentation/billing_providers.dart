@@ -31,9 +31,11 @@ class BillingMutation extends AsyncNotifier<void> {
     state = const AsyncLoading();
     try {
       await operation(ref.read(billingRepositoryProvider));
-      ref.invalidate(billingSummaryProvider(id));
-      ref.invalidate(billingInvoicesProvider(id));
-      ref.invalidate(billingPaymentsProvider(id));
+      await Future.wait([
+        ref.refresh(billingSummaryProvider(id).future),
+        ref.refresh(billingInvoicesProvider(id).future),
+        ref.refresh(billingPaymentsProvider(id).future),
+      ]);
       state = const AsyncData(null);
       return true;
     } catch (e, s) {

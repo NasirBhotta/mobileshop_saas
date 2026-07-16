@@ -72,6 +72,7 @@ class BillingPayment {
   final String id, status, method, reference, currency;
   final double amount;
   final DateTime paidAt;
+  final String? invoiceId;
   const BillingPayment({
     required this.id,
     required this.status,
@@ -80,6 +81,7 @@ class BillingPayment {
     required this.currency,
     required this.amount,
     required this.paidAt,
+    this.invoiceId,
   });
   factory BillingPayment.fromJson(Map<String, dynamic> j) => BillingPayment(
     id: j['id'] as String,
@@ -89,6 +91,7 @@ class BillingPayment {
     currency: j['currency'] as String,
     amount: (j['amount'] as num).toDouble(),
     paidAt: DateTime.parse(j['paid_at'] as String),
+    invoiceId: j['invoice_id'] as String?,
   );
 }
 

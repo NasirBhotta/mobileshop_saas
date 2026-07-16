@@ -62,7 +62,7 @@ class BillingRepository {
           .toList();
   Future<void> record({
     required String tenantId,
-    String? invoiceId,
+    required String invoiceId,
     required double amount,
     required String method,
     required String reference,
@@ -82,6 +82,10 @@ class BillingRepository {
   Future<void> verify(String id, bool verified) => _client.rpc(
     'platform_verify_manual_payment',
     params: {'p_payment_id': id, 'p_verified': verified},
+  );
+  Future<void> voidInvoice(String id) => _client.rpc(
+    'platform_void_billing_invoice',
+    params: {'p_invoice_id': id, 'p_reason': 'Voided from admin portal'},
   );
   Future<void> manage({
     required String tenantId,

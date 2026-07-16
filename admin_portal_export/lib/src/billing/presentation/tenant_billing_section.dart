@@ -8,11 +8,36 @@ class TenantBillingSection extends ConsumerWidget {
   const TenantBillingSection({required this.tenantId, super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(billingMutationProvider, (previous, next) {
+      if (previous is! AsyncLoading<void>) return;
+      final message =
+          next.hasError
+              ? 'Billing action failed: ${next.error}'
+              : 'Billing updated successfully.';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    });
     final summary = ref.watch(billingSummaryProvider(tenantId));
     final invoices = ref.watch(billingInvoicesProvider(tenantId));
     final payments = ref.watch(billingPaymentsProvider(tenantId));
     final plans = ref.watch(billingPlansProvider);
     final busy = ref.watch(billingMutationProvider).isLoading;
+    final openInvoices =
+        invoices.asData?.value
+            .where((invoice) => invoice.status == 'open')
+            .toList() ??
+        const <BillingInvoice>[];
+    final pendingInvoiceIds =
+        payments.asData?.value
+            .where((payment) => payment.status == 'recorded')
+            .map((payment) => payment.invoiceId)
+            .toSet() ??
+        const <String?>{};
+    final payableInvoices =
+        openInvoices
+            .where((invoice) => !pendingInvoiceIds.contains(invoice.id))
+            .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -26,19 +51,20 @@ class TenantBillingSection extends ConsumerWidget {
             ),
             OutlinedButton.icon(
               onPressed:
-                  busy || plans.asData?.value.isEmpty != false
+                  busy ||
+                          openInvoices.isNotEmpty ||
+                          plans.asData?.value.isEmpty != false
                       ? null
-                      : () => _createInvoice(
-                        context,
-                        ref,
-                        plans.asData!.value,
-                      ),
+                      : () => _createInvoice(context, ref, plans.asData!.value),
               icon: const Icon(Icons.receipt_long),
               label: const Text('Create invoice'),
             ),
             const SizedBox(width: 8),
             OutlinedButton.icon(
-              onPressed: busy ? null : () => _record(context, ref),
+              onPressed:
+                  busy || payableInvoices.isEmpty
+                      ? null
+                      : () => _record(context, ref, payableInvoices),
               icon: const Icon(Icons.add_card),
               label: const Text('Record payment'),
             ),
@@ -114,7 +140,19 @@ class TenantBillingSection extends ConsumerWidget {
             subtitle: Text(
               '${i.planName ?? 'Legacy invoice'} • ${i.billingCycle ?? '—'} • ${_date(i.issuedAt)} • ${i.status}',
             ),
-            trailing: Text('${i.currency} ${i.amount.toStringAsFixed(2)}'),
+            trailing: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text('${i.currency} ${i.amount.toStringAsFixed(2)}'),
+                if (i.status == 'open')
+                  IconButton(
+                    tooltip: 'Void invoice',
+                    onPressed:
+                        busy ? null : () => _voidInvoice(context, ref, i),
+                    icon: const Icon(Icons.block),
+                  ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 20),
@@ -131,13 +169,17 @@ class TenantBillingSection extends ConsumerWidget {
                         IconButton(
                           tooltip: 'Verify',
                           onPressed:
-                              busy ? null : () => _verify(ref, p.id, true),
+                              busy
+                                  ? null
+                                  : () => _verify(context, ref, p.id, true),
                           icon: const Icon(Icons.check),
                         ),
                         IconButton(
                           tooltip: 'Reject',
                           onPressed:
-                              busy ? null : () => _verify(ref, p.id, false),
+                              busy
+                                  ? null
+                                  : () => _verify(context, ref, p.id, false),
                           icon: const Icon(Icons.close),
                         ),
                       ],
@@ -163,9 +205,69 @@ class TenantBillingSection extends ConsumerWidget {
               ),
             ),
       );
-  Future<void> _verify(WidgetRef ref, String id, bool ok) => ref
-      .read(billingMutationProvider.notifier)
-      .run(tenantId, (r) => r.verify(id, ok));
+  Future<void> _verify(
+    BuildContext context,
+    WidgetRef ref,
+    String id,
+    bool ok,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: Text(ok ? 'Verify payment?' : 'Reject payment?'),
+            content: Text(
+              ok
+                  ? 'This will mark the invoice paid and activate its package.'
+                  : 'The invoice will remain open for another payment.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(ok ? 'Verify & activate' : 'Reject'),
+              ),
+            ],
+          ),
+    );
+    if (confirmed != true) return;
+    await ref
+        .read(billingMutationProvider.notifier)
+        .run(tenantId, (repository) => repository.verify(id, ok));
+  }
+
+  Future<void> _voidInvoice(
+    BuildContext context,
+    WidgetRef ref,
+    BillingInvoice invoice,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Void invoice?'),
+            content: Text('${invoice.number} will no longer accept a payment.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Void'),
+              ),
+            ],
+          ),
+    );
+    if (confirmed != true) return;
+    await ref
+        .read(billingMutationProvider.notifier)
+        .run(tenantId, (repository) => repository.voidInvoice(invoice.id));
+  }
+
   Future<void> _action(
     BuildContext context,
     WidgetRef ref,
@@ -195,64 +297,108 @@ class TenantBillingSection extends ConsumerWidget {
         );
   }
 
-  Future<void> _record(BuildContext context, WidgetRef ref) async {
-    final amount = TextEditingController(),
+  Future<void> _record(
+    BuildContext context,
+    WidgetRef ref,
+    List<BillingInvoice> openInvoices,
+  ) async {
+    var invoice = openInvoices.first;
+    final amount = TextEditingController(
+          text: invoice.amount.toStringAsFixed(2),
+        ),
         method = TextEditingController(),
         reference = TextEditingController();
     final key = GlobalKey<FormState>();
     final ok = await showDialog<bool>(
       context: context,
       builder:
-          (c) => AlertDialog(
-            title: const Text('Record manual payment'),
-            content: SizedBox(
-              width: 420,
-              child: Form(
-                key: key,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(
-                      controller: amount,
-                      decoration: const InputDecoration(
-                        labelText: 'Amount (PKR)',
+          (c) => StatefulBuilder(
+            builder:
+                (context, setState) => AlertDialog(
+                  title: const Text('Record manual payment'),
+                  content: SizedBox(
+                    width: 420,
+                    child: Form(
+                      key: key,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          DropdownButtonFormField<BillingInvoice>(
+                            initialValue: invoice,
+                            decoration: const InputDecoration(
+                              labelText: 'Open invoice',
+                            ),
+                            items: [
+                              for (final item in openInvoices)
+                                DropdownMenuItem(
+                                  value: item,
+                                  child: Text(
+                                    '${item.number} • ${item.planName ?? 'Package'} • ${item.currency} ${item.amount.toStringAsFixed(2)}',
+                                  ),
+                                ),
+                            ],
+                            onChanged: (value) {
+                              if (value == null) return;
+                              setState(() {
+                                invoice = value;
+                                amount.text = value.amount.toStringAsFixed(2);
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: amount,
+                            readOnly: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Amount (PKR)',
+                            ),
+                            validator:
+                                (v) =>
+                                    (double.tryParse(v ?? '') ?? 0) > 0
+                                        ? null
+                                        : 'Enter a positive amount',
+                          ),
+                          TextFormField(
+                            controller: method,
+                            decoration: const InputDecoration(
+                              labelText: 'Method',
+                            ),
+                            validator:
+                                (v) =>
+                                    (v ?? '').trim().isEmpty
+                                        ? 'Required'
+                                        : null,
+                          ),
+                          TextFormField(
+                            controller: reference,
+                            decoration: const InputDecoration(
+                              labelText: 'Unique reference',
+                            ),
+                            validator:
+                                (v) =>
+                                    (v ?? '').trim().isEmpty
+                                        ? 'Required'
+                                        : null,
+                          ),
+                        ],
                       ),
-                      validator:
-                          (v) =>
-                              (double.tryParse(v ?? '') ?? 0) > 0
-                                  ? null
-                                  : 'Enter a positive amount',
                     ),
-                    TextFormField(
-                      controller: method,
-                      decoration: const InputDecoration(labelText: 'Method'),
-                      validator:
-                          (v) => (v ?? '').trim().isEmpty ? 'Required' : null,
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(c, false),
+                      child: const Text('Cancel'),
                     ),
-                    TextFormField(
-                      controller: reference,
-                      decoration: const InputDecoration(
-                        labelText: 'Unique reference',
-                      ),
-                      validator:
-                          (v) => (v ?? '').trim().isEmpty ? 'Required' : null,
+                    FilledButton(
+                      onPressed: () {
+                        if (key.currentState!.validate()) {
+                          Navigator.pop(c, true);
+                        }
+                      },
+                      child: const Text('Record'),
                     ),
                   ],
                 ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(c, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  if (key.currentState!.validate()) Navigator.pop(c, true);
-                },
-                child: const Text('Record'),
-              ),
-            ],
           ),
     );
     if (ok == true) {
@@ -262,6 +408,7 @@ class TenantBillingSection extends ConsumerWidget {
             tenantId,
             (r) => r.record(
               tenantId: tenantId,
+              invoiceId: invoice.id,
               amount: double.parse(amount.text),
               method: method.text.trim(),
               reference: reference.text.trim(),
@@ -301,14 +448,15 @@ class TenantBillingSection extends ConsumerWidget {
   }
 }
 
-typedef _InvoiceDraft = ({
-  String planId,
-  String billingCycle,
-  double originalAmount,
-  double discountAmount,
-  DateTime? dueAt,
-  String? note,
-});
+typedef _InvoiceDraft =
+    ({
+      String planId,
+      String billingCycle,
+      double originalAmount,
+      double discountAmount,
+      DateTime? dueAt,
+      String? note,
+    });
 
 class _InvoiceDialog extends StatefulWidget {
   final List<BillingPlan> plans;
@@ -400,9 +548,10 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
                     labelText: 'Original amount (PKR)',
                   ),
                   validator:
-                      (value) => (double.tryParse(value ?? '') ?? 0) > 0
-                          ? null
-                          : 'Enter a positive amount',
+                      (value) =>
+                          (double.tryParse(value ?? '') ?? 0) > 0
+                              ? null
+                              : 'Enter a positive amount',
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
