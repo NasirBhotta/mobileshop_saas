@@ -91,36 +91,56 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
 final tenantAccessRealtimeProvider = Provider<void>((ref) {
   final client = Supabase.instance.client;
   final refresh = ref.read(tenantAccessRefreshProvider);
-  final channel = client.channel('tenant-runtime-access');
+  final tenantChannel = client.channel('tenant-status-runtime-access');
+  final subscriptionChannel = client.channel(
+    'tenant-subscription-runtime-access',
+  );
   void handleChange(PostgresChangePayload _) {
     ref.invalidate(tenantAccessProvider);
     refresh.refresh();
   }
 
-  channel.onPostgresChanges(
-    event: PostgresChangeEvent.update,
-    schema: 'public',
-    table: 'tenants',
-    callback: handleChange,
-  );
-  channel.onPostgresChanges(
-    event: PostgresChangeEvent.all,
-    schema: 'public',
-    table: 'tenant_subscriptions',
-    callback: handleChange,
-  );
-  channel.subscribe((status, error) {
+  void handleSubscriptionStatus(
+    String source,
+    RealtimeSubscribeStatus status,
+    Object? error,
+  ) {
     debugPrint(
-      'Tenant access realtime: $status${error == null ? '' : ' ($error)'}',
+      'Tenant access realtime [$source]: $status${error == null ? '' : ' ($error)'}',
     );
     if (status == RealtimeSubscribeStatus.subscribed) {
-      // Fetch the authoritative status after initial connection and every
-      // reconnect. This also catches an update missed while offline.
       ref.invalidate(tenantAccessProvider);
       refresh.refresh();
     }
+  }
+
+  tenantChannel
+      .onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'tenants',
+        callback: handleChange,
+      )
+      .subscribe(
+        (status, error) => handleSubscriptionStatus('tenant', status, error),
+      );
+
+  subscriptionChannel
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'tenant_subscriptions',
+        callback: handleChange,
+      )
+      .subscribe(
+        (status, error) =>
+            handleSubscriptionStatus('subscription', status, error),
+      );
+
+  ref.onDispose(() {
+    client.removeChannel(tenantChannel);
+    client.removeChannel(subscriptionChannel);
   });
-  ref.onDispose(() => client.removeChannel(channel));
 });
 
 TenantAccessState resolveTenantAccessState(
