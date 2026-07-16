@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/authorization/permission_provider.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
+import '../../../../core/tenant_access/tenant_access_provider.dart';
 import '../../../dashboard/presentation/providers/dashboard_provider.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
@@ -51,6 +52,7 @@ final authListenerProvider = StreamProvider<void>((ref) async* {
 void _invalidateAuthScopedProviders(Ref ref) {
   ref.read(permissionEvaluatorProvider).invalidateAll();
   ref.read(entitlementEvaluatorProvider).invalidateAll();
+  ref.invalidate(tenantAccessProvider);
   ref.invalidate(setupFlowStatusProvider);
   ref.invalidate(selectedBranchIdProvider);
   ref.invalidate(shopSetupDataProvider);

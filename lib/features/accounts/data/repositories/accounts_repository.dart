@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
-import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/accounts/data/local/accounts_local_store.dart';
 import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
 import 'package:mobileshop_saas/features/accounts/domain/account_entitlement_gate.dart';
@@ -93,8 +92,7 @@ class AccountsRepository {
 
     final cached = await AccountsLocalStore.loadAccounts(branchId);
     if (cached.isNotEmpty) {
-      unawaited(_refreshAccounts(tenantId, branchId));
-      unawaited(syncOfflineMutations());
+      unawaited(_syncThenRefreshAccounts(tenantId, branchId));
       return cached;
     }
 
@@ -121,8 +119,7 @@ class AccountsRepository {
       limit: limit,
     );
     if (cached.isNotEmpty) {
-      unawaited(_refreshTransactions(tenantId, branchId, limit: limit));
-      unawaited(syncOfflineMutations());
+      unawaited(_syncThenRefreshTransactions(tenantId, branchId, limit: limit));
       return cached;
     }
 
@@ -170,7 +167,6 @@ class AccountsRepository {
           .upsert(account.toMap())
           .timeout(_networkTimeout);
     } catch (e) {
-      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'upsert_account',
@@ -220,7 +216,6 @@ class AccountsRepository {
     try {
       await _recordTransactionRemote(transaction).timeout(_networkTimeout);
     } catch (e) {
-      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'record_account_transaction',
@@ -289,7 +284,6 @@ class AccountsRepository {
     try {
       await _recordTransferRemote(outgoing, incoming).timeout(_networkTimeout);
     } catch (e) {
-      OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'record_account_transfer',
@@ -305,6 +299,7 @@ class AccountsRepository {
     if (mutations.isEmpty) return;
 
     final remaining = <OfflineMutation>[];
+    Object? accountSyncError;
 
     for (final mutation in mutations) {
       try {
@@ -333,10 +328,39 @@ class AccountsRepository {
       } catch (e) {
         debugPrint('Accounts sync failed: $e');
         remaining.add(mutation);
+        accountSyncError ??= e;
       }
     }
 
     await OfflineStore.saveMutations(userId, remaining);
+    if (accountSyncError != null) {
+      throw Exception('Accounts could not sync yet: $accountSyncError');
+    }
+  }
+
+  Future<void> _syncThenRefreshAccounts(
+    String tenantId,
+    String branchId,
+  ) async {
+    try {
+      await syncOfflineMutations();
+    } catch (_) {
+      return;
+    }
+    await _refreshAccounts(tenantId, branchId);
+  }
+
+  Future<void> _syncThenRefreshTransactions(
+    String tenantId,
+    String branchId, {
+    required int limit,
+  }) async {
+    try {
+      await syncOfflineMutations();
+    } catch (_) {
+      return;
+    }
+    await _refreshTransactions(tenantId, branchId, limit: limit);
   }
 
   Future<void> _refreshAccounts(String tenantId, String branchId) async {
@@ -469,7 +493,6 @@ class AccountsRepository {
           .upsert(account.toMap())
           .timeout(_networkTimeout)
           .catchError((e) {
-            OfflineErrorClassifier.rethrowIfTerminal(e);
             return OfflineStore.enqueueMutation(
               userId: _currentUser.id,
               type: 'upsert_account',

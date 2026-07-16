@@ -56,6 +56,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/core/entitlements/locked_feature_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:mobileshop_saas/core/tenant_access/tenant_access_provider.dart';
+import 'package:mobileshop_saas/core/tenant_access/tenant_suspended_screen.dart';
 
 final profileCompleteProvider = FutureProvider<bool>((ref) async {
   final user = Supabase.instance.client.auth.currentUser;
@@ -70,8 +72,10 @@ final profileCompleteProvider = FutureProvider<bool>((ref) async {
 final appRouterProvider = Provider<GoRouter>((ref) {
   ref.watch(entitlementRealtimeRefreshProvider);
   ref.watch(entitlementRevisionProvider);
+  final tenantAccessRefresh = ref.watch(tenantAccessRefreshProvider);
   return GoRouter(
     initialLocation: '/',
+    refreshListenable: tenantAccessRefresh,
     redirect: (context, state) async {
       final location = state.uri.path;
 
@@ -97,6 +101,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (isAuthRoute) {
         return '/';
       }
+
+      final tenantAccess = await ref.read(tenantAccessProvider.future);
+      if (tenantAccess == TenantAccessState.suspended) {
+        return location == '/account-suspended' ? null : '/account-suspended';
+      }
+      if (location == '/account-suspended') return '/dashboard';
 
       debugPrint("Router evaluating: ${state.uri.path}");
 
@@ -153,6 +163,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/signup',
         builder: (context, state) => const SignupScreen(),
+      ),
+      GoRoute(
+        path: '/account-suspended',
+        builder: (context, state) => const TenantSuspendedScreen(),
       ),
       // Email verification screen is temporarily disabled during development.
       // Re-enable this route when email confirmation is turned back on.

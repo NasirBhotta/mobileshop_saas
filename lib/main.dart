@@ -10,6 +10,7 @@ import 'config/supabase/supabase_config.dart';
 import 'config/theme/app_theme.dart';
 import 'core/constants/app_strings.dart';
 import 'core/local/local_database.dart';
+import 'core/tenant_access/tenant_access_provider.dart';
 
 void main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +42,7 @@ class MobileShopApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(authListenerProvider);
+    ref.watch(tenantAccessRealtimeProvider);
     final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(

@@ -701,6 +701,8 @@ Future<void> _showAccountDialog(BuildContext context, WidgetRef ref) async {
                       );
                   if (ok && dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
+                  } else if (dialogContext.mounted) {
+                    _showAccountActionError(dialogContext, ref);
                   }
                 },
                 child: const Text('Save'),
@@ -835,6 +837,8 @@ Future<void> _showEntryDialog(
                       );
                   if (ok && dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
+                  } else if (dialogContext.mounted) {
+                    _showAccountActionError(dialogContext, ref);
                   }
                 },
                 child: const Text('Save'),
@@ -945,6 +949,8 @@ Future<void> _showTransferDialog(
                       );
                   if (ok && dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
+                  } else if (dialogContext.mounted) {
+                    _showAccountActionError(dialogContext, ref);
                   }
                 },
                 child: const Text('Transfer'),
@@ -958,6 +964,17 @@ Future<void> _showTransferDialog(
 
   amountController.dispose();
   noteController.dispose();
+}
+
+void _showAccountActionError(BuildContext context, WidgetRef ref) {
+  final state = ref.read(accountControllerProvider);
+  final message =
+      state.hasError
+          ? state.error.toString().replaceFirst('Exception: ', '')
+          : 'Could not save. Please try again.';
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(message)));
 }
 
 List<DropdownMenuItem<String>> _accountItems(List<AccountModel> accounts) {
