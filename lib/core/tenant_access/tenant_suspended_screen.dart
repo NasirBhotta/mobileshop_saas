@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/auth/presentation/providers/auth_provider.dart';
 
 class TenantSuspendedScreen extends ConsumerWidget {
@@ -7,6 +8,7 @@ class TenantSuspendedScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final signingOut = ref.watch(authControllerProvider).isLoading;
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
@@ -30,9 +32,30 @@ class TenantSuspendedScreen extends ConsumerWidget {
                 const SizedBox(height: 24),
                 FilledButton.tonalIcon(
                   onPressed:
-                      () => ref.read(authControllerProvider.notifier).logout(),
+                      signingOut
+                          ? null
+                          : () async {
+                            final ok =
+                                await ref
+                                    .read(authControllerProvider.notifier)
+                                    .logoutLocally();
+                            if (!context.mounted) return;
+                            if (ok) {
+                              context.go('/login');
+                              return;
+                            }
+                            final error =
+                                ref.read(authControllerProvider).error;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  error?.toString() ?? 'Could not sign out.',
+                                ),
+                              ),
+                            );
+                          },
                   icon: const Icon(Icons.logout),
-                  label: const Text('Sign out'),
+                  label: Text(signingOut ? 'Signing out...' : 'Sign out'),
                 ),
               ],
             ),

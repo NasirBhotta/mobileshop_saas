@@ -161,4 +161,17 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
       return false;
     }
   }
+
+  Future<bool> logoutLocally() async {
+    state = const AsyncLoading();
+    try {
+      await _repository.signOutLocally();
+      _invalidateAuthScopedProviders(_ref);
+      state = const AsyncData(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
 }

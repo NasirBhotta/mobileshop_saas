@@ -75,6 +75,9 @@ class AuthRepository {
 
   Future<void> signOut() => _client.auth.signOut();
 
+  Future<void> signOutLocally() =>
+      _client.auth.signOut(scope: SignOutScope.local);
+
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
 
   User? get currentUser => _client.auth.currentUser;
