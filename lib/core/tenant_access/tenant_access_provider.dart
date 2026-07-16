@@ -64,7 +64,15 @@ final tenantAccessRealtimeProvider = Provider<void>((ref) {
           refresh.refresh();
         },
       )
-      .subscribe();
+      .subscribe((status, error) {
+        debugPrint('Tenant access realtime: $status${error == null ? '' : ' ($error)'}');
+        if (status == RealtimeSubscribeStatus.subscribed) {
+          // Fetch the authoritative status after initial connection and every
+          // reconnect. This also catches an update missed while offline.
+          ref.invalidate(tenantAccessProvider);
+          refresh.refresh();
+        }
+      });
   ref.onDispose(() => client.removeChannel(channel));
 });
 
