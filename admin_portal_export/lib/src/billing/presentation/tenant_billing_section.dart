@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../domain/tenant_billing.dart';
 import 'billing_providers.dart';
 
 class TenantBillingSection extends ConsumerWidget {
@@ -10,6 +11,7 @@ class TenantBillingSection extends ConsumerWidget {
     final summary = ref.watch(billingSummaryProvider(tenantId));
     final invoices = ref.watch(billingInvoicesProvider(tenantId));
     final payments = ref.watch(billingPaymentsProvider(tenantId));
+    final plans = ref.watch(billingPlansProvider);
     final busy = ref.watch(billingMutationProvider).isLoading;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -22,6 +24,19 @@ class TenantBillingSection extends ConsumerWidget {
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
             ),
+            OutlinedButton.icon(
+              onPressed:
+                  busy || plans.asData?.value.isEmpty != false
+                      ? null
+                      : () => _createInvoice(
+                        context,
+                        ref,
+                        plans.asData!.value,
+                      ),
+              icon: const Icon(Icons.receipt_long),
+              label: const Text('Create invoice'),
+            ),
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: busy ? null : () => _record(context, ref),
               icon: const Icon(Icons.add_card),
@@ -96,7 +111,9 @@ class TenantBillingSection extends ConsumerWidget {
           invoices,
           (i) => ListTile(
             title: Text(i.number),
-            subtitle: Text('${_date(i.issuedAt)} • ${i.status}'),
+            subtitle: Text(
+              '${i.planName ?? 'Legacy invoice'} • ${i.billingCycle ?? '—'} • ${_date(i.issuedAt)} • ${i.status}',
+            ),
             trailing: Text('${i.currency} ${i.amount.toStringAsFixed(2)}'),
           ),
         ),
@@ -255,6 +272,212 @@ class TenantBillingSection extends ConsumerWidget {
     amount.dispose();
     method.dispose();
     reference.dispose();
+  }
+
+  Future<void> _createInvoice(
+    BuildContext context,
+    WidgetRef ref,
+    List<BillingPlan> plans,
+  ) async {
+    final draft = await showDialog<_InvoiceDraft>(
+      context: context,
+      builder: (_) => _InvoiceDialog(plans: plans),
+    );
+    if (draft == null) return;
+    await ref
+        .read(billingMutationProvider.notifier)
+        .run(
+          tenantId,
+          (repository) => repository.createInvoice(
+            tenantId: tenantId,
+            planId: draft.planId,
+            billingCycle: draft.billingCycle,
+            originalAmount: draft.originalAmount,
+            discountAmount: draft.discountAmount,
+            dueAt: draft.dueAt,
+            note: draft.note,
+          ),
+        );
+  }
+}
+
+typedef _InvoiceDraft = ({
+  String planId,
+  String billingCycle,
+  double originalAmount,
+  double discountAmount,
+  DateTime? dueAt,
+  String? note,
+});
+
+class _InvoiceDialog extends StatefulWidget {
+  final List<BillingPlan> plans;
+  const _InvoiceDialog({required this.plans});
+
+  @override
+  State<_InvoiceDialog> createState() => _InvoiceDialogState();
+}
+
+class _InvoiceDialogState extends State<_InvoiceDialog> {
+  final key = GlobalKey<FormState>();
+  final amount = TextEditingController();
+  final discount = TextEditingController(text: '0');
+  final note = TextEditingController();
+  late BillingPlan plan;
+  String cycle = 'monthly';
+  DateTime? dueAt;
+
+  @override
+  void initState() {
+    super.initState();
+    plan = widget.plans.first;
+    _suggestAmount();
+  }
+
+  void _suggestAmount() {
+    final monthly = plan.monthlyPrice;
+    if (monthly != null) {
+      amount.text = (cycle == 'annual' ? monthly * 12 : monthly)
+          .toStringAsFixed(2);
+    }
+  }
+
+  @override
+  void dispose() {
+    amount.dispose();
+    discount.dispose();
+    note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Create package invoice'),
+      content: SizedBox(
+        width: 440,
+        child: Form(
+          key: key,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<BillingPlan>(
+                  initialValue: plan,
+                  decoration: const InputDecoration(labelText: 'Package'),
+                  items: [
+                    for (final item in widget.plans)
+                      DropdownMenuItem(value: item, child: Text(item.name)),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      plan = value;
+                      _suggestAmount();
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: cycle,
+                  decoration: const InputDecoration(labelText: 'Billing cycle'),
+                  items: const [
+                    DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
+                    DropdownMenuItem(value: 'annual', child: Text('Annual')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      cycle = value;
+                      _suggestAmount();
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: amount,
+                  decoration: const InputDecoration(
+                    labelText: 'Original amount (PKR)',
+                  ),
+                  validator:
+                      (value) => (double.tryParse(value ?? '') ?? 0) > 0
+                          ? null
+                          : 'Enter a positive amount',
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: discount,
+                  decoration: const InputDecoration(
+                    labelText: 'Discount (PKR)',
+                  ),
+                  validator: (value) {
+                    final original = double.tryParse(amount.text) ?? 0;
+                    final reduction = double.tryParse(value ?? '') ?? -1;
+                    return reduction >= 0 && reduction < original
+                        ? null
+                        : 'Discount must be less than amount';
+                  },
+                ),
+                const SizedBox(height: 8),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Due date'),
+                  subtitle: Text(_date(dueAt)),
+                  trailing: TextButton(
+                    onPressed: _pickDueDate,
+                    child: const Text('Select'),
+                  ),
+                ),
+                TextFormField(
+                  controller: note,
+                  decoration: const InputDecoration(labelText: 'Note optional'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Create')),
+      ],
+    );
+  }
+
+  Future<void> _pickDueDate() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 7)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (selected == null) return;
+    setState(() {
+      dueAt = DateTime(
+        selected.year,
+        selected.month,
+        selected.day,
+        23,
+        59,
+        59,
+        999,
+      );
+    });
+  }
+
+  void _submit() {
+    if (!key.currentState!.validate()) return;
+    Navigator.pop(context, (
+      planId: plan.id,
+      billingCycle: cycle,
+      originalAmount: double.parse(amount.text),
+      discountAmount: double.parse(discount.text),
+      dueAt: dueAt,
+      note: note.text.trim().isEmpty ? null : note.text.trim(),
+    ));
   }
 }
 

@@ -14,6 +14,9 @@ final billingPaymentsProvider =
     FutureProvider.family<List<BillingPayment>, String>(
       (ref, id) => ref.watch(billingRepositoryProvider).payments(id),
     );
+final billingPlansProvider = FutureProvider<List<BillingPlan>>(
+  (ref) => ref.watch(billingRepositoryProvider).plans(),
+);
 final billingMutationProvider = AsyncNotifierProvider<BillingMutation, void>(
   BillingMutation.new,
 );

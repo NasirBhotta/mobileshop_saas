@@ -27,6 +27,35 @@ class BillingRepository {
     'platform_list_billing_payments',
     tenantId,
   ).then((r) => r.map(BillingPayment.fromJson).toList());
+  Future<List<BillingPlan>> plans() async {
+    final rows = await _client.rpc('platform_admin_list_plans') as List;
+    return rows
+        .map(
+          (row) => BillingPlan.fromJson(Map<String, dynamic>.from(row as Map)),
+        )
+        .toList();
+  }
+
+  Future<void> createInvoice({
+    required String tenantId,
+    required String planId,
+    required String billingCycle,
+    required double originalAmount,
+    double discountAmount = 0,
+    DateTime? dueAt,
+    String? note,
+  }) => _client.rpc(
+    'platform_create_package_invoice',
+    params: {
+      'p_tenant_id': tenantId,
+      'p_plan_id': planId,
+      'p_billing_cycle': billingCycle,
+      'p_original_amount': originalAmount,
+      'p_discount_amount': discountAmount,
+      'p_due_at': dueAt?.toUtc().toIso8601String(),
+      'p_note': note,
+    },
+  );
   Future<List<Map<String, dynamic>>> _rows(String rpc, String id) async =>
       (await _client.rpc(rpc, params: {'p_tenant_id': id}) as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
