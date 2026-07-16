@@ -103,7 +103,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
 
       final tenantAccess = await ref.read(tenantAccessProvider.future);
-      if (tenantAccess == TenantAccessState.suspended) {
+      if (tenantAccess.isBlocked) {
         return location == '/account-suspended' ? null : '/account-suspended';
       }
       if (location == '/account-suspended') return '/dashboard';

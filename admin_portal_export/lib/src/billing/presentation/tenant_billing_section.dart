@@ -69,16 +69,7 @@ class TenantBillingSection extends ConsumerWidget {
                                 spacing: 8,
                                 runSpacing: 8,
                                 children:
-                                    [
-                                          'trial_start',
-                                          'trial_extend',
-                                          'trial_end',
-                                          'activate',
-                                          'cancel',
-                                          'renew',
-                                          'suspend',
-                                          'grace',
-                                        ]
+                                    _validActions(s.status)
                                         .map(
                                           (a) => OutlinedButton(
                                             onPressed:
@@ -172,6 +163,7 @@ class TenantBillingSection extends ConsumerWidget {
         lastDate: DateTime.now().add(const Duration(days: 3650)),
       );
       if (until == null) return;
+      until = DateTime(until.year, until.month, until.day, 23, 59, 59, 999);
     }
     await ref
         .read(billingMutationProvider.notifier)
@@ -264,6 +256,19 @@ class TenantBillingSection extends ConsumerWidget {
     method.dispose();
     reference.dispose();
   }
+}
+
+List<String> _validActions(String value) {
+  return switch (value.toLowerCase()) {
+    'pending_activation' => const ['trial_start', 'activate', 'suspend'],
+    'trialing' => const ['trial_extend', 'trial_end', 'activate', 'suspend'],
+    'trial_expired' => const ['trial_extend', 'activate', 'suspend'],
+    'active' => const ['renew', 'grace', 'cancel', 'suspend'],
+    'grace_period' => const ['renew', 'activate', 'cancel', 'suspend'],
+    'cancelled' => const ['trial_start', 'activate', 'renew', 'suspend'],
+    'suspended' => const ['activate'],
+    _ => const ['activate', 'suspend'],
+  };
 }
 
 class _Value extends StatelessWidget {

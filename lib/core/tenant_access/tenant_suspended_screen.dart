@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mobileshop_saas/core/tenant_access/tenant_access_provider.dart';
 import 'package:mobileshop_saas/features/auth/presentation/providers/auth_provider.dart';
 
 class TenantSuspendedScreen extends ConsumerWidget {
@@ -9,6 +10,8 @@ class TenantSuspendedScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final signingOut = ref.watch(authControllerProvider).isLoading;
+    final access = ref.watch(tenantAccessProvider).asData?.value;
+    final content = _contentFor(access);
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
@@ -21,14 +24,11 @@ class TenantSuspendedScreen extends ConsumerWidget {
                 const Icon(Icons.lock_clock_outlined, size: 64),
                 const SizedBox(height: 20),
                 Text(
-                  'Account suspended',
+                  content.title,
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'Your shop account is currently suspended. Contact support or your administrator to restore access.',
-                  textAlign: TextAlign.center,
-                ),
+                Text(content.message, textAlign: TextAlign.center),
                 const SizedBox(height: 24),
                 FilledButton.tonalIcon(
                   onPressed:
@@ -64,4 +64,39 @@ class TenantSuspendedScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+({String title, String message}) _contentFor(TenantAccessState? state) {
+  return switch (state) {
+    TenantAccessState.activationRequired => (
+      title: 'Account activation required',
+      message:
+          'Your shop setup is complete, but no trial or subscription is active. Contact support to start your trial.',
+    ),
+    TenantAccessState.cancelled => (
+      title: 'Subscription cancelled',
+      message:
+          'Your subscription has been cancelled. Contact support to restore access.',
+    ),
+    TenantAccessState.trialExpired => (
+      title: 'Trial expired',
+      message:
+          'Your trial period has ended. Choose a plan or contact support to continue.',
+    ),
+    TenantAccessState.graceExpired => (
+      title: 'Grace period ended',
+      message:
+          'Your payment grace period has ended. Contact support to restore access.',
+    ),
+    TenantAccessState.subscriptionExpired => (
+      title: 'Subscription expired',
+      message:
+          'Your subscription has expired. Renew it to continue using the app.',
+    ),
+    _ => (
+      title: 'Account suspended',
+      message:
+          'Your shop account is currently suspended. Contact support or your administrator to restore access.',
+    ),
+  };
 }
