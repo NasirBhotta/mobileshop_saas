@@ -107,6 +107,8 @@ class _DataSource implements EntitlementDataSource {
       TenantEntitlementSnapshot(
         subscriptionPlanKey: 'test-plan',
         planFeatures: [
+          const EntitlementFeatureValue(key: 'suppliers.access', enabled: true),
+          const EntitlementFeatureValue(key: 'purchases.access', enabled: true),
           EntitlementFeatureValue(
             key: 'purchases.procurement',
             enabled: legacyEnabled,

@@ -30,8 +30,9 @@ class LockedFeatureScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Contact your account administrator to upgrade or enable '
-                  '$featureKey.',
+                  'This module remains visible so you can discover it, but it '
+                  'is currently locked. Contact support to upgrade your package '
+                  'or enable $featureKey.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),

@@ -71,11 +71,14 @@ final profileCompleteProvider = FutureProvider<bool>((ref) async {
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   ref.watch(entitlementRealtimeRefreshProvider);
-  ref.watch(entitlementRevisionProvider);
   final tenantAccessRefresh = ref.watch(tenantAccessRefreshProvider);
+  final entitlementRouterRefresh = ref.watch(entitlementRouterRefreshProvider);
   return GoRouter(
     initialLocation: '/',
-    refreshListenable: tenantAccessRefresh,
+    refreshListenable: Listenable.merge([
+      tenantAccessRefresh,
+      entitlementRouterRefresh,
+    ]),
     redirect: (context, state) async {
       final location = state.uri.path;
 

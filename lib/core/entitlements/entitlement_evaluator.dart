@@ -282,13 +282,14 @@ class EntitlementEvaluator {
         EntitlementValueSource.compatibilityPlanFallback,
       );
     }
-    final paidReports = plan == 'business' || plan == 'enterprise';
-    for (final key in const {'reports.export', 'reports.scheduling'}) {
-      features[key] = _ResolvedFeature(
-        paidReports,
-        EntitlementValueSource.compatibilityPlanFallback,
-      );
-    }
+    features['reports.export'] = const _ResolvedFeature(
+      true,
+      EntitlementValueSource.compatibilityPlanFallback,
+    );
+    features['reports.scheduling'] = _ResolvedFeature(
+      plan == 'business' || plan == 'enterprise',
+      EntitlementValueSource.compatibilityPlanFallback,
+    );
     limits['expenses.history_days'] = _ResolvedLimit(switch (plan) {
       'starter' => 30,
       'business' => 365,

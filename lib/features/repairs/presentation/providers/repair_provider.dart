@@ -132,15 +132,17 @@ class RepairTicketController
     state = const AsyncLoading();
 
     try {
-      if (!await _ref
-          .read(entitlementEvaluatorProvider)
-          .hasFeature('repairs.tickets')) {
+      if (!await hasFeatureWithCompatibility(
+        _ref.read(entitlementEvaluatorProvider),
+        'repairs.tickets',
+      )) {
         throw const EntitlementDeniedException('repairs.tickets');
       }
       if (imei?.trim().isNotEmpty == true &&
-          !await _ref
-              .read(entitlementEvaluatorProvider)
-              .hasFeature('repairs.imei_linking')) {
+          !await hasFeatureWithCompatibility(
+            _ref.read(entitlementEvaluatorProvider),
+            'repairs.imei_linking',
+          )) {
         throw const EntitlementDeniedException('repairs.imei_linking');
       }
       final repository = _ref.read(repairRepositoryProvider);
@@ -185,9 +187,10 @@ class RepairTicketController
     state = const AsyncLoading();
 
     try {
-      if (!await _ref
-          .read(entitlementEvaluatorProvider)
-          .hasFeature('repairs.tickets')) {
+      if (!await hasFeatureWithCompatibility(
+        _ref.read(entitlementEvaluatorProvider),
+        'repairs.tickets',
+      )) {
         throw const EntitlementDeniedException('repairs.tickets');
       }
       final repository = _ref.read(repairRepositoryProvider);

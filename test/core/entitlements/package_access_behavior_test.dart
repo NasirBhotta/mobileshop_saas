@@ -3,18 +3,13 @@ import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 
 void main() {
   group('Package Patch 5 compatibility behaviour', () {
-    for (final expectation
-        in const {
-          'starter': false,
-          'business': true,
-          'enterprise': true,
-        }.entries) {
-      test('${expectation.key} report export and scheduling', () async {
-        final evaluator = _fallbackEvaluator(expectation.key);
-        expect(await evaluator.hasFeature('reports.export'), expectation.value);
+    for (final plan in const ['starter', 'business', 'enterprise']) {
+      test('$plan report export and scheduling', () async {
+        final evaluator = _fallbackEvaluator(plan);
+        expect(await evaluator.hasFeature('reports.export'), isTrue);
         expect(
           await evaluator.hasFeature('reports.scheduling'),
-          expectation.value,
+          plan == 'starter' ? isFalse : isTrue,
         );
       });
     }

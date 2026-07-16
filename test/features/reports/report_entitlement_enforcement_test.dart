@@ -13,12 +13,9 @@ void main() {
     await expectLater(gate.require('reports.business'), completes);
   });
 
-  test('Starter cannot export or schedule by default', () async {
+  test('Starter can export but cannot schedule by default', () async {
     final gate = ReportEntitlementGate(_evaluator(plan: 'starter'));
-    await expectLater(
-      gate.require('reports.export'),
-      throwsA(isA<EntitlementDeniedException>()),
-    );
+    await expectLater(gate.require('reports.export'), completes);
     await expectLater(
       gate.require('reports.scheduled'),
       throwsA(isA<EntitlementDeniedException>()),
@@ -38,7 +35,7 @@ void main() {
     final repository = SalesReportRepository(
       client: SupabaseClient('http://localhost', 'test-anon-key'),
       permissions: PermissionEvaluator(dataSource: _PermissionDataSource()),
-      entitlements: _evaluator(plan: 'starter'),
+      entitlements: _evaluator(plan: 'starter', exportOverride: false),
     );
     await expectLater(
       repository.buildCsvExport(
@@ -100,7 +97,7 @@ class _DataSource implements EntitlementDataSource {
             ),
           if (scheduleOverride != null)
             EntitlementFeatureValue(
-              key: 'reports.scheduled',
+              key: 'reports.scheduling',
               enabled: scheduleOverride!,
             ),
         ],

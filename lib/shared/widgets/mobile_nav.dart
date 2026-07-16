@@ -25,64 +25,69 @@ class MobileNav extends ConsumerWidget {
     for (final key in routeFeatureEntitlements.values.toSet()) {
       enabled[key] = ref.watch(featureEntitlementProvider(key)).value != false;
     }
-    for (final key in const [
-      'repairs.tickets',
-      'procurement.suppliers',
-      'expenses.core',
-      'accounts.core',
-    ]) {
-      enabled[key] =
-          ref.watch(compatibleFeatureEntitlementProvider(key)).value != false;
-    }
-    final items = <({int originalIndex, String? path, Widget destination})>[
-      if (enabled['dashboard.access']!)
-        (
-          originalIndex: 0,
-          path: '/dashboard',
-          destination: const NavigationDestination(
-            icon: Icon(Icons.grid_view_rounded),
-            label: AppStrings.navDashboard,
+    final items =
+        <({int originalIndex, String? path, Widget destination, bool enabled})>[
+          (
+            originalIndex: 0,
+            path: '/dashboard',
+            enabled: enabled['dashboard.access']!,
+            destination: NavigationDestination(
+              icon: _LockedNavIcon(
+                icon: Icons.grid_view_rounded,
+                locked: !enabled['dashboard.access']!,
+              ),
+              label: AppStrings.navDashboard,
+            ),
           ),
-        ),
-      if (enabled['inventory.access']!)
-        (
-          originalIndex: 1,
-          path: '/inventory',
-          destination: const NavigationDestination(
-            icon: Icon(Icons.inventory_2_outlined),
-            selectedIcon: Icon(Icons.inventory_2_rounded),
-            label: AppStrings.navInventory,
+          (
+            originalIndex: 1,
+            path: '/inventory',
+            enabled: enabled['inventory.access']!,
+            destination: NavigationDestination(
+              icon: _LockedNavIcon(
+                icon: Icons.inventory_2_outlined,
+                locked: !enabled['inventory.access']!,
+              ),
+              selectedIcon: const Icon(Icons.inventory_2_rounded),
+              label: AppStrings.navInventory,
+            ),
           ),
-        ),
-      if (enabled['pos.access']!)
-        (
-          originalIndex: 2,
-          path: '/pos',
-          destination: const NavigationDestination(
-            icon: Icon(Icons.point_of_sale_outlined),
-            selectedIcon: Icon(Icons.point_of_sale_rounded),
-            label: AppStrings.navPos,
+          (
+            originalIndex: 2,
+            path: '/pos',
+            enabled: enabled['pos.access']!,
+            destination: NavigationDestination(
+              icon: _LockedNavIcon(
+                icon: Icons.point_of_sale_outlined,
+                locked: !enabled['pos.access']!,
+              ),
+              selectedIcon: const Icon(Icons.point_of_sale_rounded),
+              label: AppStrings.navPos,
+            ),
           ),
-        ),
-      if (enabled['repairs.tickets']!)
-        (
-          originalIndex: 3,
-          path: '/repairs',
-          destination: const NavigationDestination(
-            icon: Icon(Icons.build_outlined),
-            selectedIcon: Icon(Icons.build_rounded),
-            label: AppStrings.navRepairs,
+          (
+            originalIndex: 3,
+            path: '/repairs',
+            enabled: enabled['repairs.access']!,
+            destination: NavigationDestination(
+              icon: _LockedNavIcon(
+                icon: Icons.build_outlined,
+                locked: !enabled['repairs.access']!,
+              ),
+              selectedIcon: const Icon(Icons.build_rounded),
+              label: AppStrings.navRepairs,
+            ),
           ),
-        ),
-      (
-        originalIndex: 4,
-        path: null,
-        destination: const NavigationDestination(
-          icon: Icon(Icons.more_horiz_rounded),
-          label: AppStrings.navMore,
-        ),
-      ),
-    ];
+          (
+            originalIndex: 4,
+            path: null,
+            enabled: true,
+            destination: const NavigationDestination(
+              icon: Icon(Icons.more_horiz_rounded),
+              label: AppStrings.navMore,
+            ),
+          ),
+        ];
     final selected = items.indexWhere(
       (item) => item.originalIndex == currentIndex,
     );
@@ -131,102 +136,120 @@ class MobileNav extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (enabled['customers.access']!)
-                    ListTile(
-                      leading: const Icon(
-                        Icons.people_rounded,
-                        color: AppColors.primary,
-                      ),
-                      title: const Text(
-                        AppStrings.navCustomers,
-                        style: TextStyle(color: AppColors.primary),
-                      ),
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.go('/customers');
-                      },
+                  ListTile(
+                    leading: const Icon(
+                      Icons.people_rounded,
+                      color: AppColors.primary,
                     ),
-                  if (enabled['procurement.suppliers']!)
-                    ListTile(
-                      leading: const Icon(
-                        Icons.local_shipping_rounded,
-                        color: AppColors.primary,
-                      ),
-                      title: const Text(
-                        AppStrings.navSuppliers,
-                        style: TextStyle(color: AppColors.primary),
-                      ),
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.go('/suppliers');
-                      },
+                    title: const Text(
+                      AppStrings.navCustomers,
+                      style: TextStyle(color: AppColors.primary),
                     ),
-                  if (enabled['expenses.core']!)
-                    ListTile(
-                      leading: const Icon(
-                        Icons.receipt_long_rounded,
-                        color: AppColors.primary,
-                      ),
-                      title: const Text(
-                        AppStrings.navExpenses,
-                        style: TextStyle(color: AppColors.primary),
-                      ),
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.go('/expenses');
-                      },
+                    trailing:
+                        enabled['customers.access']!
+                            ? null
+                            : const Icon(Icons.lock_outline_rounded),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/customers');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.local_shipping_rounded,
+                      color: AppColors.primary,
                     ),
-                  if (enabled['accounts.core']!)
-                    ListTile(
-                      leading: const Icon(
-                        Icons.account_balance_wallet_rounded,
-                        color: AppColors.primary,
-                      ),
-                      title: const Text(
-                        AppStrings.navAccounts,
-                        style: TextStyle(color: AppColors.primary),
-                      ),
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.go('/accounts');
-                      },
+                    title: const Text(
+                      AppStrings.navSuppliers,
+                      style: TextStyle(color: AppColors.primary),
                     ),
-                  if (enabled['reports.access']!)
-                    ListTile(
-                      leading: const Icon(
-                        Icons.insights_rounded,
-                        color: AppColors.primary,
-                      ),
-                      title: const Text(
-                        AppStrings.navReports,
-                        style: TextStyle(color: AppColors.primary),
-                      ),
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.go('/reports');
-                      },
+                    trailing:
+                        enabled['suppliers.access']!
+                            ? null
+                            : const Icon(Icons.lock_outline_rounded),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/suppliers');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.receipt_long_rounded,
+                      color: AppColors.primary,
                     ),
-                  if (enabled['settings.access']!)
-                    ListTile(
-                      leading: const Icon(
-                        Icons.settings_rounded,
-                        color: AppColors.primary,
-                      ),
-                      title: const Text(
-                        AppStrings.navSettings,
-                        style: TextStyle(color: AppColors.primary),
-                      ),
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.go('/settings');
-                      },
+                    title: const Text(
+                      AppStrings.navExpenses,
+                      style: TextStyle(color: AppColors.primary),
                     ),
+                    trailing:
+                        enabled['expenses.access']!
+                            ? null
+                            : const Icon(Icons.lock_outline_rounded),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/expenses');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: AppColors.primary,
+                    ),
+                    title: const Text(
+                      AppStrings.navAccounts,
+                      style: TextStyle(color: AppColors.primary),
+                    ),
+                    trailing:
+                        enabled['accounts.access']!
+                            ? null
+                            : const Icon(Icons.lock_outline_rounded),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/accounts');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.insights_rounded,
+                      color: AppColors.primary,
+                    ),
+                    title: const Text(
+                      AppStrings.navReports,
+                      style: TextStyle(color: AppColors.primary),
+                    ),
+                    trailing:
+                        enabled['reports.access']!
+                            ? null
+                            : const Icon(Icons.lock_outline_rounded),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/reports');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.settings_rounded,
+                      color: AppColors.primary,
+                    ),
+                    title: const Text(
+                      AppStrings.navSettings,
+                      style: TextStyle(color: AppColors.primary),
+                    ),
+                    trailing:
+                        enabled['settings.access']!
+                            ? null
+                            : const Icon(Icons.lock_outline_rounded),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ref.read(navigationLoadingProvider.notifier).showFor();
+                      context.go('/settings');
+                    },
+                  ),
                   if (hasMultipleBranches)
                     ListTile(
                       leading: const Icon(
@@ -247,6 +270,22 @@ class MobileNav extends ConsumerWidget {
               ),
             ),
           ),
+    );
+  }
+}
+
+class _LockedNavIcon extends StatelessWidget {
+  final IconData icon;
+  final bool locked;
+
+  const _LockedNavIcon({required this.icon, required this.locked});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!locked) return Icon(icon);
+    return Badge(
+      label: const Icon(Icons.lock, size: 9, color: Colors.white),
+      child: Icon(icon, color: Theme.of(context).disabledColor),
     );
   }
 }

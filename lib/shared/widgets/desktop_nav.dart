@@ -47,25 +47,25 @@ class DesktopNav extends ConsumerWidget {
       icon: Icons.build_rounded,
       label: AppStrings.navRepairs,
       path: '/repairs',
-      feature: 'repairs.tickets',
+      feature: 'repairs.access',
     ),
     (
       icon: Icons.local_shipping_rounded,
       label: AppStrings.navSuppliers,
       path: '/suppliers',
-      feature: 'procurement.suppliers',
+      feature: 'suppliers.access',
     ),
     (
       icon: Icons.receipt_long_rounded,
       label: AppStrings.navExpenses,
       path: '/expenses',
-      feature: 'expenses.core',
+      feature: 'expenses.access',
     ),
     (
       icon: Icons.account_balance_wallet_rounded,
       label: AppStrings.navAccounts,
       path: '/accounts',
-      feature: 'accounts.core',
+      feature: 'accounts.access',
     ),
     (
       icon: Icons.insights_rounded,
@@ -96,6 +96,7 @@ class DesktopNav extends ConsumerWidget {
             String label,
             String path,
             String feature,
+            bool enabled,
           })
         >[];
     for (var index = 0; index < _items.length; index++) {
@@ -103,15 +104,14 @@ class DesktopNav extends ConsumerWidget {
       final access = ref.watch(
         compatibleFeatureEntitlementProvider(item.feature),
       );
-      if (access.value != false) {
-        visibleItems.add((
-          originalIndex: index,
-          icon: item.icon,
-          label: item.label,
-          path: item.path,
-          feature: item.feature,
-        ));
-      }
+      visibleItems.add((
+        originalIndex: index,
+        icon: item.icon,
+        label: item.label,
+        path: item.path,
+        feature: item.feature,
+        enabled: access.value != false,
+      ));
     }
 
     return Scaffold(
@@ -194,11 +194,22 @@ class DesktopNav extends ConsumerWidget {
                                         ? FontWeight.w600
                                         : FontWeight.normal,
                                 color:
-                                    isSelected
+                                    !item.enabled
+                                        ? AppColors.textSecondary.withValues(
+                                          alpha: 0.55,
+                                        )
+                                        : isSelected
                                         ? AppColors.primary
                                         : AppColors.textSecondary,
                               ),
                             ),
+                            trailing:
+                                item.enabled
+                                    ? null
+                                    : const Icon(
+                                      Icons.lock_outline_rounded,
+                                      size: 17,
+                                    ),
                             onTap:
                                 isSelected
                                     ? null

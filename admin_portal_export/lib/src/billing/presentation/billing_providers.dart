@@ -1,4 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../tenant_entitlements/presentation/tenant_entitlement_providers.dart';
+import '../../tenants/presentation/tenant_admin_providers.dart';
 import '../data/billing_repository.dart';
 import '../domain/tenant_billing.dart';
 
@@ -31,6 +33,12 @@ class BillingMutation extends AsyncNotifier<void> {
     state = const AsyncLoading();
     try {
       await operation(ref.read(billingRepositoryProvider));
+      ref.invalidate(tenantSubscriptionProvider(id));
+      ref.invalidate(tenantEffectiveFeaturesProvider(id));
+      ref.invalidate(tenantEffectiveLimitsProvider(id));
+      ref.invalidate(tenantDetailProvider(id));
+      ref.invalidate(tenantListProvider);
+      ref.invalidate(tenantSummaryProvider);
       await Future.wait([
         ref.refresh(billingSummaryProvider(id).future),
         ref.refresh(billingInvoicesProvider(id).future),

@@ -5,9 +5,12 @@ class ReportEntitlementGate {
   const ReportEntitlementGate(this._evaluator);
 
   Future<bool> allows(String key) async {
-    final specific = await _evaluator.evaluateFeature(key);
+    final canonicalKey =
+        key == 'reports.scheduled' ? 'reports.scheduling' : key;
+    final specific = await _evaluator.evaluateFeature(canonicalKey);
     if (specific.source != EntitlementValueSource.unavailable) {
-      return specific.isEnabled;
+      return specific.isEnabled &&
+          await _evaluator.hasFeature('reports.access');
     }
     return switch (key) {
       'reports.sales' ||

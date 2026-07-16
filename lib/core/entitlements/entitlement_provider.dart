@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/reports/domain/report_entitlement_gate.dart';
 
@@ -18,6 +19,18 @@ final entitlementEvaluatorProvider = Provider<EntitlementEvaluator>((ref) {
 final entitlementRevisionProvider = NotifierProvider<EntitlementRevision, int>(
   EntitlementRevision.new,
 );
+
+final entitlementRouterRefreshProvider = Provider<EntitlementRouterRefresh>((
+  ref,
+) {
+  final refresh = EntitlementRouterRefresh();
+  ref.onDispose(refresh.dispose);
+  return refresh;
+});
+
+class EntitlementRouterRefresh extends ChangeNotifier {
+  void refresh() => notifyListeners();
+}
 
 class EntitlementRevision extends Notifier<int> {
   @override
@@ -48,6 +61,7 @@ Future<bool> hasFeatureWithCompatibility(
   const parentFeatures = {
     'expenses.': 'expenses.access',
     'accounts.': 'accounts.access',
+    'repairs.': 'repairs.access',
   };
   for (final entry in parentFeatures.entries) {
     if (key.startsWith(entry.key) && key != entry.value) {
@@ -71,8 +85,18 @@ Future<bool> hasFeatureWithCompatibility(
   }
   if (!key.startsWith('procurement.')) return evaluator.hasFeature(key);
   final specific = await evaluator.evaluateFeature(key);
+  final procurementEnabled = await evaluator.hasFeature(
+    'purchases.procurement',
+  );
+  if (!procurementEnabled) return false;
+  final moduleKey = switch (key) {
+    'procurement.suppliers' ||
+    'procurement.supplier_payments' => 'suppliers.access',
+    _ => 'purchases.access',
+  };
+  if (!await evaluator.hasFeature(moduleKey)) return false;
   return specific.source == EntitlementValueSource.unavailable
-      ? evaluator.hasFeature('purchases.procurement')
+      ? true
       : specific.isEnabled;
 }
 
@@ -100,12 +124,15 @@ final entitlementRealtimeRefreshProvider = Provider<void>((ref) {
   final channel = client.channel('tenant-entitlement-refresh');
   void refresh(PostgresChangePayload _) {
     ref.read(entitlementRevisionProvider.notifier).refresh();
+    ref.read(entitlementRouterRefreshProvider).refresh();
   }
 
   for (final table in const [
     'tenant_subscriptions',
     'tenant_feature_overrides',
+    'tenant_limit_overrides',
     'plan_features',
+    'plan_limits',
     'features',
     'plans',
   ]) {
@@ -116,7 +143,15 @@ final entitlementRealtimeRefreshProvider = Provider<void>((ref) {
       callback: refresh,
     );
   }
-  channel.subscribe();
+  channel.subscribe((status, error) {
+    debugPrint(
+      'Entitlement realtime: $status${error == null ? '' : ' ($error)'}',
+    );
+    if (status == RealtimeSubscribeStatus.subscribed) {
+      ref.read(entitlementRevisionProvider.notifier).refresh();
+      ref.read(entitlementRouterRefreshProvider).refresh();
+    }
+  });
   ref.onDispose(() => client.removeChannel(channel));
 });
 
@@ -146,16 +181,11 @@ const posActionRouteEntitlements = <String, String>{
 
 const repairProcurementRouteEntitlements = <String, String>{
   '/purchase-orders/receive': 'procurement.goods_receipts',
-  '/repairs': 'repairs.tickets',
-  '/suppliers': 'procurement.suppliers',
-  '/purchase-orders': 'procurement.purchase_orders',
 };
 
 const expenseAccountRouteEntitlements = <String, String>{
   '/expenses/recurring': 'expenses.recurring',
   '/expenses/report': 'expenses.reporting',
-  '/expenses': 'expenses.core',
-  '/accounts': 'accounts.core',
 };
 
 const reportRouteEntitlements = <String, String>{

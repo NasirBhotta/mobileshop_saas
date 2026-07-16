@@ -102,7 +102,7 @@ void main() {
     expect(await evaluator.getLimit('expenses.history_days'), 365);
   });
 
-  test('module access enables missing granular expense and account keys', () async {
+  test('module access enables missing granular feature keys', () async {
     final evaluator = EntitlementEvaluator(
       dataSource: _FakeEntitlementDataSource(
         snapshot: const TenantEntitlementSnapshot(
@@ -110,6 +110,7 @@ void main() {
           planFeatures: [
             EntitlementFeatureValue(key: 'expenses.access', enabled: true),
             EntitlementFeatureValue(key: 'accounts.access', enabled: true),
+            EntitlementFeatureValue(key: 'repairs.access', enabled: true),
           ],
         ),
       ),
@@ -122,6 +123,14 @@ void main() {
     );
     expect(
       await hasFeatureWithCompatibility(evaluator, 'accounts.core'),
+      isTrue,
+    );
+    expect(
+      await hasFeatureWithCompatibility(evaluator, 'repairs.tickets'),
+      isTrue,
+    );
+    expect(
+      await hasFeatureWithCompatibility(evaluator, 'repairs.imei_linking'),
       isTrue,
     );
   });

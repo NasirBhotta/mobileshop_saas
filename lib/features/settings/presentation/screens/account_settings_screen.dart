@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobileshop_saas/core/constants/app_colors.dart';
+import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/onboarding/data/models/shop_setup_model.dart';
 import 'package:mobileshop_saas/features/settings/data/repositories/account_settings_repository.dart';
 import 'package:mobileshop_saas/features/settings/presentation/providers/account_settings_provider.dart';
@@ -21,6 +22,10 @@ class AccountSettingsScreen extends ConsumerWidget {
     );
     final settingsAsync = ref.watch(accountSettingsProvider);
     final controllerState = ref.watch(accountSettingsControllerProvider);
+    final branchesEnabled =
+        ref.watch(featureEntitlementProvider('branches.access')).value != false;
+    final usersEnabled =
+        ref.watch(featureEntitlementProvider('users.access')).value != false;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -44,6 +49,8 @@ class AccountSettingsScreen extends ConsumerWidget {
                   settings: settings,
                   saving: controllerState.isLoading,
                   canManageRoles: canManageRoles,
+                  branchesEnabled: branchesEnabled,
+                  usersEnabled: usersEnabled,
                 ),
               ),
         ),
@@ -56,11 +63,15 @@ class _SettingsContent extends ConsumerWidget {
   final AccountSettingsData settings;
   final bool saving;
   final bool canManageRoles;
+  final bool branchesEnabled;
+  final bool usersEnabled;
 
   const _SettingsContent({
     required this.settings,
     required this.saving,
     required this.canManageRoles,
+    required this.branchesEnabled,
+    required this.usersEnabled,
   });
 
   @override
@@ -89,9 +100,20 @@ class _SettingsContent extends ConsumerWidget {
             _DataSyncSection(settings: settings, saving: saving),
           ],
         );
-        final branches = _BranchesSection(settings: settings, saving: saving);
+        final branches =
+            branchesEnabled
+                ? _BranchesSection(settings: settings, saving: saving)
+                : const _UnavailableSettingsSection(
+                  title: 'Branches',
+                  feature: 'branches.access',
+                );
         final roles =
-            canManageRoles
+            !usersEnabled
+                ? const _UnavailableSettingsSection(
+                  title: 'Users and roles',
+                  feature: 'users.access',
+                )
+                : canManageRoles
                 ? const RolesPermissionsSection()
                 : const SizedBox.shrink();
 
@@ -112,7 +134,8 @@ class _SettingsContent extends ConsumerWidget {
                     child: Column(
                       children: [
                         branches,
-                        if (canManageRoles) const SizedBox(height: 12),
+                        if (!usersEnabled || canManageRoles)
+                          const SizedBox(height: 12),
                         roles,
                       ],
                     ),
@@ -132,13 +155,34 @@ class _SettingsContent extends ConsumerWidget {
             profileAndShop,
             const SizedBox(height: 12),
             branches,
-            if (canManageRoles) const SizedBox(height: 12),
+            if (!usersEnabled || canManageRoles) const SizedBox(height: 12),
             roles,
           ],
         );
       },
     );
   }
+}
+
+class _UnavailableSettingsSection extends StatelessWidget {
+  final String title;
+  final String feature;
+
+  const _UnavailableSettingsSection({
+    required this.title,
+    required this.feature,
+  });
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: ListTile(
+      leading: const Icon(Icons.lock_outline_rounded),
+      title: Text(title),
+      subtitle: Text(
+        'This feature is not available for this account ($feature). Contact support.',
+      ),
+    ),
+  );
 }
 
 class _SettingsHeader extends StatelessWidget {
