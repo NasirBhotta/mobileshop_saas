@@ -127,6 +127,7 @@ final entitlementRealtimeRefreshProvider = Provider<void>((ref) {
     ref.read(entitlementRouterRefreshProvider).refresh();
   }
 
+  // this
   for (final table in const [
     'tenant_subscriptions',
     'tenant_feature_overrides',
