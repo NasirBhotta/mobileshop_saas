@@ -639,6 +639,7 @@ class CustomerSettlementController extends StateNotifier<AsyncValue<void>> {
     required String method,
     String? notes,
   }) async {
+    if (state.isLoading) return false;
     state = const AsyncLoading();
     try {
       await _repository.settleCustomerDues(

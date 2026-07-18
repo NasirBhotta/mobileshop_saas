@@ -128,4 +128,25 @@ void main() {
 
     expect(balanceAdjustmentCount, 0);
   });
+
+  test('duplicate insert is recovered as an idempotent success', () async {
+    var lookupCount = 0;
+    var balanceUpdates = 0;
+    var markedSynced = false;
+    final service = CustomerSettlementSyncService(
+      findRemoteById: (_) async {
+        lookupCount++;
+        return lookupCount == 1 ? null : Map<String, dynamic>.from(payload);
+      },
+      insertRemote: (_) async => throw Exception('duplicate primary key'),
+      afterRemoteInsert: () async => balanceUpdates++,
+      markLocalSynced: (_) async => markedSynced = true,
+    );
+
+    final result = await service.sync(payload);
+
+    expect(result, CustomerSettlementSyncResult.alreadyPresent);
+    expect(balanceUpdates, 1);
+    expect(markedSynced, isTrue);
+  });
 }

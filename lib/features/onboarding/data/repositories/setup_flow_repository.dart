@@ -67,6 +67,8 @@ class SetupFlowStatus {
 class SetupFlowRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
   final SupabaseClient _client;
+  final Map<String, Future<void>> _syncsInFlight = {};
+  final Set<String> _syncAgainForUsers = {};
 
   SetupFlowRepository({SupabaseClient? client})
     : _client = client ?? Supabase.instance.client;
@@ -97,7 +99,11 @@ class SetupFlowRepository {
   }
 
   Future<SetupFlowStatus> loadStatus(String userId) async {
-    unawaited(syncOfflineMutations(userId));
+    unawaited(
+      _requestOfflineMutationSync(userId).catchError((Object error) {
+        debugPrint('Offline mutation sync failed: $error');
+      }),
+    );
     final profile = await loadProfile(userId);
 
     debugPrint("Profile: $profile");
@@ -123,11 +129,20 @@ class SetupFlowRepository {
     );
 
     if (!setupComplete) {
-      if (branches.length >= requiredBranches) {
-        try {
-          await markSetupComplete(tenantId).timeout(_networkTimeout);
-        } catch (_) {}
-      } else {
+      if (branches.length < requiredBranches) {
+        return SetupFlowStatus(
+          target: SetupRouteTarget.setup,
+          profile: profile,
+          tenant: tenant,
+          branches: branches,
+        );
+      }
+
+      try {
+        await markSetupComplete(tenantId).timeout(_networkTimeout);
+      } catch (error) {
+        debugPrint('Setup completion update failed: $error');
+
         return SetupFlowStatus(
           target: SetupRouteTarget.setup,
           profile: profile,
@@ -228,11 +243,13 @@ class SetupFlowRepository {
     String userId,
     Map<String, dynamic> profile,
   ) async {
-    final selectedBranchId = await OfflineStore.loadSelectedBranchId(userId);
-    if (selectedBranchId != null) {
-      profile['branch_id'] = selectedBranchId;
+    final serverBranchId = profile['branch_id'] as String?;
+
+    if (serverBranchId != null && serverBranchId.isNotEmpty) {
+      await OfflineStore.selectBranch(userId: userId, branchId: serverBranchId);
     }
-    await OfflineStore.saveProfile(userId, profile);
+
+    await OfflineStore.saveProfile(userId, Map<String, dynamic>.from(profile));
   }
 
   Future<Map<String, dynamic>?> loadTenant(String tenantId) async {
@@ -454,24 +471,53 @@ class SetupFlowRepository {
     final mutations = await OfflineStore.loadMutations(userId);
     if (mutations.isEmpty) return;
 
-    final remaining = <OfflineMutation>[];
     for (final mutation in mutations) {
-      if (mutation.type != 'select_branch') {
-        remaining.add(mutation);
-        continue;
-      }
+      if (mutation.type != 'select_branch') continue;
 
       try {
-        await _client
+        final updated = await _client
             .from('users')
             .update({'branch_id': mutation.payload['branch_id']})
-            .eq('id', mutation.payload['user_id'])
+            .eq('id', userId)
+            .select('id')
+            .maybeSingle()
             .timeout(_networkTimeout);
-      } catch (_) {
-        remaining.add(mutation);
+        if (updated == null) {
+          throw StateError('Branch selection update affected no user row');
+        }
+
+        await OfflineStore.removeMutation(
+          userId: userId,
+          mutationId: mutation.id,
+        );
+      } catch (error) {
+        debugPrint('Mutation ${mutation.id} sync failed: $error');
+        OfflineErrorClassifier.rethrowIfTerminal(error);
       }
     }
+  }
 
-    await OfflineStore.saveMutations(userId, remaining);
+  Future<void> _requestOfflineMutationSync(String userId) {
+    final running = _syncsInFlight[userId];
+    if (running != null) {
+      _syncAgainForUsers.add(userId);
+      return running;
+    }
+
+    final future = _runOfflineMutationSyncLoop(userId);
+    _syncsInFlight[userId] = future;
+    return future.whenComplete(() {
+      if (identical(_syncsInFlight[userId], future)) {
+        _syncsInFlight.remove(userId);
+        _syncAgainForUsers.remove(userId);
+      }
+    });
+  }
+
+  Future<void> _runOfflineMutationSyncLoop(String userId) async {
+    do {
+      _syncAgainForUsers.remove(userId);
+      await syncOfflineMutations(userId);
+    } while (_syncAgainForUsers.contains(userId));
   }
 }

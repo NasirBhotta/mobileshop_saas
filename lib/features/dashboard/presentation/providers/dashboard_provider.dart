@@ -16,23 +16,31 @@ import '../../../../core/entitlements/entitlement_provider.dart';
 
 final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final branchId = await ref.watch(selectedBranchIdProvider.future);
-  final sales = await ref.watch(allSalesProvider.future);
-  final returnsEnabled = await ref.watch(
-    featureEntitlementProvider('pos.returns').future,
-  );
-  final repairsEnabled = await ref.watch(
-    featureEntitlementProvider('repairs.tickets').future,
-  );
-  final returns =
-      returnsEnabled
-          ? await ref.watch(allApprovedReturnsProvider.future)
-          : const <SaleReturnModel>[];
-  final customers = await ref.watch(allCustomersProvider.future);
-  final settlements = await ref.watch(allCustomerSettlementsProvider.future);
-  final repairTickets =
-      repairsEnabled
-          ? await ref.watch(allRepairTicketsProvider.future)
-          : const <RepairTicketModel>[];
+  final enabledFeatures = await Future.wait<bool>([
+    ref.watch(featureEntitlementProvider('pos.returns').future),
+    ref.watch(featureEntitlementProvider('repairs.tickets').future),
+  ]);
+  final returnsEnabled = enabledFeatures[0];
+  final repairsEnabled = enabledFeatures[1];
+
+  final dashboardData = await Future.wait<Object>([
+    ref.watch(allSalesProvider.future),
+    ref.watch(allCustomersProvider.future),
+    ref.watch(allCustomerSettlementsProvider.future),
+    if (returnsEnabled)
+      ref.watch(allApprovedReturnsProvider.future)
+    else
+      Future.value(const <SaleReturnModel>[]),
+    if (repairsEnabled)
+      ref.watch(allRepairTicketsProvider.future)
+    else
+      Future.value(const <RepairTicketModel>[]),
+  ]);
+  final sales = dashboardData[0] as List<SaleModel>;
+  final customers = dashboardData[1] as List<CustomerModel>;
+  final settlements = dashboardData[2] as List<CustomerSettlementModel>;
+  final returns = dashboardData[3] as List<SaleReturnModel>;
+  final repairTickets = dashboardData[4] as List<RepairTicketModel>;
 
   final completedSales =
       sales.where((sale) => sale.status == SaleStatus.completed).toList();

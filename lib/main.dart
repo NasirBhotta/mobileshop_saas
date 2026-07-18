@@ -43,6 +43,7 @@ class MobileShopApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(authListenerProvider);
     ref.watch(tenantAccessRealtimeProvider);
+    ref.watch(tenantAccessSafetyRefreshProvider);
     final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(

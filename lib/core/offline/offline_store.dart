@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:mobileshop_saas/core/extensions/product_sort_ext.dart';
@@ -11,6 +12,7 @@ import 'package:mobileshop_saas/features/repairs/data/models/inventory_unit_mode
 import 'package:mobileshop_saas/features/repairs/data/models/repair_status_log_model.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../features/inventory/data/models/category_model.dart';
 import '../../features/inventory/data/models/product_model.dart';
@@ -18,11 +20,13 @@ import '../../features/onboarding/data/models/shop_setup_model.dart';
 import '../local/local_store.dart';
 
 class OfflineMutation {
+  final String id;
   final String type;
   final Map<String, dynamic> payload;
   final DateTime createdAt;
 
   const OfflineMutation({
+    required this.id,
     required this.type,
     required this.payload,
     required this.createdAt,
@@ -30,6 +34,7 @@ class OfflineMutation {
 
   factory OfflineMutation.fromMap(Map<String, dynamic> map) {
     return OfflineMutation(
+      id: map['id']?.toString() ?? _legacyMutationId(map),
       type: map['type'] as String,
       payload: Map<String, dynamic>.from(map['payload'] as Map),
       createdAt: DateTime.parse(map['created_at'] as String),
@@ -37,16 +42,27 @@ class OfflineMutation {
   }
 
   Map<String, dynamic> toMap() => {
+    'id': id,
     'type': type,
     'payload': payload,
     'created_at': createdAt.toIso8601String(),
   };
+
+  static String _legacyMutationId(Map<String, dynamic> map) {
+    final identity = jsonEncode({
+      'type': map['type'],
+      'payload': map['payload'],
+      'created_at': map['created_at'],
+    });
+    return 'legacy-${base64Url.encode(utf8.encode(identity))}';
+  }
 }
 
 class OfflineStore {
   const OfflineStore._();
 
   static const String _offlinePrefix = 'offline.';
+  static final Map<String, Future<void>> _mutationWriteTails = {};
 
   static String _profileKey(String userId) => 'offline.profile.$userId';
   static String _tenantKey(String tenantId) => 'offline.tenant.$tenantId';
@@ -477,14 +493,24 @@ class OfflineStore {
     required String type,
     required Map<String, dynamic> payload,
   }) async {
-    final mutations = await loadMutations(userId);
-    mutations.add(
-      OfflineMutation(type: type, payload: payload, createdAt: DateTime.now()),
-    );
-    await saveMutations(userId, mutations);
+    await _withMutationWriteLock(userId, () async {
+      final mutations = await _readMutations(userId);
+      mutations.add(
+        OfflineMutation(
+          id: const Uuid().v4(),
+          type: type,
+          payload: payload,
+          createdAt: DateTime.now(),
+        ),
+      );
+      await _writeMutations(userId, mutations);
+    });
   }
 
-  static Future<List<OfflineMutation>> loadMutations(String userId) async {
+  static Future<List<OfflineMutation>> loadMutations(String userId) =>
+      _readMutations(userId);
+
+  static Future<List<OfflineMutation>> _readMutations(String userId) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_mutationsKey(userId));
     if (raw == null) return [];
@@ -496,12 +522,46 @@ class OfflineStore {
   static Future<void> saveMutations(
     String userId,
     List<OfflineMutation> mutations,
+  ) => _withMutationWriteLock(userId, () => _writeMutations(userId, mutations));
+
+  static Future<void> removeMutation({
+    required String userId,
+    required String mutationId,
+  }) => _withMutationWriteLock(userId, () async {
+    final mutations = await _readMutations(userId);
+    mutations.removeWhere((mutation) => mutation.id == mutationId);
+    await _writeMutations(userId, mutations);
+  });
+
+  static Future<void> _writeMutations(
+    String userId,
+    List<OfflineMutation> mutations,
   ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _mutationsKey(userId),
       jsonEncode(mutations.map((mutation) => mutation.toMap()).toList()),
     );
+  }
+
+  static Future<T> _withMutationWriteLock<T>(
+    String userId,
+    Future<T> Function() action,
+  ) async {
+    final previous = _mutationWriteTails[userId] ?? Future<void>.value();
+    final completer = Completer<void>();
+    final tail = completer.future;
+    _mutationWriteTails[userId] = tail;
+
+    try {
+      await previous;
+      return await action();
+    } finally {
+      completer.complete();
+      if (identical(_mutationWriteTails[userId], tail)) {
+        _mutationWriteTails.remove(userId);
+      }
+    }
   }
 
   // ════════════════════════════════════════

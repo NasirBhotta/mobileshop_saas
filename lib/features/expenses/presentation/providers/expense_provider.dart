@@ -155,6 +155,7 @@ class ExpenseCategoryController
     required String name,
     String? description,
   }) async {
+    if (state.isLoading) return null;
     state = const AsyncLoading();
 
     try {

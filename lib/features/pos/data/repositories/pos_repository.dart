@@ -25,6 +25,7 @@ import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_sour
 import 'package:mobileshop_saas/features/pos/domain/pos_entitlement_gate.dart';
 
 class PosRepository {
+  static const _offlineWriteTimeout = Duration(milliseconds: 1200);
   final SupabaseClient _client;
   final PermissionEvaluator _permissions;
   final EntitlementEvaluator _entitlements;
@@ -46,24 +47,27 @@ class PosRepository {
 
   Future<void> _requireFeature(String key) => _entitlementGate.require(key);
 
-  double _saleItemLineTotal(Map<String, dynamic> item) {
-    final storedLineTotal = (item['line_total'] as num?)?.toDouble();
-    if (storedLineTotal != null) return storedLineTotal;
+  Map<String, dynamic> _saleSyncPayload(SaleModel sale) => {
+    'id': sale.id,
+    'branch_id': sale.branchId,
+    'customer_id': sale.customerId,
+    'user_id': sale.userId,
+    'status': sale.status.code,
+    'subtotal': sale.subtotal,
+    'discount_amount': sale.discountAmount,
+    'tax_amount': sale.taxAmount,
+    'total': sale.total,
+    'notes': sale.notes,
+    'created_at': sale.createdAt?.toIso8601String(),
+    'sale_items': sale.items.map((item) => item.toMap()).toList(),
+    'sale_payments': sale.payments.map((payment) => payment.toMap()).toList(),
+  };
 
-    final unitPrice = (item['unit_price'] as num?)?.toDouble() ?? 0;
-    final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
-    final discountAmount = (item['discount_amount'] as num?)?.toDouble() ?? 0;
-    final taxRate = (item['tax_rate'] as num?)?.toDouble() ?? 0;
-    final discountedPrice = unitPrice - discountAmount;
-    final taxAmount = discountedPrice * quantity * (taxRate / 100);
-    return (discountedPrice * quantity) + taxAmount;
-  }
-
-  double? _saleItemCogsTotal(Map<String, dynamic> item) {
-    final unitCost = (item['unit_cost_at_sale'] as num?)?.toDouble();
-    final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
-    if (unitCost == null) return null;
-    return unitCost * quantity;
+  Future<bool> _commitSaleRemote(Map<String, dynamic> saleData) async {
+    final result = await _client
+        .rpc('commit_pos_sale', params: {'p_sale': saleData})
+        .timeout(Network.networkTimeout);
+    return result == true;
   }
 
   User get _currentUser {
@@ -466,104 +470,17 @@ class PosRepository {
 
     var remoteSaleAndStockCommitted = false;
     try {
-      // ── Step 4: Sale insert karo remotely ──
-      await _client
-          .from('sales')
-          .insert({
-            'id': saleId,
-            'branch_id': branchId,
-            'customer_id': customerId,
-            'user_id': user.id,
-            'status': SaleStatus.completed.code,
-            'subtotal': subtotal,
-            'discount_amount': discountAmount,
-            'tax_amount': taxAmount,
-            'total': total,
-            'notes': notes,
-            'created_at': sale.createdAt?.toIso8601String(),
-          })
-          .timeout(Network.networkTimeout);
-
-      // ── Step 5: Sale items insert remotely ──
-      await _client
-          .from('sale_items')
-          .insert(
-            costedItems
-                .map(
-                  (item) => {
-                    'sale_id': saleId,
-                    'product_id': item.productId,
-                    'product_name': item.productName,
-                    'product_sku': item.productSku,
-                    'quantity': item.quantity,
-                    'unit_price': item.unitPrice,
-                    'unit_cost_at_sale': item.unitCost,
-                    'discount_amount': item.discountAmount,
-                    'tax_rate': item.taxRate,
-                    'cogs_total':
-                        item.unitCost == null
-                            ? null
-                            : item.unitCost! * item.quantity,
-                    'line_total': item.lineTotal,
-                  },
-                )
-                .toList(),
-          )
-          .timeout(Network.networkTimeout);
-
-      // ── Step 6: Payments insert remotely ──
-      await _client
-          .from('sale_payments')
-          .insert(
-            payments
-                .map(
-                  (p) => {
-                    'sale_id': saleId,
-                    'method': p.method.code,
-                    'amount': p.amount,
-                  },
-                )
-                .toList(),
-          )
-          .timeout(Network.networkTimeout);
-
-      // ── Step 7: Stock update remotely ──
-      for (final item in costedItems) {
-        final inv = await _client
-            .from('inventory')
-            .select('quantity')
-            .eq('branch_id', branchId)
-            .eq('product_id', item.productId)
-            .single()
-            .timeout(Network.networkTimeout);
-
-        final currentStock = (inv['quantity'] as num).toInt();
-        final newStock = currentStock - item.quantity;
-
-        await _client
-            .from('inventory')
-            .update({
-              'quantity': newStock,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('branch_id', branchId)
-            .eq('product_id', item.productId)
-            .timeout(Network.networkTimeout);
-      }
+      await _commitSaleRemote(_saleSyncPayload(sale));
       remoteSaleAndStockCommitted = true;
 
       // Save locally as already synced (SQLite synced = 1)
       await OfflineStore.saveSale(sale);
-      if (remoteSaleAndStockCommitted) {
-        await LocalStore.markSaleSynced(saleId);
-      }
-      await LocalStore.saveSale(sale);
       await LocalStore.markSaleSynced(saleId);
       if (creditAmount > 0 && customerId != null) {
         await _adjustCustomerOutstanding(
           customerId: customerId,
           delta: creditAmount,
-          synced: true,
+          synced: false,
         );
       }
 
@@ -606,26 +523,7 @@ class PosRepository {
         await OfflineStore.enqueueMutation(
           userId: user.id,
           type: 'sale_checkout',
-          payload: {
-            'sale_id': saleId,
-            'sale_data': {
-              'id': sale.id,
-              'branch_id': sale.branchId,
-              'customer_id': sale.customerId,
-              'customer_name': sale.customerName,
-              'user_id': sale.userId,
-              'status': sale.status.code,
-              'subtotal': sale.subtotal,
-              'discount_amount': sale.discountAmount,
-              'tax_amount': sale.taxAmount,
-              'total': sale.total,
-              'notes': sale.notes,
-              'void_reason': sale.voidReason,
-              'created_at': sale.createdAt?.toIso8601String(),
-              'sale_items': sale.items.map((i) => i.toMap()).toList(),
-              'sale_payments': sale.payments.map((p) => p.toMap()).toList(),
-            },
-          },
+          payload: {'sale_id': saleId, 'sale_data': _saleSyncPayload(sale)},
         );
       }
     }
@@ -2181,8 +2079,14 @@ class PosRepository {
     if (amount <= 0) throw Exception('Settlement amount valid nahi hai.');
     final customer = await _loadCustomerById(customerId);
     if (customer == null) throw Exception('Customer profile nahi mila.');
-    final purchases = await _fetchCustomerSales(customerId);
-    final settlements = await _fetchCustomerSettlements(customerId);
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    final purchases = (await OfflineStore.loadSales(branchId))
+        .where((sale) => sale.customerId == customerId)
+        .toList();
+    final settlements = (await OfflineStore.loadCustomerSettlements(customerId))
+        .where((settlement) => settlement.branchId == branchId)
+        .toList();
     final outstanding = _effectiveOutstanding(
       customer: customer,
       purchases: purchases,
@@ -2192,8 +2096,6 @@ class PosRepository {
       throw Exception('Settlement current dues se zyada nahi ho sakti.');
     }
 
-    final tenantId = await _currentTenantId();
-    final branchId = await _currentBranchId(tenantId);
     final settlement = CustomerSettlementModel(
       id: const Uuid().v4(),
       customerId: customerId,
@@ -2231,7 +2133,7 @@ class PosRepository {
       await _client
           .from('customer_settlements')
           .insert(payload)
-          .timeout(Network.networkTimeout);
+          .timeout(_offlineWriteTimeout);
       final updated = await OfflineStore.loadCustomerById(customerId);
       try {
         await _client
@@ -2239,7 +2141,7 @@ class PosRepository {
             .update({'outstanding_balance': updated?.outstandingBalance ?? 0})
             .eq('id', customerId)
             .eq('branch_id', branchId)
-            .timeout(Network.networkTimeout);
+            .timeout(_offlineWriteTimeout);
       } catch (e) {
         if (!_isMissingCustomerCreditSchema(e)) rethrow;
       }
@@ -2338,147 +2240,18 @@ class PosRepository {
       if (mutations.isEmpty) return;
 
       final remaining = <OfflineMutation>[];
+      final reconciledCustomerIds = <String, String>{};
 
       for (final mutation in mutations) {
         try {
+          _remapMutationCustomerId(mutation, reconciledCustomerIds);
           switch (mutation.type) {
             case 'sale_checkout':
               final saleData = Map<String, dynamic>.from(
                 mutation.payload['sale_data'] as Map,
               );
               final saleId = mutation.payload['sale_id'] as String;
-              final branchId = saleData['branch_id'] as String;
-              final customerId = saleData['customer_id'] as String?;
-              final userUuid = saleData['user_id'] as String;
-              final statusWord = saleData['status'] as String;
-              final subtotal = (saleData['subtotal'] as num).toDouble();
-              final discountAmount =
-                  (saleData['discount_amount'] as num).toDouble();
-              final taxAmount = (saleData['tax_amount'] as num).toDouble();
-              final total = (saleData['total'] as num).toDouble();
-              final notes = saleData['notes'] as String?;
-              final createdAtStr = saleData['created_at'] as String?;
-              final itemsList =
-                  (saleData['sale_items'] as List)
-                      .map((e) => Map<String, dynamic>.from(e as Map))
-                      .toList();
-              final paymentsList =
-                  (saleData['sale_payments'] as List)
-                      .map((e) => Map<String, dynamic>.from(e as Map))
-                      .toList();
-
-              // 1. Remote sale header
-              await _client.from('sales').upsert({
-                'id': saleId,
-                'branch_id': branchId,
-                'customer_id': customerId,
-                'user_id': userUuid,
-                'status': statusWord,
-                'subtotal': subtotal,
-                'discount_amount': discountAmount,
-                'tax_amount': taxAmount,
-                'total': total,
-                'notes': notes,
-                'created_at': createdAtStr,
-              }, onConflict: 'id');
-
-              // 2. Remote items
-              await _client.from('sale_items').delete().eq('sale_id', saleId);
-              await _client
-                  .from('sale_items')
-                  .insert(
-                    itemsList
-                        .map(
-                          (item) => {
-                            'sale_id': saleId,
-                            'product_id': item['product_id'],
-                            'product_name': item['product_name'],
-                            'product_sku': item['product_sku'],
-                            'quantity': item['quantity'],
-                            'unit_price': item['unit_price'],
-                            'unit_cost_at_sale': item['unit_cost_at_sale'],
-                            'discount_amount': item['discount_amount'],
-                            'tax_rate': item['tax_rate'],
-                            'cogs_total':
-                                item['cogs_total'] ?? _saleItemCogsTotal(item),
-                            'line_total': _saleItemLineTotal(item),
-                          },
-                        )
-                        .toList(),
-                  );
-
-              // 3. Remote payments
-              await _client
-                  .from('sale_payments')
-                  .delete()
-                  .eq('sale_id', saleId);
-              await _client
-                  .from('sale_payments')
-                  .insert(
-                    paymentsList
-                        .map(
-                          (p) => {
-                            'sale_id': saleId,
-                            'method': p['method'],
-                            'amount': p['amount'],
-                          },
-                        )
-                        .toList(),
-                  );
-
-              final creditAmount = paymentsList
-                  .where((p) => p['method'] == PaymentMethod.credit.code)
-                  .fold<double>(
-                    0,
-                    (sum, payment) =>
-                        sum + ((payment['amount'] as num?)?.toDouble() ?? 0),
-                  );
-              if (creditAmount > 0 && customerId != null) {
-                final customer = await OfflineStore.loadCustomerById(
-                  customerId,
-                );
-                if (customer != null) {
-                  try {
-                    await _client
-                        .from('customers')
-                        .update({
-                          'outstanding_balance': customer.outstandingBalance,
-                        })
-                        .eq('id', customerId)
-                        .eq('branch_id', customer.branchId);
-                  } catch (e) {
-                    if (!_isMissingCustomerCreditSchema(e)) rethrow;
-                  }
-                }
-              }
-
-              // 4. Remote decrement stock
-              for (final item in itemsList) {
-                final productId = item['product_id'] as String;
-                final qty = (item['quantity'] as num).toInt();
-
-                final inv =
-                    await _client
-                        .from('inventory')
-                        .select('quantity')
-                        .eq('branch_id', branchId)
-                        .eq('product_id', productId)
-                        .single();
-
-                final currentStock = (inv['quantity'] as num).toInt();
-                final newStock = currentStock - qty;
-
-                await _client
-                    .from('inventory')
-                    .update({
-                      'quantity': newStock,
-                      'updated_at': DateTime.now().toIso8601String(),
-                    })
-                    .eq('branch_id', branchId)
-                    .eq('product_id', productId);
-              }
-
-              // 5. Mark local sale as synced
+              await _commitSaleRemote(saleData);
               await LocalStore.markSaleSynced(saleId);
               break;
 
@@ -2530,6 +2303,28 @@ class PosRepository {
                   'created_at': payload['created_at'],
                 }, onConflict: 'id');
               } catch (e) {
+                if (_isCustomerPhoneConflict(e)) {
+                  final localCustomerId = payload['id'] as String;
+                  final remoteCustomerId = await _remoteCustomerIdByPhone(
+                    tenantId: payload['tenant_id'] as String,
+                    phone: payload['phone'] as String?,
+                  );
+                  if (remoteCustomerId == null) rethrow;
+
+                  reconciledCustomerIds[localCustomerId] = remoteCustomerId;
+                  for (final queuedMutation in mutations) {
+                    _remapMutationCustomerId(
+                      queuedMutation,
+                      reconciledCustomerIds,
+                    );
+                  }
+                  await LocalStore.reassignCustomerId(
+                    localCustomerId: localCustomerId,
+                    remoteCustomerId: remoteCustomerId,
+                  );
+                  break;
+                }
+
                 if (!_isMissingCustomerCreditSchema(e)) rethrow;
                 await _client.from('customers').upsert({
                   'id': payload['id'],
@@ -2649,6 +2444,50 @@ class PosRepository {
 
       await OfflineStore.saveMutations(userId, remaining);
     } catch (_) {}
+  }
+
+  bool _isCustomerPhoneConflict(Object error) {
+    return error is PostgrestException &&
+        error.code == '23505' &&
+        error.message.contains('idx_customers_tenant_phone_unique');
+  }
+
+  Future<String?> _remoteCustomerIdByPhone({
+    required String tenantId,
+    required String? phone,
+  }) async {
+    if (phone == null || phone.trim().isEmpty) return null;
+    final customer = await _client
+        .from('customers')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('phone', phone)
+        .maybeSingle();
+    return customer?['id'] as String?;
+  }
+
+  void _remapMutationCustomerId(
+    OfflineMutation mutation,
+    Map<String, String> reconciledCustomerIds,
+  ) {
+    if (reconciledCustomerIds.isEmpty) return;
+
+    final directCustomerId = mutation.payload['customer_id'] as String?;
+    final remappedDirectId = reconciledCustomerIds[directCustomerId];
+    if (remappedDirectId != null) {
+      mutation.payload['customer_id'] = remappedDirectId;
+    }
+
+    final rawSaleData = mutation.payload['sale_data'];
+    if (rawSaleData is Map) {
+      final saleData = Map<String, dynamic>.from(rawSaleData);
+      final saleCustomerId = saleData['customer_id'] as String?;
+      final remappedSaleId = reconciledCustomerIds[saleCustomerId];
+      if (remappedSaleId != null) {
+        saleData['customer_id'] = remappedSaleId;
+        mutation.payload['sale_data'] = saleData;
+      }
+    }
   }
 
   Future<void> _ensureRemoteSaleForReturn(String saleId) async {

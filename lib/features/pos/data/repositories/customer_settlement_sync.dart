@@ -35,7 +35,23 @@ class CustomerSettlementSyncService {
     final existing = await findRemoteById(settlementId);
 
     if (existing == null) {
-      await insertRemote(payload);
+      try {
+        await insertRemote(payload);
+      } catch (_) {
+        // The insert may have committed even when its response was lost, or a
+        // concurrent retry may have inserted the same stable settlement ID.
+        final recovered = await findRemoteById(settlementId);
+        if (recovered == null) rethrow;
+        if (!_isIdentical(recovered, payload)) {
+          throw CustomerSettlementSyncConflict(settlementId);
+        }
+
+        // This callback writes the absolute local balance, so repeating it is
+        // safe and completes an insert whose response was lost.
+        await afterRemoteInsert();
+        await markLocalSynced(settlementId);
+        return CustomerSettlementSyncResult.alreadyPresent;
+      }
       await afterRemoteInsert();
       await markLocalSynced(settlementId);
       return CustomerSettlementSyncResult.inserted;

@@ -12,7 +12,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 class ExpenseRepository {
-  static const _networkTimeout = Duration(seconds: 8);
+  // Offline-first writes must fall back quickly instead of holding the UI for
+  // several seconds while the device has no usable connection.
+  static const _networkTimeout = Duration(milliseconds: 1200);
   static const _receiptBucket = 'expense-receipts';
 
   final SupabaseClient _client;

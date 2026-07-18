@@ -943,6 +943,42 @@ class LocalStore {
     return rows.isEmpty ? null : _customerFromRow(rows.first);
   }
 
+  static Future<void> reassignCustomerId({
+    required String localCustomerId,
+    required String remoteCustomerId,
+  }) async {
+    if (localCustomerId == remoteCustomerId) return;
+
+    final localCustomer = await loadCustomerById(localCustomerId);
+    if (localCustomer == null) return;
+
+    await saveCustomer(
+      CustomerModel(
+        id: remoteCustomerId,
+        tenantId: localCustomer.tenantId,
+        branchId: localCustomer.branchId,
+        fullName: localCustomer.fullName,
+        phone: localCustomer.phone,
+        email: localCustomer.email,
+        notes: localCustomer.notes,
+        creditLimit: localCustomer.creditLimit,
+        outstandingBalance: localCustomer.outstandingBalance,
+        createdAt: localCustomer.createdAt,
+      ),
+    );
+    await LocalDatabase.execute(
+      'UPDATE sales SET customer_id = ? WHERE customer_id = ?',
+      [remoteCustomerId, localCustomerId],
+    );
+    await LocalDatabase.execute(
+      'UPDATE customer_settlements SET customer_id = ? WHERE customer_id = ?',
+      [remoteCustomerId, localCustomerId],
+    );
+    await LocalDatabase.execute('DELETE FROM customers WHERE id = ?', [
+      localCustomerId,
+    ]);
+  }
+
   static Future<void> updateCustomerCredit({
     required String customerId,
     double? creditLimit,

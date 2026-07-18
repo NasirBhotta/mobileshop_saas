@@ -388,12 +388,12 @@ class _RecurringExpenseFormScreenState
 
   Future<void> _showAddCategoryDialog() async {
     _newCategoryController.clear();
+    final descriptionController = TextEditingController();
 
-    await showDialog<void>(
-      context: context,
-      builder: (_) {
-        final descriptionController = TextEditingController();
-
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Add Expense Category'),
           content: Column(
@@ -419,10 +419,7 @@ class _RecurringExpenseFormScreenState
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                descriptionController.dispose();
-                Navigator.pop(context);
-              },
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -442,8 +439,6 @@ class _RecurringExpenseFormScreenState
                       name: name,
                       description: descriptionController.text,
                     );
-
-                descriptionController.dispose();
 
                 if (!mounted) return;
 
@@ -466,14 +461,19 @@ class _RecurringExpenseFormScreenState
                   _selectedCategoryName = category.name;
                 });
 
-                Navigator.pop(context);
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
               },
               child: const Text('Save'),
             ),
           ],
         );
-      },
-    );
+        },
+      );
+    } finally {
+      descriptionController.dispose();
+    }
   }
 
   Future<void> _submit() async {

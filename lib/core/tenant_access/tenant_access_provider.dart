@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/widgets.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/network.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
@@ -116,6 +116,39 @@ final tenantAccessRefreshProvider = Provider<TenantAccessRefresh>((ref) {
   return notifier;
 });
 
+class _TenantAccessLifecycleObserver extends WidgetsBindingObserver {
+  final VoidCallback onResume;
+
+  _TenantAccessLifecycleObserver({required this.onResume});
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) onResume();
+  }
+}
+
+final tenantAccessSafetyRefreshProvider = Provider<void>((ref) {
+  final refreshNotifier = ref.read(tenantAccessRefreshProvider);
+
+  void recheckAccess() {
+    ref.invalidate(tenantAccessProvider);
+    refreshNotifier.refresh();
+  }
+
+  final observer = _TenantAccessLifecycleObserver(onResume: recheckAccess);
+  WidgetsBinding.instance.addObserver(observer);
+
+  final timer = Timer.periodic(
+    const Duration(minutes: 5),
+    (_) => recheckAccess(),
+  );
+
+  ref.onDispose(() {
+    timer.cancel();
+    WidgetsBinding.instance.removeObserver(observer);
+  });
+});
+
 final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
   final client = Supabase.instance.client;
   final user = client.auth.currentUser;
@@ -172,7 +205,13 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
 
   // A successful online lookup with no tenant is not an offline condition.
   // Never issue an active lease for an invalid or inaccessible tenant row.
-  if (tenant == null) return TenantAccessState.activationRequired;
+  if (tenant == null) {
+    await _clearAccessLease(tenantId);
+
+    debugPrint('Tenant row missing for tenantId=$tenantId');
+
+    return TenantAccessState.accessConfigurationError;
+  }
 
   final DateTime serverNow;
   try {
@@ -208,54 +247,80 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
   return result;
 });
 
-final tenantAccessRealtimeProvider = Provider<void>((ref) {
+final tenantAccessRealtimeProvider = FutureProvider<void>((ref) async {
   final client = Supabase.instance.client;
+  final user = client.auth.currentUser;
+
+  if (user == null) return;
+
+  final profile =
+      await client
+          .from('users')
+          .select('tenant_id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+  final tenantId = profile?['tenant_id'] as String?;
+  if (tenantId == null) return;
+
   final refresh = ref.read(tenantAccessRefreshProvider);
-  final tenantChannel = client.channel('tenant-status-runtime-access');
+
+  final tenantChannel = client.channel('tenant-status-runtime-$tenantId');
+
   final subscriptionChannel = client.channel(
-    'tenant-subscription-runtime-access',
+    'tenant-subscription-runtime-$tenantId',
   );
-  void handleChange(PostgresChangePayload _) {
+
+  void refreshAccess() {
     ref.invalidate(tenantAccessProvider);
     refresh.refresh();
   }
 
-  void handleSubscriptionStatus(
-    String source,
-    RealtimeSubscribeStatus status,
-    Object? error,
-  ) {
-    debugPrint(
-      'Tenant access realtime [$source]: $status${error == null ? '' : ' ($error)'}',
-    );
-    if (status == RealtimeSubscribeStatus.subscribed) {
-      ref.invalidate(tenantAccessProvider);
-      refresh.refresh();
-    }
-  }
+  void handleChange(PostgresChangePayload _) => refreshAccess();
 
   tenantChannel
       .onPostgresChanges(
-        event: PostgresChangeEvent.update,
+        event: PostgresChangeEvent.all,
         schema: 'public',
         table: 'tenants',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'id',
+          value: tenantId,
+        ),
         callback: handleChange,
       )
-      .subscribe(
-        (status, error) => handleSubscriptionStatus('tenant', status, error),
-      );
+      .subscribe((status, error) {
+        debugPrint(
+          'Tenant access realtime [tenant]: $status'
+          '${error == null ? '' : ' ($error)'}',
+        );
+        if (status == RealtimeSubscribeStatus.subscribed) {
+          refreshAccess();
+        }
+      });
 
   subscriptionChannel
       .onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: 'tenant_subscriptions',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'tenant_id',
+          value: tenantId,
+        ),
         callback: handleChange,
       )
-      .subscribe(
-        (status, error) =>
-            handleSubscriptionStatus('subscription', status, error),
-      );
+      .subscribe((status, error) {
+        debugPrint(
+          'Tenant access realtime [subscription]: $status'
+          '${error == null ? '' : ' ($error)'}',
+        );
+        if (status == RealtimeSubscribeStatus.subscribed) {
+          refreshAccess();
+        }
+      });
 
   ref.onDispose(() {
     client.removeChannel(tenantChannel);
@@ -551,4 +616,14 @@ void _scheduleOfflineAccessRefresh(Ref ref, _TenantAccessLease lease) {
 DateTime? _date(Object? value) {
   if (value == null) return null;
   return DateTime.tryParse(value.toString())?.toUtc();
+}
+
+Future<void> _clearAccessLease(String tenantId) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.remove('offline.tenant_access_lease.$tenantId');
+  } catch (error) {
+    debugPrint('Tenant access lease could not be cleared: $error');
+  }
 }
