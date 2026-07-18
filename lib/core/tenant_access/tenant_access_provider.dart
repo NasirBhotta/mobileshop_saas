@@ -16,7 +16,8 @@ enum TenantAccessState {
   trialExpired,
   graceExpired,
   subscriptionExpired,
-  offlineVerificationRequired;
+  offlineVerificationRequired,
+  accessConfigurationError;
 
   bool get isBlocked => this != TenantAccessState.active;
 }
@@ -275,27 +276,44 @@ TenantAccessState resolveTenantAccessState(
   final trialEndsAt = _date(subscription['trial_ends_at']);
   final graceEndsAt = _date(subscription['grace_ends_at']);
   final expiresAt = _date(subscription['expires_at']);
+  switch (status) {
+    case 'suspended':
+      return TenantAccessState.suspended;
 
-  if (status == 'suspended') return TenantAccessState.suspended;
-  if (status == 'pending_activation') {
-    return TenantAccessState.activationRequired;
+    case 'pending_activation':
+      return TenantAccessState.activationRequired;
+
+    case 'cancelled':
+      return TenantAccessState.cancelled;
+
+    case 'trial_expired':
+      return TenantAccessState.trialExpired;
+
+    case 'expired':
+      return TenantAccessState.subscriptionExpired;
+
+    case 'trialing':
+      if (trialEndsAt != null && !trialEndsAt.isAfter(current)) {
+        return TenantAccessState.trialExpired;
+      }
+      return TenantAccessState.active;
+
+    case 'grace_period':
+      if (graceEndsAt != null && !graceEndsAt.isAfter(current)) {
+        return TenantAccessState.graceExpired;
+      }
+      return TenantAccessState.active;
+
+    case 'active':
+      if (expiresAt != null && !expiresAt.isAfter(current)) {
+        return TenantAccessState.subscriptionExpired;
+      }
+      return TenantAccessState.active;
+
+    default:
+      debugPrint('Unknown subscription status received: $status');
+      return TenantAccessState.accessConfigurationError;
   }
-  if (status == 'cancelled') return TenantAccessState.cancelled;
-  if (status == 'trial_expired') return TenantAccessState.trialExpired;
-  if (status == 'trialing' &&
-      trialEndsAt != null &&
-      !trialEndsAt.isAfter(current)) {
-    return TenantAccessState.trialExpired;
-  }
-  if (status == 'grace_period' &&
-      graceEndsAt != null &&
-      !graceEndsAt.isAfter(current)) {
-    return TenantAccessState.graceExpired;
-  }
-  if (expiresAt != null && !expiresAt.isAfter(current)) {
-    return TenantAccessState.subscriptionExpired;
-  }
-  return TenantAccessState.active;
 }
 
 Future<Map<String, dynamic>?> _loadCachedProfile(String userId) async {

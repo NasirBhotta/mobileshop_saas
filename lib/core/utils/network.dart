@@ -1,4 +1,4 @@
 class Network {
-  static const networkTimeout = Duration(milliseconds: 1200);
+  static const networkTimeout = Duration(seconds: 8);
   Network._();
 }
