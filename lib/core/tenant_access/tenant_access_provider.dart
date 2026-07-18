@@ -262,9 +262,17 @@ TenantAccessState resolveTenantAccessState(
   DateTime? now,
   bool requireSubscription = false,
 }) {
-  if (tenantStatus?.toString().toLowerCase() == 'suspended') {
-    return TenantAccessState.suspended;
+  final normalizedTenantStatus = tenantStatus?.toString().trim().toLowerCase();
+  switch (normalizedTenantStatus) {
+    case 'active':
+      break;
+    case 'suspended':
+      return TenantAccessState.suspended;
+    default:
+      debugPrint('Unknown tenant status received: $normalizedTenantStatus');
+      return TenantAccessState.accessConfigurationError;
   }
+
   if (subscription == null) {
     return requireSubscription
         ? TenantAccessState.activationRequired
@@ -293,22 +301,34 @@ TenantAccessState resolveTenantAccessState(
       return TenantAccessState.subscriptionExpired;
 
     case 'trialing':
-      if (trialEndsAt != null && !trialEndsAt.isAfter(current)) {
-        return TenantAccessState.trialExpired;
+      if (trialEndsAt == null) {
+        debugPrint('Trialing subscription has no valid trial_ends_at');
+        return TenantAccessState.accessConfigurationError;
       }
-      return TenantAccessState.active;
+
+      return trialEndsAt.isAfter(current)
+          ? TenantAccessState.active
+          : TenantAccessState.trialExpired;
 
     case 'grace_period':
-      if (graceEndsAt != null && !graceEndsAt.isAfter(current)) {
-        return TenantAccessState.graceExpired;
+      if (graceEndsAt == null) {
+        debugPrint('Grace subscription has no valid grace_ends_at');
+        return TenantAccessState.accessConfigurationError;
       }
-      return TenantAccessState.active;
+
+      return graceEndsAt.isAfter(current)
+          ? TenantAccessState.active
+          : TenantAccessState.graceExpired;
 
     case 'active':
-      if (expiresAt != null && !expiresAt.isAfter(current)) {
-        return TenantAccessState.subscriptionExpired;
+      if (expiresAt == null) {
+        debugPrint('Active subscription has no valid expires_at');
+        return TenantAccessState.accessConfigurationError;
       }
-      return TenantAccessState.active;
+
+      return expiresAt.isAfter(current)
+          ? TenantAccessState.active
+          : TenantAccessState.subscriptionExpired;
 
     default:
       debugPrint('Unknown subscription status received: $status');

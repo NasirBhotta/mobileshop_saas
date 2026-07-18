@@ -120,6 +120,7 @@ class TenantBillingSection extends ConsumerWidget {
                                                       context,
                                                       ref,
                                                       a,
+                                                      s.billingCycle,
                                                     ),
                                             child: Text(a.replaceAll('_', ' ')),
                                           ),
@@ -272,9 +273,10 @@ class TenantBillingSection extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     String action,
+    String billingCycle,
   ) async {
     DateTime? until;
-    if (['trial_start', 'trial_extend', 'renew', 'grace'].contains(action)) {
+    if (['trial_start', 'trial_extend', 'grace'].contains(action)) {
       until = await showDatePicker(
         context: context,
         initialDate: DateTime.now().add(const Duration(days: 30)),
@@ -292,6 +294,8 @@ class TenantBillingSection extends ConsumerWidget {
             tenantId: tenantId,
             action: action,
             until: until,
+            cycle:
+                action == 'activate' || action == 'renew' ? billingCycle : null,
             reason: 'Platform admin action',
           ),
         );
