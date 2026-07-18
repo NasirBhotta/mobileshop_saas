@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/network.dart';
+import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -130,6 +131,8 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
         .timeout(Network.networkTimeout);
   } catch (error) {
     debugPrint('Tenant access profile lookup failed: $error');
+    OfflineErrorClassifier.rethrowIfTerminal(error);
+
     final cachedProfile = await _loadCachedProfile(user.id);
     final cachedTenantId = cachedProfile?['tenant_id'] as String?;
     if (cachedTenantId == null) {
@@ -162,6 +165,8 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
         .timeout(Network.networkTimeout);
   } catch (error) {
     debugPrint('Tenant access lookup failed: $error');
+    OfflineErrorClassifier.rethrowIfTerminal(error);
+
     return _resolveOfflineAccessAndSchedule(ref, tenantId);
   }
 
@@ -174,6 +179,8 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
     serverNow = await _loadServerUtcNow(client);
   } catch (error) {
     debugPrint('Trusted server time lookup failed: $error');
+    OfflineErrorClassifier.rethrowIfTerminal(error);
+
     return _resolveOfflineAccessAndSchedule(ref, tenantId);
   }
 

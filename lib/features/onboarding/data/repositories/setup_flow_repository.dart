@@ -139,8 +139,17 @@ class SetupFlowRepository {
     debugPrint(
       "Branches: ${branches.length}, Required: $requiredBranches, Setup Complete: $setupComplete",
     );
-    if (branches.length <= 1) {
-      if (branches.length == 1 && profile['branch_id'] != branches.first.id) {
+    if (branches.isEmpty) {
+      return SetupFlowStatus(
+        target: SetupRouteTarget.setup,
+        profile: profile,
+        tenant: tenant,
+        branches: branches,
+      );
+    }
+
+    if (branches.length == 1) {
+      if (profile['branch_id'] != branches.first.id) {
         await selectBranch(userId: userId, branchId: branches.first.id!);
       }
       return SetupFlowStatus(
