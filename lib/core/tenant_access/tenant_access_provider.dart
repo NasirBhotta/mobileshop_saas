@@ -119,7 +119,7 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
   final user = client.auth.currentUser;
   if (user == null) return TenantAccessState.active;
 
-  Map<String, dynamic>? profile;
+  final Map<String, dynamic>? profile;
   try {
     profile = await client
         .from('users')
@@ -127,21 +127,29 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
         .eq('id', user.id)
         .maybeSingle()
         .timeout(Network.networkTimeout);
-  } catch (_) {
-    profile = await OfflineStore.loadProfile(user.id);
+  } catch (error) {
+    debugPrint('Tenant access profile lookup failed: $error');
+    final cachedProfile = await _loadCachedProfile(user.id);
+    final cachedTenantId = cachedProfile?['tenant_id'] as String?;
+    if (cachedTenantId == null) {
+      return TenantAccessState.offlineVerificationRequired;
+    }
+    return _resolveOfflineAccess(cachedTenantId);
   }
-  final tenantId = profile?['tenant_id'] as String?;
-  if (tenantId == null) return TenantAccessState.active;
 
+  final tenantId = profile?['tenant_id'] as String?;
+  if (tenantId == null) return TenantAccessState.activationRequired;
+
+  Map<String, dynamic>? tenant;
+  Map<String, dynamic>? subscription;
   try {
-    final tenant = await client
+    tenant = await client
         .from('tenants')
         .select('id, status, plan, setup_complete')
         .eq('id', tenantId)
         .maybeSingle()
         .timeout(Network.networkTimeout);
-    if (tenant != null) await OfflineStore.saveTenant(tenantId, tenant);
-    final subscription = await client
+    subscription = await client
         .from('tenant_subscriptions')
         .select(
           'tenant_id, status, trial_ends_at, grace_ends_at, expires_at, is_active, deleted_at',
@@ -151,38 +159,45 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
         .isFilter('deleted_at', null)
         .maybeSingle()
         .timeout(Network.networkTimeout);
-    await _saveSubscription(tenantId, subscription);
-    final result = resolveTenantAccessState(
-      tenant?['status'],
-      subscription: subscription,
-      requireSubscription: tenant?['setup_complete'] == true,
-    );
-
-    final lease = await _createVerifiedAccessLease(
-      client: client,
-      tenantId: tenantId,
-      state: result,
-      subscription: subscription,
-    );
-
-    _scheduleDeadlineRefresh(ref, subscription);
-
-    if (lease != null) {
-      _scheduleOfflineAccessRefresh(ref, lease);
-    }
-
-    return result;
-  } catch (_) {
-    final result = await _resolveOfflineAccess(tenantId);
-
-    final lease = await _loadAccessLease(tenantId);
-
-    if (result == TenantAccessState.active && lease != null) {
-      _scheduleOfflineAccessRefresh(ref, lease);
-    }
-
-    return result;
+  } catch (error) {
+    debugPrint('Tenant access lookup failed: $error');
+    return _resolveOfflineAccessAndSchedule(ref, tenantId);
   }
+
+  // A successful online lookup with no tenant is not an offline condition.
+  // Never issue an active lease for an invalid or inaccessible tenant row.
+  if (tenant == null) return TenantAccessState.activationRequired;
+
+  final DateTime serverNow;
+  try {
+    serverNow = await _loadServerUtcNow(client);
+  } catch (error) {
+    debugPrint('Trusted server time lookup failed: $error');
+    return _resolveOfflineAccessAndSchedule(ref, tenantId);
+  }
+
+  final result = resolveTenantAccessState(
+    tenant['status'],
+    subscription: subscription,
+    requireSubscription: tenant['setup_complete'] == true,
+    now: serverNow,
+  );
+
+  final deviceNow = DateTime.now().toUtc();
+  final lease = _TenantAccessLease(
+    state: result,
+    serverVerifiedAt: serverNow,
+    deviceTimeAtVerification: deviceNow,
+    lastObservedDeviceTime: deviceNow,
+    offlineAccessUntil: _calculateOfflineAccessDeadline(
+      serverNow: serverNow,
+      subscription: subscription,
+    ),
+  );
+
+  await _saveOnlineCache(tenantId, tenant, lease);
+  _scheduleOfflineAccessRefresh(ref, lease);
+  return result;
 });
 
 final tenantAccessRealtimeProvider = Provider<void>((ref) {
@@ -283,45 +298,31 @@ TenantAccessState resolveTenantAccessState(
   return TenantAccessState.active;
 }
 
-void _scheduleDeadlineRefresh(Ref ref, Map<String, dynamic>? subscription) {
-  if (subscription == null) return;
-  final status = subscription['status']?.toString().toLowerCase();
-  final deadline = switch (status) {
-    'trialing' => _date(subscription['trial_ends_at']),
-    'grace_period' => _date(subscription['grace_ends_at']),
-    _ => _date(subscription['expires_at']),
-  };
-  if (deadline == null) return;
-  final delay = deadline.difference(DateTime.now().toUtc());
-  if (delay <= Duration.zero) return;
-  final timer = Timer(delay, () {
-    ref.invalidate(tenantAccessProvider);
-    ref.read(tenantAccessRefreshProvider).refresh();
-  });
-  ref.onDispose(timer.cancel);
-}
-
-Future<void> _saveSubscription(
-  String tenantId,
-  Map<String, dynamic>? subscription,
-) async {
-  final prefs = await SharedPreferences.getInstance();
-  final key = 'offline.tenant_subscription.$tenantId';
-  if (subscription == null) {
-    await prefs.remove(key);
-  } else {
-    await prefs.setString(key, jsonEncode(subscription));
+Future<Map<String, dynamic>?> _loadCachedProfile(String userId) async {
+  try {
+    return await OfflineStore.loadProfile(userId);
+  } catch (error) {
+    debugPrint('Cached tenant profile could not be loaded: $error');
+    return null;
   }
 }
 
-Future<Map<String, dynamic>?> _loadSubscription(String tenantId) async {
-  final prefs = await SharedPreferences.getInstance();
-  final raw = prefs.getString('offline.tenant_subscription.$tenantId');
-  if (raw == null) return null;
+Future<void> _saveOnlineCache(
+  String tenantId,
+  Map<String, dynamic> tenant,
+  _TenantAccessLease lease,
+) async {
   try {
-    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
-  } catch (_) {
-    return null;
+    await OfflineStore.saveTenant(tenantId, tenant);
+  } catch (error) {
+    debugPrint('Tenant cache could not be saved: $error');
+  }
+
+  try {
+    await _saveAccessLease(tenantId, lease);
+  } catch (error) {
+    // A local persistence failure must not discard a verified online result.
+    debugPrint('Tenant access lease could not be saved: $error');
   }
 }
 
@@ -337,49 +338,6 @@ Future<DateTime> _loadServerUtcNow(SupabaseClient client) async {
   }
 
   return parsed.toUtc();
-}
-
-Future<_TenantAccessLease?> _createVerifiedAccessLease({
-  required SupabaseClient client,
-  required String tenantId,
-  required TenantAccessState state,
-  required Map<String, dynamic>? subscription,
-}) async {
-  final deviceNow = DateTime.now().toUtc();
-
-  DateTime serverNow;
-
-  try {
-    serverNow = await _loadServerUtcNow(client);
-  } catch (error) {
-    // Active tenant ke liye untrusted device time se new lease issue nahi karni.
-    if (state == TenantAccessState.active) {
-      debugPrint(
-        'Offline access lease not renewed: server time unavailable ($error)',
-      );
-      return null;
-    }
-
-    // Server ne tenant blocked confirm kar diya hai.
-    // Blocked state ko local time ke bawajood save karna safe hai.
-    serverNow = deviceNow;
-  }
-
-  final offlineAccessUntil = _calculateOfflineAccessDeadline(
-    serverNow: serverNow,
-    subscription: subscription,
-  );
-
-  final lease = _TenantAccessLease(
-    state: state,
-    serverVerifiedAt: serverNow,
-    deviceTimeAtVerification: deviceNow,
-    lastObservedDeviceTime: deviceNow,
-    offlineAccessUntil: offlineAccessUntil,
-  );
-
-  await _saveAccessLease(tenantId, lease);
-  return lease;
 }
 
 DateTime _calculateOfflineAccessDeadline({
@@ -433,7 +391,7 @@ Future<TenantAccessState> _resolveOfflineAccess(String tenantId) async {
     return TenantAccessState.offlineVerificationRequired;
   }
 
-  // Time 2–3 minute peeche hua ho to previous maximum time use hoga.
+  // A small clock correction uses the previous maximum observed time.
   // Effective time kabhi backwards nahi jayega.
   final effectiveDeviceNow =
       deviceNow.isAfter(lease.lastObservedDeviceTime)
@@ -448,16 +406,30 @@ Future<TenantAccessState> _resolveOfflineAccess(String tenantId) async {
     elapsedSinceVerification,
   );
 
-  if (!estimatedServerNow.isBefore(lease.offlineAccessUntil)) {
-    return TenantAccessState.offlineVerificationRequired;
-  }
-
-  await _saveAccessLease(
+  // Persist the maximum even when the lease has expired. Otherwise a user can
+  // move the clock forward, trigger expiry, then move it back and reuse it.
+  await _saveAccessLeaseBestEffort(
     tenantId,
     lease.copyWith(lastObservedDeviceTime: effectiveDeviceNow),
   );
 
+  if (!estimatedServerNow.isBefore(lease.offlineAccessUntil)) {
+    return TenantAccessState.offlineVerificationRequired;
+  }
+
   return TenantAccessState.active;
+}
+
+Future<TenantAccessState> _resolveOfflineAccessAndSchedule(
+  Ref ref,
+  String tenantId,
+) async {
+  final result = await _resolveOfflineAccess(tenantId);
+  if (result != TenantAccessState.active) return result;
+
+  final lease = await _loadAccessLease(tenantId);
+  if (lease != null) _scheduleOfflineAccessRefresh(ref, lease);
+  return result;
 }
 
 Future<void> _saveAccessLease(String tenantId, _TenantAccessLease lease) async {
@@ -467,6 +439,17 @@ Future<void> _saveAccessLease(String tenantId, _TenantAccessLease lease) async {
     'offline.tenant_access_lease.$tenantId',
     jsonEncode(lease.toJson()),
   );
+}
+
+Future<void> _saveAccessLeaseBestEffort(
+  String tenantId,
+  _TenantAccessLease lease,
+) async {
+  try {
+    await _saveAccessLease(tenantId, lease);
+  } catch (error) {
+    debugPrint('Tenant access lease update failed: $error');
+  }
 }
 
 Future<_TenantAccessLease?> _loadAccessLease(String tenantId) async {

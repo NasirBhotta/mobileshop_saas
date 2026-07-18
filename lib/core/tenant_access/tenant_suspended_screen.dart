@@ -30,6 +30,18 @@ class TenantSuspendedScreen extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Text(content.message, textAlign: TextAlign.center),
                 const SizedBox(height: 24),
+                if (access ==
+                    TenantAccessState.offlineVerificationRequired) ...[
+                  FilledButton.icon(
+                    onPressed: () {
+                      ref.invalidate(tenantAccessProvider);
+                      ref.read(tenantAccessRefreshProvider).refresh();
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try again'),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 FilledButton.tonalIcon(
                   onPressed:
                       signingOut
@@ -92,6 +104,11 @@ class TenantSuspendedScreen extends ConsumerWidget {
       title: 'Subscription expired',
       message:
           'Your subscription has expired. Renew it to continue using the app.',
+    ),
+    TenantAccessState.offlineVerificationRequired => (
+      title: 'Internet connection required',
+      message:
+          'Connect to the internet so we can verify your shop subscription, then try again.',
     ),
     _ => (
       title: 'Account suspended',
