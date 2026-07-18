@@ -138,7 +138,7 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
   }
 
   final tenantId = profile?['tenant_id'] as String?;
-  if (tenantId == null) return TenantAccessState.activationRequired;
+  if (tenantId == null) return TenantAccessState.active;
 
   Map<String, dynamic>? tenant;
   Map<String, dynamic>? subscription;
