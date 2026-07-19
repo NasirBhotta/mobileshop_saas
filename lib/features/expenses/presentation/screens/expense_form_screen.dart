@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/expenses/presentation/providers/expense_provider.dart';
+import 'package:mobileshop_saas/features/expenses/presentation/widgets/expense_category_dialog.dart';
 
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/expense_models.dart';
@@ -113,8 +114,14 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                       loading: () => const LinearProgressIndicator(),
                       error: (error, _) => Text(error.toString()),
                       data: (categories) {
+                        final selectedValue =
+                            categories.any(
+                                  (category) => category.id == _categoryId,
+                                )
+                                ? _categoryId
+                                : _noCategoryValue;
                         return DropdownButtonFormField<String>(
-                          initialValue: _categoryId ?? _noCategoryValue,
+                          initialValue: selectedValue,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Expense Category',
@@ -302,104 +309,13 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
     }
   }
 
-  void _showCreateCategoryDialog() {
-    final nameController = TextEditingController();
-    final descriptionController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (_) {
-        final categoryState = ref.watch(expenseCategoryControllerProvider);
-        final saving = categoryState.isLoading;
-
-        return AlertDialog(
-          title: const Text('New Expense Category'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Category Name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Description Optional',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed:
-                  saving
-                      ? null
-                      : () {
-                        nameController.dispose();
-                        descriptionController.dispose();
-                        Navigator.pop(context);
-                      },
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed:
-                  saving
-                      ? null
-                      : () async {
-                        final name = nameController.text.trim();
-
-                        if (name.isEmpty) {
-                          _message('Category name required');
-                          return;
-                        }
-
-                        final category = await ref
-                            .read(expenseCategoryControllerProvider.notifier)
-                            .createCategory(
-                              name: name,
-                              description: descriptionController.text,
-                            );
-
-                        if (!mounted) return;
-
-                        if (category == null) {
-                          final error =
-                              ref
-                                  .read(expenseCategoryControllerProvider)
-                                  .asError
-                                  ?.error;
-                          _message(error?.toString() ?? 'Category not saved');
-                          return;
-                        }
-
-                        setState(() {
-                          _categoryId = category.id;
-                          _categoryName = category.name;
-                        });
-
-                        nameController.dispose();
-                        descriptionController.dispose();
-
-                        Navigator.pop(context);
-                      },
-              child:
-                  saving
-                      ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                      : const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
+  Future<void> _showCreateCategoryDialog() async {
+    final category = await showExpenseCategoryDialog(context);
+    if (!mounted || category == null) return;
+    setState(() {
+      _categoryId = category.id;
+      _categoryName = category.name;
+    });
   }
 
   void _message(String text) {

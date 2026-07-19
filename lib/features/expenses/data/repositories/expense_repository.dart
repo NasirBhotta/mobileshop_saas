@@ -182,8 +182,6 @@ class ExpenseRepository {
       updatedAt: now,
     );
 
-    await ExpenseLocalStore.saveCategory(category);
-
     try {
       final data = await _client
           .from('expense_categories')
@@ -196,7 +194,19 @@ class ExpenseRepository {
       await ExpenseLocalStore.saveCategory(saved);
       return saved;
     } catch (e) {
+      if (_isDuplicateCategoryNameError(e)) {
+        final existing = await _findRemoteCategoryByName(
+          tenantId: tenantId,
+          name: category.name,
+        );
+        if (existing != null) {
+          await ExpenseLocalStore.saveCategory(existing);
+          return existing;
+        }
+      }
+
       OfflineErrorClassifier.rethrowIfTerminal(e);
+      await ExpenseLocalStore.saveCategory(category);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'upsert_expense_category',
@@ -981,18 +991,36 @@ class ExpenseRepository {
   }
 
   Future<void> _syncCategory(Map<String, dynamic> payload) async {
-    final data =
-        await _client
-            .from('expense_categories')
-            .upsert(payload, onConflict: 'id')
-            .select()
-            .single();
+    try {
+      final data =
+          await _client
+              .from('expense_categories')
+              .upsert(payload, onConflict: 'id')
+              .select()
+              .single();
 
-    await ExpenseLocalStore.saveCategory(ExpenseCategoryModel.fromMap(data));
+      await ExpenseLocalStore.saveCategory(ExpenseCategoryModel.fromMap(data));
+    } catch (e) {
+      if (!_isDuplicateCategoryNameError(e)) rethrow;
+
+      final existing = await _findRemoteCategoryByName(
+        tenantId: payload['tenant_id'] as String,
+        name: payload['name'] as String,
+      );
+      if (existing == null) rethrow;
+
+      // Another device (or an earlier sync) already created this tenant/name.
+      // Treat that row as the successful result instead of retrying forever.
+      await ExpenseLocalStore.replaceCategoryId(
+        oldId: payload['id'] as String,
+        replacement: existing,
+      );
+    }
   }
 
   Future<void> _syncExpense(Map<String, dynamic> payload) async {
-    final queuedExpense = ExpenseModel.fromMap(payload);
+    final resolvedPayload = await _resolveRemoteCategoryId(payload);
+    final queuedExpense = ExpenseModel.fromMap(resolvedPayload);
     final remote = await _loadRemoteExpense(queuedExpense.id);
     if (remote?.status == ExpenseStatus.voided) {
       await ExpenseLocalStore.saveExpense(remote!);
@@ -1001,9 +1029,13 @@ class ExpenseRepository {
     // A later local action (for example void) may have changed the expense
     // after this upsert was queued. Never replay the stale queued status over
     // the current local state.
-    final expense =
+    final localExpense =
         await ExpenseLocalStore.loadExpenseById(queuedExpense.id) ??
         queuedExpense;
+    final expense = localExpense.copyWith(
+      categoryId: queuedExpense.categoryId,
+      categoryName: queuedExpense.categoryName,
+    );
 
     final uploadedReceiptPath = await _uploadReceiptIfNeeded(expense: expense);
 
@@ -1079,22 +1111,20 @@ class ExpenseRepository {
         throw Exception('Offline recurring expense identity is incomplete.');
       }
 
-      final remote = await _client
-          .from('expenses')
-          .select('id')
-          .eq('recurring_rule_id', ruleId)
-          .eq('recurring_due_date', dueDate)
-          .maybeSingle();
+      final remote =
+          await _client
+              .from('expenses')
+              .select('id')
+              .eq('recurring_rule_id', ruleId)
+              .eq('recurring_due_date', dueDate)
+              .maybeSingle();
       if (remote == null) {
         throw Exception('Recurring expense is not generated remotely yet.');
       }
       expenseId = remote['id'] as String;
     }
 
-    await _client.rpc(
-      'void_expense',
-      params: {'p_expense_id': expenseId},
-    );
+    await _client.rpc('void_expense', params: {'p_expense_id': expenseId});
   }
 
   Future<ExpenseModel?> _loadRemoteExpense(String expenseId) async {
@@ -1112,16 +1142,62 @@ class ExpenseRepository {
   ).hasMatch(value);
 
   Future<void> _syncRecurringRule(Map<String, dynamic> payload) async {
+    final resolvedPayload = await _resolveRemoteCategoryId(payload);
     final data =
         await _client
             .from('recurring_expense_rules')
-            .upsert(payload, onConflict: 'id')
+            .upsert(resolvedPayload, onConflict: 'id')
             .select()
             .single();
 
     await ExpenseLocalStore.saveRecurringRule(
       RecurringExpenseRuleModel.fromMap(data),
     );
+  }
+
+  bool _isDuplicateCategoryNameError(Object error) =>
+      error is PostgrestException &&
+      error.code == '23505' &&
+      error.message.contains('expense_categories_unique_name_per_tenant');
+
+  Future<ExpenseCategoryModel?> _findRemoteCategoryByName({
+    required String tenantId,
+    required String name,
+  }) async {
+    final data = await _client
+        .from('expense_categories')
+        .select()
+        .eq('tenant_id', tenantId);
+    final normalizedName = name.trim().toLowerCase();
+    for (final row in data as List) {
+      final category = ExpenseCategoryModel.fromMap(row);
+      if (category.name.trim().toLowerCase() == normalizedName) {
+        return category;
+      }
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>> _resolveRemoteCategoryId(
+    Map<String, dynamic> payload,
+  ) async {
+    final tenantId = payload['tenant_id'] as String?;
+    final categoryName = payload['category_name'] as String?;
+    if (tenantId == null ||
+        categoryName == null ||
+        categoryName.trim().isEmpty) {
+      return payload;
+    }
+
+    final existing = await _findRemoteCategoryByName(
+      tenantId: tenantId,
+      name: categoryName,
+    );
+    if (existing == null || existing.id == payload['category_id']) {
+      return payload;
+    }
+
+    return <String, dynamic>{...payload, 'category_id': existing.id};
   }
 
   Future<void> _syncRecurringRuleStatus(Map<String, dynamic> payload) async {

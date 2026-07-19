@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/expenses/presentation/providers/expense_provider.dart';
+import 'package:mobileshop_saas/features/expenses/presentation/widgets/expense_category_dialog.dart';
 
 import '../../data/models/expense_models.dart';
 
@@ -23,7 +24,6 @@ class _RecurringExpenseFormScreenState
   final _noteController = TextEditingController();
   final _intervalController = TextEditingController(text: '1');
   final _reminderController = TextEditingController(text: '3');
-  final _newCategoryController = TextEditingController();
 
   String? _selectedCategoryId;
   String? _selectedCategoryName;
@@ -45,7 +45,6 @@ class _RecurringExpenseFormScreenState
     _noteController.dispose();
     _intervalController.dispose();
     _reminderController.dispose();
-    _newCategoryController.dispose();
     super.dispose();
   }
 
@@ -129,9 +128,15 @@ class _RecurringExpenseFormScreenState
                                 ),
                               ),
                           data: (categories) {
+                            final selectedValue =
+                                categories.any(
+                                      (category) =>
+                                          category.id == _selectedCategoryId,
+                                    )
+                                    ? _selectedCategoryId
+                                    : _noCategoryValue;
                             return DropdownButtonFormField<String>(
-                              initialValue:
-                                  _selectedCategoryId ?? _noCategoryValue,
+                              initialValue: selectedValue,
                               isExpanded: true,
                               decoration: const InputDecoration(
                                 labelText: 'Category',
@@ -387,93 +392,12 @@ class _RecurringExpenseFormScreenState
   }
 
   Future<void> _showAddCategoryDialog() async {
-    _newCategoryController.clear();
-    final descriptionController = TextEditingController();
-
-    try {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Add Expense Category'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _newCategoryController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Category name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Description optional',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final name = _newCategoryController.text.trim();
-
-                if (name.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Category name is required')),
-                  );
-                  return;
-                }
-
-                final category = await ref
-                    .read(expenseCategoryControllerProvider.notifier)
-                    .createCategory(
-                      name: name,
-                      description: descriptionController.text,
-                    );
-
-                if (!mounted) return;
-
-                if (category == null) {
-                  final error =
-                      ref.read(expenseCategoryControllerProvider).asError;
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        error?.error.toString() ?? 'Category not created',
-                      ),
-                    ),
-                  );
-                  return;
-                }
-
-                setState(() {
-                  _selectedCategoryId = category.id;
-                  _selectedCategoryName = category.name;
-                });
-
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop();
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-        },
-      );
-    } finally {
-      descriptionController.dispose();
-    }
+    final category = await showExpenseCategoryDialog(context);
+    if (!mounted || category == null) return;
+    setState(() {
+      _selectedCategoryId = category.id;
+      _selectedCategoryName = category.name;
+    });
   }
 
   Future<void> _submit() async {

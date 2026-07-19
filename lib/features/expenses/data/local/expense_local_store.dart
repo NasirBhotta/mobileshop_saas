@@ -92,6 +92,29 @@ class ExpenseLocalStore {
     return ExpenseCategoryModel.fromMap(rows.first);
   }
 
+  static Future<void> replaceCategoryId({
+    required String oldId,
+    required ExpenseCategoryModel replacement,
+  }) async {
+    if (oldId == replacement.id) {
+      await saveCategory(replacement);
+      return;
+    }
+
+    await saveCategory(replacement);
+    await LocalDatabase.execute(
+      'UPDATE expenses SET category_id = ? WHERE category_id = ?',
+      [replacement.id, oldId],
+    );
+    await LocalDatabase.execute(
+      'UPDATE recurring_expense_rules SET category_id = ? WHERE category_id = ?',
+      [replacement.id, oldId],
+    );
+    await LocalDatabase.execute('DELETE FROM expense_categories WHERE id = ?', [
+      oldId,
+    ]);
+  }
+
   // ════════════════════════════════════════
   // EXPENSES
   // ════════════════════════════════════════
