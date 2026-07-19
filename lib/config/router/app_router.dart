@@ -73,6 +73,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   ref.watch(entitlementRealtimeRefreshProvider);
   final tenantAccessRefresh = ref.watch(tenantAccessRefreshProvider);
   final entitlementRouterRefresh = ref.watch(entitlementRouterRefreshProvider);
+  String? setupReadyUserId;
+  SetupFlowStatus? setupReadyStatus;
   return GoRouter(
     initialLocation: '/',
     refreshListenable: Listenable.merge([
@@ -113,9 +115,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       debugPrint("Router evaluating: ${state.uri.path}");
 
-      final setupStatus = await ref
-          .read(setupFlowRepositoryProvider)
-          .loadStatus(session.user.id);
+      if (setupReadyUserId != session.user.id) {
+        setupReadyUserId = session.user.id;
+        setupReadyStatus = null;
+      }
+      final setupStatus =
+          setupReadyStatus ??
+          await ref
+              .read(setupFlowRepositoryProvider)
+              .loadStatus(session.user.id);
+      if (setupStatus.target == SetupRouteTarget.dashboard) {
+        setupReadyStatus = setupStatus;
+      }
 
       debugPrint("Router target: ${setupStatus.target}");
 
@@ -137,7 +148,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return '/dashboard';
       }
 
-      if (location != '/locked-feature') {
+      if (location == '/locked-feature') {
+        final featureKey = state.uri.queryParameters['feature'];
+        final returnLocation = state.uri.queryParameters['from'];
+        if (featureKey != null) {
+          final evaluator = ref.read(entitlementEvaluatorProvider);
+          final enabled =
+              featureKey.startsWith('reports.')
+                  ? await ReportEntitlementGate(evaluator).allows(featureKey)
+                  : await hasFeatureWithCompatibility(evaluator, featureKey);
+          if (enabled) {
+            return _safeLockedFeatureReturnLocation(returnLocation);
+          }
+        }
+      } else {
         final featureKey = requiredFeatureForLocation(location);
         if (featureKey != null) {
           final evaluator = ref.read(entitlementEvaluatorProvider);
@@ -148,7 +172,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           if (!enabled) {
             return Uri(
               path: '/locked-feature',
-              queryParameters: {'feature': featureKey},
+              queryParameters: {
+                'feature': featureKey,
+                'from': state.uri.toString(),
+              },
             ).toString();
           }
         }
@@ -219,6 +246,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/customers/detail',
+            redirect:
+                (_, state) =>
+                    state.extra is CustomerModel ? null : '/customers',
             builder: (context, state) {
               final customer = state.extra;
               if (customer is! CustomerModel) return const CustomersScreen();
@@ -404,9 +434,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/inventory/edit',
-        builder:
-            (context, state) =>
-                ProductFormScreen(product: state.extra as ProductModel?),
+        redirect:
+            (_, state) => state.extra is ProductModel ? null : '/inventory',
+        builder: (context, state) {
+          final product = state.extra;
+          if (product is! ProductModel) return const InventoryScreen();
+          return ProductFormScreen(product: product);
+        },
       ),
       GoRoute(
         path: '/inventory/categories',
@@ -414,9 +448,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/inventory/adjust',
-        builder:
-            (context, state) =>
-                StockAdjustmentScreen(product: state.extra as ProductModel),
+        redirect:
+            (_, state) => state.extra is ProductModel ? null : '/inventory',
+        builder: (context, state) {
+          final product = state.extra;
+          if (product is! ProductModel) return const InventoryScreen();
+          return StockAdjustmentScreen(product: product);
+        },
       ),
       GoRoute(
         path: '/inventory/import',
@@ -429,6 +467,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/pos/complete',
+        redirect: (_, state) => state.extra is SaleModel ? null : '/pos',
         builder: (context, state) {
           final sale = state.extra;
           if (sale is! SaleModel) return const PosScreen();
@@ -454,10 +493,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/purchase-orders/new',
         builder: (context, state) {
-          final supplier =
-              state.extra is SupplierModel
-                  ? state.extra as SupplierModel
-                  : null;
+          final extra = state.extra;
+          final supplier = extra is SupplierModel ? extra : null;
 
           return PurchaseOrderFormScreen(initialSupplier: supplier);
         },
@@ -465,24 +502,40 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       GoRoute(
         path: '/purchase-orders/receive',
+        redirect:
+            (_, state) =>
+                state.extra is PurchaseOrderModel ? null : '/purchase-orders',
         builder: (context, state) {
-          final po = state.extra as PurchaseOrderModel;
-
+          final po = state.extra;
+          if (po is! PurchaseOrderModel) return const PurchaseOrdersScreen();
           return ReceiveGoodsScreen(po: po);
         },
       ),
 
       GoRoute(
         path: '/purchase-orders/export',
+        redirect:
+            (_, state) =>
+                state.extra is PurchaseOrderModel ? null : '/purchase-orders',
         builder: (context, state) {
-          final po = state.extra as PurchaseOrderModel;
-
+          final po = state.extra;
+          if (po is! PurchaseOrderModel) return const PurchaseOrdersScreen();
           return PODocumentScreen(po: po);
         },
       ),
     ],
   );
 });
+
+String _safeLockedFeatureReturnLocation(String? location) {
+  if (location == null ||
+      !location.startsWith('/') ||
+      location.startsWith('//') ||
+      location.startsWith('/locked-feature')) {
+    return '/dashboard';
+  }
+  return location;
+}
 
 int _shellIndexForLocation(String location) {
   if (location.startsWith('/pos')) return 1;

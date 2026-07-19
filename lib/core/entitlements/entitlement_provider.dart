@@ -58,6 +58,27 @@ Future<bool> hasFeatureWithCompatibility(
   EntitlementEvaluator evaluator,
   String key,
 ) async {
+  const legacyInheritedFeatures = <String, String>{
+    'pos.checkout': 'pos.access',
+    'expenses.core': 'expenses.access',
+    'accounts.core': 'accounts.access',
+    'repairs.tickets': 'repairs.access',
+    'procurement.suppliers': 'suppliers.access',
+    'procurement.purchase_orders': 'purchases.access',
+  };
+  final inheritedParent = legacyInheritedFeatures[key];
+  if (inheritedParent != null) {
+    final specific = await evaluator.evaluateFeature(key);
+    if (specific.source != EntitlementValueSource.unavailable) {
+      return specific.isEnabled;
+    }
+    if (key.startsWith('procurement.') &&
+        !await evaluator.hasFeature('purchases.procurement')) {
+      return false;
+    }
+    return evaluator.hasFeature(inheritedParent);
+  }
+
   const parentFeatures = {
     'expenses.': 'expenses.access',
     'accounts.': 'accounts.access',
@@ -66,22 +87,16 @@ Future<bool> hasFeatureWithCompatibility(
   for (final entry in parentFeatures.entries) {
     if (key.startsWith(entry.key) && key != entry.value) {
       final specific = await evaluator.evaluateFeature(key);
-      return specific.source == EntitlementValueSource.unavailable
-          ? evaluator.hasFeature(entry.value)
-          : specific.isEnabled;
+      return specific.isEnabled;
     }
   }
   if (key.startsWith('pos.') && key != 'pos.access') {
     final specific = await evaluator.evaluateFeature(key);
-    return specific.source == EntitlementValueSource.unavailable
-        ? evaluator.hasFeature('pos.access')
-        : specific.isEnabled;
+    return specific.isEnabled;
   }
   if (key.startsWith('inventory.') && key != 'inventory.access') {
     final specific = await evaluator.evaluateFeature(key);
-    return specific.source == EntitlementValueSource.unavailable
-        ? evaluator.hasFeature('inventory.access')
-        : specific.isEnabled;
+    return specific.isEnabled;
   }
   if (!key.startsWith('procurement.')) return evaluator.hasFeature(key);
   final specific = await evaluator.evaluateFeature(key);
@@ -95,9 +110,7 @@ Future<bool> hasFeatureWithCompatibility(
     _ => 'purchases.access',
   };
   if (!await evaluator.hasFeature(moduleKey)) return false;
-  return specific.source == EntitlementValueSource.unavailable
-      ? true
-      : specific.isEnabled;
+  return specific.isEnabled;
 }
 
 final compatibleFeatureEntitlementProvider =

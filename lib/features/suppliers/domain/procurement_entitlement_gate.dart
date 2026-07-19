@@ -1,15 +1,12 @@
 import '../../../core/entitlements/entitlement_evaluator.dart';
+import '../../../core/entitlements/entitlement_provider.dart';
 
 class ProcurementEntitlementGate {
   final EntitlementEvaluator _evaluator;
   const ProcurementEntitlementGate(this._evaluator);
 
   Future<void> require(String key) async {
-    final specific = await _evaluator.evaluateFeature(key);
-    final allowed =
-        specific.source == EntitlementValueSource.unavailable
-            ? await _evaluator.hasFeature('purchases.procurement')
-            : specific.isEnabled;
+    final allowed = await hasFeatureWithCompatibility(_evaluator, key);
     if (!allowed) throw EntitlementDeniedException(key);
   }
 }

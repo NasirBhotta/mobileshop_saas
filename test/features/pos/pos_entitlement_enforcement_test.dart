@@ -54,22 +54,19 @@ void main() {
     },
   );
 
-  test(
-    'POS sub-features inherit pos.access when not separately defined',
-    () async {
-      final evaluator = EntitlementEvaluator(
-        dataSource: const _LegacyPosDataSource(),
-      );
-      await expectLater(
-        PosEntitlementGate(evaluator).require('pos.returns'),
-        completes,
-      );
-      expect(
-        await hasFeatureWithCompatibility(evaluator, 'pos.checkout'),
-        isTrue,
-      );
-    },
-  );
+  test('only safe legacy POS checkout inherits pos.access', () async {
+    final evaluator = EntitlementEvaluator(
+      dataSource: const _LegacyPosDataSource(),
+    );
+    await expectLater(
+      PosEntitlementGate(evaluator).require('pos.returns'),
+      throwsA(isA<EntitlementDeniedException>()),
+    );
+    expect(
+      await hasFeatureWithCompatibility(evaluator, 'pos.checkout'),
+      isTrue,
+    );
+  });
 }
 
 EntitlementEvaluator _entitlements({

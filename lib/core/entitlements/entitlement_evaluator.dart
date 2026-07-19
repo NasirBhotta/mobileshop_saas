@@ -135,6 +135,7 @@ class EntitlementEvaluator {
   final Map<String, _ResolvedEntitlements> _cache = {};
   final Map<String, TenantEntitlementContext> _contextCache = {};
   final Map<String, Future<_LoadedEntitlements?>> _inFlightLoads = {};
+  int _cacheGeneration = 0;
 
   EntitlementEvaluator({
     required EntitlementDataSource dataSource,
@@ -206,10 +207,13 @@ class EntitlementEvaluator {
   }
 
   Future<_LoadedEntitlements?> _loadForUser(String userId) async {
+    final loadGeneration = _cacheGeneration;
     final context =
         _contextCache[userId] ?? await _dataSource.loadTenantContext(userId);
     if (context == null) return null;
-    _contextCache[userId] = context;
+    if (loadGeneration == _cacheGeneration) {
+      _contextCache[userId] = context;
+    }
     final cached = _cache[context.tenantId];
     if (cached != null) {
       return _LoadedEntitlements(context.tenantId, cached, true);
@@ -217,7 +221,9 @@ class EntitlementEvaluator {
 
     final snapshot = await _dataSource.loadSnapshot(context.tenantId);
     final resolved = _resolve(snapshot, context.compatibilityPlanKey);
-    _cache[context.tenantId] = resolved;
+    if (loadGeneration == _cacheGeneration) {
+      _cache[context.tenantId] = resolved;
+    }
     return _LoadedEntitlements(context.tenantId, resolved, false);
   }
 
@@ -306,6 +312,7 @@ class EntitlementEvaluator {
   void planChanged() => invalidateAll();
 
   void invalidateAll() {
+    _cacheGeneration++;
     _cache.clear();
     _contextCache.clear();
     _inFlightLoads.clear();

@@ -49,7 +49,7 @@ void main() {
     await expectLater(gate.require('inventory.imei_tracking'), completes);
   });
 
-  test('undefined inventory sub-feature inherits inventory access', () async {
+  test('undefined sensitive inventory feature fails closed', () async {
     final evaluator = EntitlementEvaluator(
       dataSource: const _LegacyInventoryDataSource(),
     );
@@ -57,14 +57,14 @@ void main() {
       InventoryEntitlementGate(
         evaluator,
       ).require('inventory.stock_adjustments'),
-      completes,
+      throwsA(isA<EntitlementDeniedException>()),
     );
     expect(
       await hasFeatureWithCompatibility(
         evaluator,
         'inventory.stock_adjustments',
       ),
-      isTrue,
+      isFalse,
     );
   });
 }

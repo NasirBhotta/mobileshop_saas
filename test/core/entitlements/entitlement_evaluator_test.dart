@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
@@ -111,6 +113,8 @@ void main() {
             EntitlementFeatureValue(key: 'expenses.access', enabled: true),
             EntitlementFeatureValue(key: 'accounts.access', enabled: true),
             EntitlementFeatureValue(key: 'repairs.access', enabled: true),
+            EntitlementFeatureValue(key: 'pos.access', enabled: true),
+            EntitlementFeatureValue(key: 'inventory.access', enabled: true),
           ],
         ),
       ),
@@ -131,7 +135,22 @@ void main() {
     );
     expect(
       await hasFeatureWithCompatibility(evaluator, 'repairs.imei_linking'),
-      isTrue,
+      isFalse,
+    );
+    expect(
+      await hasFeatureWithCompatibility(evaluator, 'expenses.recurring'),
+      isFalse,
+    );
+    expect(
+      await hasFeatureWithCompatibility(evaluator, 'pos.returns'),
+      isFalse,
+    );
+    expect(
+      await hasFeatureWithCompatibility(
+        evaluator,
+        'inventory.stock_adjustments',
+      ),
+      isFalse,
     );
   });
 
@@ -202,6 +221,25 @@ void main() {
       expect(source.loadCount, 1);
     },
   );
+
+  test('an invalidated in-flight load cannot restore stale cache', () async {
+    final source = _ControlledEntitlementDataSource();
+    final evaluator = EntitlementEvaluator(dataSource: source);
+
+    final staleCheck = evaluator.hasFeature('expenses.access');
+    await source.firstLoadStarted.future;
+    evaluator.invalidateAll();
+
+    final freshCheck = evaluator.hasFeature('expenses.access');
+    await source.secondLoadStarted.future;
+    source.completeSecond(enabled: true);
+    expect(await freshCheck, isTrue);
+
+    source.completeFirst(enabled: false);
+    expect(await staleCheck, isFalse);
+    expect(await evaluator.hasFeature('expenses.access'), isTrue);
+    expect(source.loadCount, 2);
+  });
 }
 
 class _FakeEntitlementDataSource implements EntitlementDataSource {
@@ -234,4 +272,49 @@ class _FakeEntitlementDataSource implements EntitlementDataSource {
     loadCount++;
     return snapshot;
   }
+}
+
+class _ControlledEntitlementDataSource implements EntitlementDataSource {
+  final firstLoadStarted = Completer<void>();
+  final secondLoadStarted = Completer<void>();
+  final _firstSnapshot = Completer<TenantEntitlementSnapshot>();
+  final _secondSnapshot = Completer<TenantEntitlementSnapshot>();
+  int loadCount = 0;
+
+  @override
+  String? get currentUserId => 'user-1';
+
+  @override
+  Future<TenantEntitlementContext?> loadTenantContext(String userId) async =>
+      const TenantEntitlementContext(
+        tenantId: 'tenant-1',
+        compatibilityPlanKey: 'starter',
+      );
+
+  @override
+  Future<TenantEntitlementSnapshot> loadSnapshot(String tenantId) {
+    loadCount++;
+    if (loadCount == 1) {
+      firstLoadStarted.complete();
+      return _firstSnapshot.future;
+    }
+    secondLoadStarted.complete();
+    return _secondSnapshot.future;
+  }
+
+  void completeFirst({required bool enabled}) {
+    _firstSnapshot.complete(_snapshot(enabled));
+  }
+
+  void completeSecond({required bool enabled}) {
+    _secondSnapshot.complete(_snapshot(enabled));
+  }
+
+  TenantEntitlementSnapshot _snapshot(bool enabled) =>
+      TenantEntitlementSnapshot(
+        subscriptionPlanKey: 'starter',
+        planFeatures: [
+          EntitlementFeatureValue(key: 'expenses.access', enabled: enabled),
+        ],
+      );
 }
