@@ -471,10 +471,40 @@ class SetupFlowRepository {
     for (final mutation in mutations) {
       if (mutation.type != 'select_branch') continue;
 
+      final branchId = mutation.payload['branch_id'];
+      if (branchId is! String || branchId.trim().isEmpty) {
+        debugPrint('Removing invalid select_branch mutation: ${mutation.id}');
+        await OfflineStore.removeMutation(
+          userId: userId,
+          mutationId: mutation.id,
+        );
+        continue;
+      }
+
       try {
+        final profile = await _remoteProfile(userId).timeout(_networkTimeout);
+        final tenantId = profile?['tenant_id'];
+        if (tenantId is! String || tenantId.isEmpty) {
+          throw StateError('Mutation user has no tenant');
+        }
+
+        final branch = await _client
+            .from('branches')
+            .select('id')
+            .eq('id', branchId)
+            .eq('tenant_id', tenantId)
+            .eq('is_active', true)
+            .maybeSingle()
+            .timeout(_networkTimeout);
+        if (branch == null) {
+          throw StateError(
+            'Mutation branch is invalid, inactive, or belongs to another tenant',
+          );
+        }
+
         final updated = await _client
             .from('users')
-            .update({'branch_id': mutation.payload['branch_id']})
+            .update({'branch_id': branchId})
             .eq('id', userId)
             .select('id')
             .maybeSingle()
@@ -489,7 +519,19 @@ class SetupFlowRepository {
         );
       } catch (error) {
         debugPrint('Mutation ${mutation.id} sync failed: $error');
-        OfflineErrorClassifier.rethrowIfTerminal(error);
+        if (OfflineErrorClassifier.isRetryable(error)) {
+          // Keep transient failures queued for the next sync attempt.
+          continue;
+        }
+
+        // A permanently invalid mutation must not poison the rest of the
+        // queue. RLS/database failures are terminal according to the shared
+        // classifier and are discarded here after being logged.
+        await OfflineStore.removeMutation(
+          userId: userId,
+          mutationId: mutation.id,
+        );
+        debugPrint('Removed permanently failed mutation ${mutation.id}');
       }
     }
   }
