@@ -124,13 +124,24 @@ begin
   update public.tenants
   set shop_name = 'Tenant A updated',
       business_type = 'mobile_shop',
-      branch_count = 3,
-      setup_complete = true
+      branch_count = 3
   where id = '00000000-0000-4000-8000-000000000051';
   get diagnostics affected_count = row_count;
   if affected_count <> 1 then
     raise exception 'Owner allowed-field update affected % rows', affected_count;
   end if;
+
+  begin
+    update public.tenants
+    set setup_complete = true
+    where id = '00000000-0000-4000-8000-000000000051';
+    raise exception 'Owner direct setup completion unexpectedly succeeded';
+  exception
+    when insufficient_privilege then
+      if sqlstate <> '42501' then
+        raise;
+      end if;
+  end;
 
   begin
     update public.tenants

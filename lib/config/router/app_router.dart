@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -71,8 +73,31 @@ final profileCompleteProvider = FutureProvider<bool>((ref) async {
   return status.target != SetupRouteTarget.setup;
 });
 
+class AuthRouterRefresh extends ChangeNotifier {
+  late final StreamSubscription<AuthState> _subscription;
+
+  AuthRouterRefresh(SupabaseClient client) {
+    _subscription = client.auth.onAuthStateChange.listen((_) {
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
+
+final authRouterRefreshProvider = Provider<AuthRouterRefresh>((ref) {
+  final refresh = AuthRouterRefresh(Supabase.instance.client);
+  ref.onDispose(refresh.dispose);
+  return refresh;
+});
+
 final appRouterProvider = Provider<GoRouter>((ref) {
   ref.watch(entitlementRealtimeRefreshProvider);
+  final authRouterRefresh = ref.watch(authRouterRefreshProvider);
   final tenantAccessRefresh = ref.watch(tenantAccessRefreshProvider);
   final entitlementRouterRefresh = ref.watch(entitlementRouterRefreshProvider);
   String? setupReadyUserId;
@@ -114,6 +139,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/',
 
     refreshListenable: Listenable.merge([
+      authRouterRefresh,
       tenantAccessRefresh,
       entitlementRouterRefresh,
     ]),

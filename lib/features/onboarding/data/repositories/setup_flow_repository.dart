@@ -400,10 +400,10 @@ class SetupFlowRepository {
   }
 
   Future<void> markSetupComplete(String tenantId) async {
-    await _client
-        .from('tenants')
-        .update({'setup_complete': true})
-        .eq('id', tenantId);
+    await _client.rpc(
+      'complete_tenant_setup',
+      params: {'p_tenant_id': tenantId},
+    );
 
     final tenant = await loadTenant(tenantId);
     if (tenant != null) {
