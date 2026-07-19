@@ -271,6 +271,13 @@ class SetupSubmitController extends StateNotifier<AsyncValue<void>> {
       }
 
       await _repository.markSetupComplete(tenantId);
+      if (progress.branchCount == 1) {
+        final branches = await _repository.loadBranches(tenantId);
+        final branchId = branches.length == 1 ? branches.first.id : null;
+        if (branchId != null) {
+          await _repository.selectBranch(userId: user.id, branchId: branchId);
+        }
+      }
       final status = await _repository.loadStatus(user.id);
       _ref.invalidate(setupFlowStatusProvider);
       _ref.invalidate(selectedBranchIdProvider);

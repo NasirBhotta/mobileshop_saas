@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -30,6 +33,21 @@ final authListenerProvider = StreamProvider<void>((ref) async* {
   final repo = ref.watch(authRepositoryProvider);
   String? activeUserId = repo.currentUser?.id;
 
+  void requestSetupSync(String userId) {
+    unawaited(
+      ref
+          .read(setupFlowRepositoryProvider)
+          .requestOfflineMutationSync(userId)
+          .catchError((Object error) {
+            debugPrint('Offline setup mutation sync failed: $error');
+          }),
+    );
+  }
+
+  if (activeUserId != null) {
+    requestSetupSync(activeUserId);
+  }
+
   await for (final authState in repo.authStateChanges) {
     final nextUserId = authState.session?.user.id;
     final userChanged = nextUserId != activeUserId;
@@ -43,6 +61,7 @@ final authListenerProvider = StreamProvider<void>((ref) async* {
       if (user == null) continue;
 
       await repo.ensureUserProfile(user: user);
+      requestSetupSync(user.id);
       ref.invalidate(setupFlowStatusProvider);
       ref.invalidate(selectedBranchIdProvider);
     }

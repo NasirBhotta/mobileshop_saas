@@ -59,6 +59,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mobileshop_saas/core/tenant_access/tenant_access_provider.dart';
 import 'package:mobileshop_saas/core/tenant_access/tenant_suspended_screen.dart';
 
+import 'router_error_screen.dart';
+
 final profileCompleteProvider = FutureProvider<bool>((ref) async {
   final user = Supabase.instance.client.auth.currentUser;
   if (user == null) return false;
@@ -75,112 +77,159 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final entitlementRouterRefresh = ref.watch(entitlementRouterRefreshProvider);
   String? setupReadyUserId;
   SetupFlowStatus? setupReadyStatus;
+  String? setupLoadUserId;
+  Future<SetupFlowStatus>? setupLoadInFlight;
+
+  Future<SetupFlowStatus> loadSetupStatus(String userId) {
+    final ready = setupReadyUserId == userId ? setupReadyStatus : null;
+    if (ready != null) return Future.value(ready);
+    final pending = setupLoadUserId == userId ? setupLoadInFlight : null;
+    if (pending != null) return pending;
+
+    late final Future<SetupFlowStatus> load;
+    load = ref
+        .read(setupFlowRepositoryProvider)
+        .loadStatus(userId)
+        .then((status) {
+          if (status.target == SetupRouteTarget.dashboard &&
+              setupLoadUserId == userId &&
+              identical(setupLoadInFlight, load)) {
+            setupReadyUserId = userId;
+            setupReadyStatus = status;
+          }
+          return status;
+        })
+        .whenComplete(() {
+          if (identical(setupLoadInFlight, load)) {
+            setupLoadUserId = null;
+            setupLoadInFlight = null;
+          }
+        });
+    setupLoadUserId = userId;
+    setupLoadInFlight = load;
+    return load;
+  }
+
   return GoRouter(
     initialLocation: '/',
+
     refreshListenable: Listenable.merge([
       tenantAccessRefresh,
       entitlementRouterRefresh,
     ]),
+    errorBuilder: (context, state) {
+      debugPrint('Router error at ${state.uri}: ${state.error}');
+      return RouterErrorScreen(
+        error: state.error,
+        attemptedLocation: state.uri.toString(),
+      );
+    },
     redirect: (context, state) async {
       final location = state.uri.path;
 
-      final prefs = await SharedPreferences.getInstance();
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final seenIntro = prefs.getBool('intro_seen') ?? false;
 
-      final seenIntro = prefs.getBool('intro_seen') ?? false;
+        if (!seenIntro) {
+          return location == '/intro' ? null : '/intro';
+        }
 
-      if (!seenIntro) {
-        return location == '/intro' ? null : '/intro';
-      }
+        if (location == '/intro') {
+          return '/';
+        }
 
-      if (location == '/intro') {
-        return '/';
-      }
+        final session = Supabase.instance.client.auth.currentSession;
+        final isAuthRoute = location == '/login' || location == '/signup';
 
-      final session = Supabase.instance.client.auth.currentSession;
-      final isAuthRoute = location == '/login' || location == '/signup';
+        if (session == null) {
+          return isAuthRoute ? null : '/login';
+        }
 
-      if (session == null) {
-        return isAuthRoute ? null : '/login';
-      }
+        if (isAuthRoute) {
+          return '/';
+        }
 
-      if (isAuthRoute) {
-        return '/';
-      }
+        // The recovery page must not repeat the checks that just failed.
+        // Authentication and intro handling above still apply.
+        if (location == '/router-error') return null;
 
-      final tenantAccess = await ref.read(tenantAccessProvider.future);
-      if (tenantAccess.isBlocked) {
-        return location == '/account-suspended' ? null : '/account-suspended';
-      }
-      if (location == '/account-suspended') return '/dashboard';
+        final tenantAccess = await ref.read(tenantAccessProvider.future);
+        if (tenantAccess.isBlocked) {
+          return location == '/account-suspended' ? null : '/account-suspended';
+        }
+        if (location == '/account-suspended') return '/dashboard';
 
-      debugPrint("Router evaluating: ${state.uri.path}");
+        debugPrint("Router evaluating: ${state.uri.path}");
 
-      if (setupReadyUserId != session.user.id) {
-        setupReadyUserId = session.user.id;
-        setupReadyStatus = null;
-      }
-      final setupStatus =
-          setupReadyStatus ??
-          await ref
-              .read(setupFlowRepositoryProvider)
-              .loadStatus(session.user.id);
-      if (setupStatus.target == SetupRouteTarget.dashboard) {
-        setupReadyStatus = setupStatus;
-      }
+        if (setupReadyUserId != session.user.id) {
+          setupReadyUserId = session.user.id;
+          setupReadyStatus = null;
+        }
+        final setupStatus = await loadSetupStatus(session.user.id);
 
-      debugPrint("Router target: ${setupStatus.target}");
+        debugPrint("Router target: ${setupStatus.target}");
 
-      if (setupStatus.target == SetupRouteTarget.setup) {
-        return location == '/setup' ? null : '/setup';
-      }
+        if (setupStatus.target == SetupRouteTarget.setup) {
+          return location == '/setup' ? null : '/setup';
+        }
 
-      if (setupStatus.target == SetupRouteTarget.branchSelection) {
-        return location == '/select-branch' ? null : '/select-branch';
-      }
+        if (setupStatus.target == SetupRouteTarget.branchSelection) {
+          return location == '/select-branch' ? null : '/select-branch';
+        }
 
-      if (location == '/select-branch' && setupStatus.branches.length >= 2) {
-        return null;
-      }
+        if (location == '/select-branch' && setupStatus.branches.length >= 2) {
+          return null;
+        }
 
-      if (location == '/' ||
-          location == '/setup' ||
-          location == '/select-branch') {
-        return '/dashboard';
-      }
+        if (location == '/' ||
+            location == '/setup' ||
+            location == '/select-branch') {
+          return '/dashboard';
+        }
 
-      if (location == '/locked-feature') {
-        final featureKey = state.uri.queryParameters['feature'];
-        final returnLocation = state.uri.queryParameters['from'];
-        if (featureKey != null) {
-          final evaluator = ref.read(entitlementEvaluatorProvider);
-          final enabled =
-              featureKey.startsWith('reports.')
-                  ? await ReportEntitlementGate(evaluator).allows(featureKey)
-                  : await hasFeatureWithCompatibility(evaluator, featureKey);
-          if (enabled) {
-            return _safeLockedFeatureReturnLocation(returnLocation);
+        if (location == '/locked-feature') {
+          final featureKey = state.uri.queryParameters['feature'];
+          final returnLocation = state.uri.queryParameters['from'];
+          if (featureKey != null) {
+            final evaluator = ref.read(entitlementEvaluatorProvider);
+            final enabled =
+                featureKey.startsWith('reports.')
+                    ? await ReportEntitlementGate(evaluator).allows(featureKey)
+                    : await hasFeatureWithCompatibility(evaluator, featureKey);
+            if (enabled) {
+              return _safeLockedFeatureReturnLocation(returnLocation);
+            }
+          }
+        } else {
+          final featureKey = requiredFeatureForLocation(location);
+          if (featureKey != null) {
+            final evaluator = ref.read(entitlementEvaluatorProvider);
+            final enabled =
+                featureKey.startsWith('reports.')
+                    ? await ReportEntitlementGate(evaluator).allows(featureKey)
+                    : await hasFeatureWithCompatibility(evaluator, featureKey);
+            if (!enabled) {
+              return Uri(
+                path: '/locked-feature',
+                queryParameters: {
+                  'feature': featureKey,
+                  'from': state.uri.toString(),
+                },
+              ).toString();
+            }
           }
         }
-      } else {
-        final featureKey = requiredFeatureForLocation(location);
-        if (featureKey != null) {
-          final evaluator = ref.read(entitlementEvaluatorProvider);
-          final enabled =
-              featureKey.startsWith('reports.')
-                  ? await ReportEntitlementGate(evaluator).allows(featureKey)
-                  : await hasFeatureWithCompatibility(evaluator, featureKey);
-          if (!enabled) {
-            return Uri(
-              path: '/locked-feature',
-              queryParameters: {
-                'feature': featureKey,
-                'from': state.uri.toString(),
-              },
-            ).toString();
-          }
-        }
+      } catch (error, stackTrace) {
+        debugPrint(
+          'Router redirect failed at ${state.uri}: $error\n$stackTrace',
+        );
+        if (location == '/router-error') return null;
+        return Uri(
+          path: '/router-error',
+          queryParameters: {'from': state.uri.toString()},
+        ).toString();
       }
-
       return null;
     },
     routes: [
@@ -522,6 +571,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           if (po is! PurchaseOrderModel) return const PurchaseOrdersScreen();
           return PODocumentScreen(po: po);
         },
+      ),
+
+      GoRoute(
+        path: '/router-error',
+        builder:
+            (_, state) => RouterErrorScreen(
+              attemptedLocation: state.uri.queryParameters['from'],
+            ),
       ),
     ],
   );

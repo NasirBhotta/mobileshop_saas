@@ -99,11 +99,6 @@ class SetupFlowRepository {
   }
 
   Future<SetupFlowStatus> loadStatus(String userId) async {
-    unawaited(
-      _requestOfflineMutationSync(userId).catchError((Object error) {
-        debugPrint('Offline mutation sync failed: $error');
-      }),
-    );
     final profile = await loadProfile(userId);
 
     debugPrint("Profile: $profile");
@@ -128,28 +123,13 @@ class SetupFlowRepository {
       "Branches: ${branches.length}, Required: $requiredBranches, Setup Complete: $setupComplete",
     );
 
-    if (!setupComplete) {
-      if (branches.length < requiredBranches) {
-        return SetupFlowStatus(
-          target: SetupRouteTarget.setup,
-          profile: profile,
-          tenant: tenant,
-          branches: branches,
-        );
-      }
-
-      try {
-        await markSetupComplete(tenantId).timeout(_networkTimeout);
-      } catch (error) {
-        debugPrint('Setup completion update failed: $error');
-
-        return SetupFlowStatus(
-          target: SetupRouteTarget.setup,
-          profile: profile,
-          tenant: tenant,
-          branches: branches,
-        );
-      }
+    if (!setupComplete || branches.length < requiredBranches) {
+      return SetupFlowStatus(
+        target: SetupRouteTarget.setup,
+        profile: profile,
+        tenant: tenant,
+        branches: branches,
+      );
     }
     debugPrint(
       "Branches: ${branches.length}, Required: $requiredBranches, Setup Complete: $setupComplete",
@@ -164,11 +144,11 @@ class SetupFlowRepository {
     }
 
     if (branches.length == 1) {
-      if (profile['branch_id'] != branches.first.id) {
-        await selectBranch(userId: userId, branchId: branches.first.id!);
-      }
       return SetupFlowStatus(
-        target: SetupRouteTarget.dashboard,
+        target:
+            profile['branch_id'] == branches.first.id
+                ? SetupRouteTarget.dashboard
+                : SetupRouteTarget.branchSelection,
         profile: profile,
         tenant: tenant,
         branches: branches,
@@ -497,7 +477,7 @@ class SetupFlowRepository {
     }
   }
 
-  Future<void> _requestOfflineMutationSync(String userId) {
+  Future<void> requestOfflineMutationSync(String userId) {
     final running = _syncsInFlight[userId];
     if (running != null) {
       _syncAgainForUsers.add(userId);
