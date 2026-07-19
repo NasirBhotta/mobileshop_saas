@@ -26,12 +26,16 @@ import 'package:mobileshop_saas/features/pos/domain/pos_entitlement_gate.dart';
 
 class PosRepository {
   static const _offlineWriteTimeout = Duration(milliseconds: 1200);
+  // Checkout performs several transactional writes, so the general fast
+  // offline fallback is not a realistic deadline for this RPC.
+  static const _saleCommitTimeout = Duration(seconds: 8);
   final SupabaseClient _client;
   final PermissionEvaluator _permissions;
   final EntitlementEvaluator _entitlements;
   late final PosEntitlementGate _entitlementGate = PosEntitlementGate(
     _entitlements,
   );
+  Future<void>? _offlineSyncInFlight;
 
   PosRepository({
     SupabaseClient? client,
@@ -66,7 +70,7 @@ class PosRepository {
   Future<bool> _commitSaleRemote(Map<String, dynamic> saleData) async {
     final result = await _client
         .rpc('commit_pos_sale', params: {'p_sale': saleData})
-        .timeout(Network.networkTimeout);
+        .timeout(_saleCommitTimeout);
     return result == true;
   }
 
@@ -2233,7 +2237,20 @@ class PosRepository {
   // ════════════════════════════════════════
   // OFFLINE SYNC
   // ════════════════════════════════════════
-  Future<void> syncOfflineMutations() async {
+  Future<void> syncOfflineMutations() {
+    final activeSync = _offlineSyncInFlight;
+    if (activeSync != null) return activeSync;
+
+    final sync = _syncOfflineMutations();
+    _offlineSyncInFlight = sync;
+    return sync.whenComplete(() {
+      if (identical(_offlineSyncInFlight, sync)) {
+        _offlineSyncInFlight = null;
+      }
+    });
+  }
+
+  Future<void> _syncOfflineMutations() async {
     try {
       final userId = _currentUser.id;
       final mutations = await OfflineStore.loadMutations(userId);
