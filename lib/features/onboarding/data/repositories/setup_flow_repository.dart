@@ -452,7 +452,6 @@ class SetupFlowRepository {
           .update({'branch_id': branchId})
           .eq('id', userId)
           .timeout(_networkTimeout);
-      await OfflineStore.selectBranch(userId: userId, branchId: branchId);
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.selectBranch(userId: userId, branchId: branchId);
@@ -461,7 +460,10 @@ class SetupFlowRepository {
         type: 'select_branch',
         payload: {'user_id': userId, 'branch_id': branchId},
       );
+      return;
     }
+
+    await OfflineStore.selectBranch(userId: userId, branchId: branchId);
   }
 
   Future<void> syncOfflineMutations(String userId) async {
