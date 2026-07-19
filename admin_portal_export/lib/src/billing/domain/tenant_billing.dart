@@ -1,6 +1,12 @@
 class BillingSummary {
   final String subscriptionId, plan, status, billingCycle, currency;
-  final DateTime? trialStartsAt, trialEndsAt, renewalDate, graceEndsAt;
+  final DateTime? trialStartsAt,
+      trialEndsAt,
+      renewalDate,
+      graceEndsAt,
+      expiresAt,
+      cancellationRequestedAt;
+  final bool cancelAtPeriodEnd;
   final double outstandingAmount;
   const BillingSummary({
     required this.subscriptionId,
@@ -13,6 +19,9 @@ class BillingSummary {
     this.trialEndsAt,
     this.renewalDate,
     this.graceEndsAt,
+    this.expiresAt,
+    this.cancellationRequestedAt,
+    this.cancelAtPeriodEnd = false,
   });
   factory BillingSummary.fromJson(Map<String, dynamic> j) => BillingSummary(
     subscriptionId: j['subscription_id'] as String,
@@ -25,6 +34,9 @@ class BillingSummary {
     trialEndsAt: _date(j['trial_ends_at']),
     renewalDate: _date(j['renewal_date']),
     graceEndsAt: _date(j['grace_ends_at']),
+    expiresAt: _date(j['expires_at']),
+    cancellationRequestedAt: _date(j['cancellation_requested_at']),
+    cancelAtPeriodEnd: j['cancel_at_period_end'] as bool? ?? false,
   );
 }
 

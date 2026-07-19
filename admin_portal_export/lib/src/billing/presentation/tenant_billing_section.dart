@@ -98,7 +98,14 @@ class TenantBillingSection extends ConsumerWidget {
                                     _range(s.trialStartsAt, s.trialEndsAt),
                                   ),
                                   _Value('Renewal', _date(s.renewalDate)),
+                                  _Value('Access until', _date(s.expiresAt)),
                                   _Value('Grace ends', _date(s.graceEndsAt)),
+                                  _Value(
+                                    'Cancellation',
+                                    s.cancelAtPeriodEnd
+                                        ? 'Scheduled for ${_date(s.expiresAt)}'
+                                        : 'Not scheduled',
+                                  ),
                                   _Value(
                                     'Outstanding',
                                     '${s.currency} ${s.outstandingAmount.toStringAsFixed(2)}',
@@ -110,7 +117,7 @@ class TenantBillingSection extends ConsumerWidget {
                                 spacing: 8,
                                 runSpacing: 8,
                                 children:
-                                    _validActions(s.status)
+                                    _validActions(s)
                                         .map(
                                           (a) => OutlinedButton(
                                             onPressed:
@@ -122,7 +129,7 @@ class TenantBillingSection extends ConsumerWidget {
                                                       a,
                                                       s.billingCycle,
                                                     ),
-                                            child: Text(a.replaceAll('_', ' ')),
+                                            child: Text(_actionLabel(a)),
                                           ),
                                         )
                                         .toList(),
@@ -275,6 +282,43 @@ class TenantBillingSection extends ConsumerWidget {
     String action,
     String billingCycle,
   ) async {
+    if (action == 'cancel_at_period_end' ||
+        action == 'undo_cancel_at_period_end' ||
+        action == 'cancel') {
+      final immediate = action == 'cancel';
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder:
+            (dialogContext) => AlertDialog(
+              title: Text(
+                immediate
+                    ? 'Cancel immediately?'
+                    : action == 'cancel_at_period_end'
+                    ? 'Cancel at period end?'
+                    : 'Undo scheduled cancellation?',
+              ),
+              content: Text(
+                immediate
+                    ? 'The tenant will lose access immediately. This does not wait for the paid billing period to end.'
+                    : action == 'cancel_at_period_end'
+                    ? 'The tenant keeps access through the current paid billing period. Renewal will be stopped.'
+                    : 'The subscription will continue and can be renewed normally.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Back'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(immediate ? 'Cancel now' : 'Confirm'),
+                ),
+              ],
+            ),
+      );
+      if (confirmed != true || !context.mounted) return;
+    }
+
     DateTime? until;
     if (['trial_start', 'trial_extend', 'grace'].contains(action)) {
       until = await showDatePicker(
@@ -634,18 +678,34 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
   }
 }
 
-List<String> _validActions(String value) {
-  return switch (value.toLowerCase()) {
+List<String> _validActions(BillingSummary summary) {
+  return switch (summary.status.toLowerCase()) {
     'pending_activation' => const ['trial_start', 'activate', 'suspend'],
     'trialing' => const ['trial_extend', 'trial_end', 'activate', 'suspend'],
     'trial_expired' => const ['trial_extend', 'activate', 'suspend'],
-    'active' => const ['renew', 'grace', 'cancel', 'suspend'],
+    'active' =>
+      summary.cancelAtPeriodEnd
+          ? const ['undo_cancel_at_period_end', 'cancel', 'suspend']
+          : const [
+            'renew',
+            'grace',
+            'cancel_at_period_end',
+            'cancel',
+            'suspend',
+          ],
     'grace_period' => const ['renew', 'activate', 'cancel', 'suspend'],
     'cancelled' => const ['trial_start', 'activate', 'renew', 'suspend'],
     'suspended' => const ['activate'],
     _ => const ['activate', 'suspend'],
   };
 }
+
+String _actionLabel(String action) => switch (action) {
+  'cancel_at_period_end' => 'Cancel at period end',
+  'undo_cancel_at_period_end' => 'Undo scheduled cancellation',
+  'cancel' => 'Cancel immediately',
+  _ => action.replaceAll('_', ' '),
+};
 
 class _Value extends StatelessWidget {
   final String label, value;
