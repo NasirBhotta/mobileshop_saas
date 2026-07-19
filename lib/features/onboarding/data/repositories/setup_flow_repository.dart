@@ -319,8 +319,14 @@ class SetupFlowRepository {
         return existingTenantId;
       }
 
-      // The reference is stale.
-      await _client.from('users').update({'tenant_id': null}).eq('id', user.id);
+      final staleLinkCleared = await _client
+          .rpc('clear_stale_tenant_link')
+          .timeout(_networkTimeout);
+      if (staleLinkCleared != true) {
+        throw StateError(
+          'Tenant exists but is not accessible to the current session',
+        );
+      }
     }
 
     final tenantId = user.id;

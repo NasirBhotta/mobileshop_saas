@@ -121,6 +121,10 @@ begin
     if sqlstate <> '42501' then raise; end if;
   end;
 
+  if public.clear_stale_tenant_link() then
+    raise exception 'Recovery RPC cleared an existing tenant association';
+  end if;
+
   begin
     update public.users set approval_pin = '1234' where id = auth.uid();
     raise exception 'Self approval_pin update unexpectedly succeeded';
