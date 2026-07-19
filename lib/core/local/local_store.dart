@@ -89,6 +89,13 @@ class LocalStore {
     String tenantId,
     List<BranchInputModel> branches,
   ) async {
+    // Treat a successful remote fetch as a snapshot. Keep stale rows for
+    // referential integrity, but make sure deleted/deactivated branches are no
+    // longer returned as selectable branches.
+    await LocalDatabase.execute(
+      'UPDATE branches SET is_active = 0 WHERE tenant_id = ?',
+      [tenantId],
+    );
     for (final branch in branches) {
       if (branch.id == null) continue;
       await LocalDatabase.execute(
@@ -112,7 +119,8 @@ class LocalStore {
 
   static Future<List<BranchInputModel>> loadBranches(String tenantId) async {
     final rows = await LocalDatabase.select(
-      'SELECT * FROM branches WHERE tenant_id = ? ORDER BY id',
+      'SELECT * FROM branches '
+      'WHERE tenant_id = ? AND is_active = 1 ORDER BY id',
       [tenantId],
     );
     return rows.map(BranchInputModel.fromMap).toList();

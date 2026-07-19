@@ -284,6 +284,7 @@ class SetupFlowRepository {
         .from('branches')
         .select('id, name, address, city')
         .eq('tenant_id', tenantId)
+        .eq('is_active', true)
         .order('id');
 
     final branches =
@@ -421,12 +422,28 @@ class SetupFlowRepository {
     final tenantId = profile?['tenant_id'] as String?;
     if (tenantId == null) throw Exception('Tenant setup required');
 
-    final tenantBranches = await loadBranches(tenantId);
-    final belongsToTenant = tenantBranches.any(
-      (branch) => branch.id == branchId,
-    );
+    bool belongsToTenant;
+    try {
+      final branch = await _client
+          .from('branches')
+          .select('id')
+          .eq('id', branchId)
+          .eq('tenant_id', tenantId)
+          .eq('is_active', true)
+          .maybeSingle()
+          .timeout(_networkTimeout);
+      belongsToTenant = branch != null;
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+
+      // Offline selection uses the last successfully synchronized snapshot.
+      final cachedBranches = await OfflineStore.loadBranches(tenantId);
+      belongsToTenant = cachedBranches.any((branch) => branch.id == branchId);
+    }
     if (!belongsToTenant) {
-      throw Exception('Selected branch must belong to user tenant');
+      throw Exception(
+        'Selected branch is invalid, inactive, or does not belong to this tenant',
+      );
     }
 
     try {
