@@ -51,4 +51,17 @@ void main() {
     expect(router, contains('if (pending != null) return pending'));
     expect(router, contains('identical(setupLoadInFlight, load)'));
   });
+
+  test('router resolves onboarding before subscription access', () {
+    final setupRedirect = router.indexOf(
+      'setupStatus.target == SetupRouteTarget.setup',
+    );
+    final accessLookup = router.indexOf(
+      'ref.read(tenantAccessProvider.future)',
+      setupRedirect,
+    );
+
+    expect(setupRedirect, greaterThanOrEqualTo(0));
+    expect(accessLookup, greaterThan(setupRedirect));
+  });
 }

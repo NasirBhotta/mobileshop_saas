@@ -10,7 +10,13 @@ class TenantSuspendedScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final signingOut = ref.watch(authControllerProvider).isLoading;
-    final access = ref.watch(tenantAccessProvider).asData?.value;
+    final accessState = ref.watch(tenantAccessProvider);
+    final access = accessState.asData?.value;
+
+    if (accessState.isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     final content = _contentFor(access);
     return Scaffold(
       body: Center(

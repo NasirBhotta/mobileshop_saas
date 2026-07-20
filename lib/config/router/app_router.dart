@@ -180,12 +180,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         // Authentication and intro handling above still apply.
         if (location == '/router-error') return null;
 
-        final tenantAccess = await ref.read(tenantAccessProvider.future);
-        if (tenantAccess.isBlocked) {
-          return location == '/account-suspended' ? null : '/account-suspended';
-        }
-        if (location == '/account-suspended') return '/dashboard';
-
         debugPrint("Router evaluating: ${state.uri.path}");
 
         if (setupReadyUserId != session.user.id) {
@@ -199,6 +193,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         if (setupStatus.target == SetupRouteTarget.setup) {
           return location == '/setup' ? null : '/setup';
         }
+
+        // A newly signed-up user has no tenant/subscription to verify yet.
+        // Resolve onboarding first so the transient profile-creation window
+        // cannot be rendered as an account-access failure.
+        final tenantAccess = await ref.read(tenantAccessProvider.future);
+        if (tenantAccess.isBlocked) {
+          return location == '/account-suspended' ? null : '/account-suspended';
+        }
+        if (location == '/account-suspended') return '/dashboard';
 
         if (setupStatus.target == SetupRouteTarget.branchSelection) {
           return location == '/select-branch' ? null : '/select-branch';
