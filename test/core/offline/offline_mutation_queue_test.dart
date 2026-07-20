@@ -60,4 +60,22 @@ void main() {
     expect(remaining.single.payload['branch_id'], 'branch-new');
     expect(remaining.single.id, isNot(oldMutation.id));
   });
+
+  test(
+    'revoked account cleanup removes only user-scoped session cache',
+    () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('offline.profile.$userId', '{}');
+      await prefs.setString('offline.selected_branch.$userId', 'branch-1');
+      await prefs.setString('offline.mutations.$userId', '[]');
+      await prefs.setString('offline.tenant.tenant-1', '{"id":"tenant-1"}');
+
+      await OfflineStore.clearUserSessionCache(userId);
+
+      expect(prefs.containsKey('offline.profile.$userId'), isFalse);
+      expect(prefs.containsKey('offline.selected_branch.$userId'), isFalse);
+      expect(prefs.containsKey('offline.mutations.$userId'), isFalse);
+      expect(prefs.containsKey('offline.tenant.tenant-1'), isTrue);
+    },
+  );
 }

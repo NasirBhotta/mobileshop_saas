@@ -138,6 +138,21 @@ class OfflineStore {
     return profile;
   }
 
+  static Future<void> clearUserSessionCache(String userId) async {
+    try {
+      await LocalStore.deleteProfile(userId);
+    } catch (_) {}
+
+    await _withMutationWriteLock(userId, () async {
+      final prefs = await SharedPreferences.getInstance();
+      await Future.wait([
+        prefs.remove(_profileKey(userId)),
+        prefs.remove(_selectedBranchKey(userId)),
+        prefs.remove(_mutationsKey(userId)),
+      ]);
+    });
+  }
+
   static Future<void> saveTenant(
     String tenantId,
     Map<String, dynamic> tenant,

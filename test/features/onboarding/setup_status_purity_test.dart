@@ -64,4 +64,14 @@ void main() {
     expect(setupRedirect, greaterThanOrEqualTo(0));
     expect(accessLookup, greaterThan(setupRedirect));
   });
+
+  test('router validates account identity before cached setup status', () {
+    final identityLookup = router.indexOf('.validateCurrentAccount(');
+    final setupLookup = router.indexOf('loadSetupStatus(session.user.id)');
+
+    expect(identityLookup, greaterThanOrEqualTo(0));
+    expect(setupLookup, greaterThan(identityLookup));
+    expect(router, contains('OfflineStore.clearUserSessionCache(userId)'));
+    expect(router, contains('SignOutScope.local'));
+  });
 }

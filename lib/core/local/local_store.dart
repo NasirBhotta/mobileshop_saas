@@ -50,6 +50,10 @@ class LocalStore {
     return rows.isEmpty ? null : rows.first;
   }
 
+  static Future<void> deleteProfile(String userId) {
+    return LocalDatabase.deleteRowById(table: 'users', id: userId);
+  }
+
   static Future<void> saveTenant(
     String tenantId,
     Map<String, dynamic> tenant,

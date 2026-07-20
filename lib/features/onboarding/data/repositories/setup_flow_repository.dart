@@ -50,6 +50,14 @@ final selectedBranchIdProvider = FutureProvider<String>((ref) async {
 
 enum SetupRouteTarget { setup, branchSelection, dashboard }
 
+enum AccountIdentityState { active, revoked, offline }
+
+class AccountIdentityResult {
+  final AccountIdentityState state;
+
+  const AccountIdentityResult(this.state);
+}
+
 class SetupFlowStatus {
   final SetupRouteTarget target;
   final Map<String, dynamic>? profile;
@@ -74,6 +82,46 @@ class SetupFlowRepository {
     : _client = client ?? Supabase.instance.client;
 
   User? get currentUser => _client.auth.currentUser;
+
+  Future<AccountIdentityResult> validateCurrentAccount(String userId) async {
+    final hasCachedProfile = await OfflineStore.loadProfile(userId) != null;
+    final maxAttempts = hasCachedProfile ? 1 : 4;
+
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        final raw = await _client
+            .rpc('current_account_context')
+            .timeout(_networkTimeout);
+        final context =
+            raw is Map
+                ? Map<String, dynamic>.from(raw)
+                : const <String, dynamic>{};
+        final exists = context['exists'] == true;
+        final isActive = context['is_active'] == true;
+
+        if (exists && isActive && context['id'] == userId) {
+          await OfflineStore.saveProfile(userId, context);
+          return const AccountIdentityResult(AccountIdentityState.active);
+        }
+
+        // A brand-new auth session can be emitted just before the signup flow
+        // finishes provisioning public.users. Retry only when there is no
+        // established local profile; a known account disappearing is an
+        // immediate revocation signal.
+        if (!hasCachedProfile && attempt + 1 < maxAttempts) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          continue;
+        }
+
+        return const AccountIdentityResult(AccountIdentityState.revoked);
+      } catch (error) {
+        OfflineErrorClassifier.rethrowIfTerminal(error);
+        return const AccountIdentityResult(AccountIdentityState.offline);
+      }
+    }
+
+    return const AccountIdentityResult(AccountIdentityState.revoked);
+  }
 
   Future<void> ensureUserProfile({
     required User user,

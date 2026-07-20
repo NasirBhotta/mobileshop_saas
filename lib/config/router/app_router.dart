@@ -166,6 +166,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         }
 
         final session = Supabase.instance.client.auth.currentSession;
+
         final isAuthRoute = location == '/login' || location == '/signup';
 
         if (session == null) {
