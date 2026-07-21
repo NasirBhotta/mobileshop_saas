@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/accounts/presentation/screens/accounts_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.dart';
+import 'package:mobileshop_saas/features/auth/presentation/screens/forgot_password_screen.dart';
+import 'package:mobileshop_saas/features/auth/presentation/screens/password_form_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/signup_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/staff_password_setup_screen.dart';
 import 'package:mobileshop_saas/features/dashboard/presentation/screens/dashboard_screen.dart';
@@ -61,6 +63,7 @@ import 'package:mobileshop_saas/core/entitlements/locked_feature_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mobileshop_saas/core/tenant_access/tenant_access_provider.dart';
 import 'package:mobileshop_saas/core/tenant_access/tenant_suspended_screen.dart';
+import 'package:mobileshop_saas/features/auth/presentation/providers/auth_provider.dart';
 
 import 'router_error_screen.dart';
 
@@ -101,6 +104,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final authRouterRefresh = ref.watch(authRouterRefreshProvider);
   final tenantAccessRefresh = ref.watch(tenantAccessRefreshProvider);
   final entitlementRouterRefresh = ref.watch(entitlementRouterRefreshProvider);
+  final passwordRecoveryRefresh = ref.watch(passwordRecoveryRefreshProvider);
   String? setupReadyUserId;
   SetupFlowStatus? setupReadyStatus;
   String? setupLoadUserId;
@@ -143,6 +147,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       authRouterRefresh,
       tenantAccessRefresh,
       entitlementRouterRefresh,
+      passwordRecoveryRefresh,
     ]),
     errorBuilder: (context, state) {
       debugPrint('Router error at ${state.uri}: ${state.error}');
@@ -155,6 +160,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final location = state.uri.path;
 
       try {
+        final session = Supabase.instance.client.auth.currentSession;
+        final isResetPasswordRoute = location == '/reset-password';
+
+        // Recovery links must work even on a fresh installation where the
+        // intro screen has not been completed yet.
+        if (passwordRecoveryRefresh.isRecovering && session != null) {
+          return isResetPasswordRoute ? null : '/reset-password';
+        }
+
         final prefs = await SharedPreferences.getInstance();
         final seenIntro = prefs.getBool('intro_seen') ?? false;
 
@@ -166,14 +180,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return '/';
         }
 
-        final session = Supabase.instance.client.auth.currentSession;
-
-        final isAuthRoute = location == '/login' || location == '/signup';
+        final isAuthRoute =
+            location == '/login' ||
+            location == '/signup' ||
+            location == '/forgot-password';
         final isStaffPasswordRoute = location == '/set-staff-password';
 
         if (session == null) {
           return isAuthRoute ? null : '/login';
         }
+
+        if (isResetPasswordRoute) return '/';
 
         if (isAuthRoute) {
           return '/';
@@ -281,12 +298,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
+        path: '/forgot-password',
+        builder: (context, state) => const ForgotPasswordScreen(),
+      ),
+      GoRoute(
         path: '/signup',
         builder: (context, state) => const SignupScreen(),
       ),
       GoRoute(
         path: '/set-staff-password',
         builder: (context, state) => const StaffPasswordSetupScreen(),
+      ),
+      GoRoute(
+        path: '/reset-password',
+        builder: (context, state) => const PasswordFormScreen.recovery(),
+      ),
+      GoRoute(
+        path: '/change-password',
+        builder: (context, state) => const PasswordFormScreen.change(),
       ),
       GoRoute(
         path: '/account-suspended',

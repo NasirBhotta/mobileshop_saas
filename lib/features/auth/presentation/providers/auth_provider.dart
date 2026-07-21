@@ -24,6 +24,41 @@ final authStateProvider = StreamProvider<AuthState>((ref) {
   return ref.watch(authRepositoryProvider).authStateChanges;
 });
 
+final passwordRecoveryRefreshProvider = Provider<PasswordRecoveryRefresh>((
+  ref,
+) {
+  final refresh = PasswordRecoveryRefresh(Supabase.instance.client);
+  ref.onDispose(refresh.dispose);
+  return refresh;
+});
+
+class PasswordRecoveryRefresh extends ChangeNotifier {
+  late final StreamSubscription<AuthState> _subscription;
+  bool _isRecovering = false;
+
+  PasswordRecoveryRefresh(SupabaseClient client) {
+    _subscription = client.auth.onAuthStateChange.listen((state) {
+      if (state.event != AuthChangeEvent.passwordRecovery) return;
+      _isRecovering = true;
+      notifyListeners();
+    });
+  }
+
+  bool get isRecovering => _isRecovering;
+
+  void complete() {
+    if (!_isRecovering) return;
+    _isRecovering = false;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
+
 final authControllerProvider =
     StateNotifierProvider<AuthController, AsyncValue<void>>((ref) {
       return AuthController(ref.watch(authRepositoryProvider), ref);

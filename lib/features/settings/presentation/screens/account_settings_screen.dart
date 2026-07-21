@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/core/constants/app_colors.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/onboarding/data/models/shop_setup_model.dart';
@@ -97,6 +98,8 @@ class _SettingsContent extends ConsumerWidget {
             const SizedBox(height: 12),
             _PlanBillingSection(settings: settings),
             const SizedBox(height: 12),
+            const _SecuritySection(),
+            const SizedBox(height: 12),
             _DataSyncSection(settings: settings, saving: saving),
           ],
         );
@@ -183,6 +186,27 @@ class _UnavailableSettingsSection extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _SecuritySection extends StatelessWidget {
+  const _SecuritySection();
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsCard(
+      title: 'Security',
+      subtitle: 'Manage your account password',
+      icon: Icons.security_rounded,
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const CircleAvatar(child: Icon(Icons.password_rounded)),
+        title: const Text('Change password'),
+        subtitle: const Text('Set a new password for this login account'),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () => context.push('/change-password'),
+      ),
+    );
+  }
 }
 
 class _SettingsHeader extends StatelessWidget {

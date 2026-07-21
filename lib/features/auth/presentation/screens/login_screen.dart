@@ -150,6 +150,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               },
             ),
 
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed:
+                    isLoading ? null : () => context.push('/forgot-password'),
+                child: const Text('Forgot password?'),
+              ),
+            ),
+
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
