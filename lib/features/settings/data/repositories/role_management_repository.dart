@@ -15,7 +15,17 @@ class RoleManagementOnlineRequiredException implements Exception {
       'Security changes ke liye internet connection required hai.';
 }
 
+class StaffInvitationException implements Exception {
+  final String message;
+
+  const StaffInvitationException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class RoleManagementRepository {
+  static const _staffInviteTimeout = Duration(seconds: 30);
   final SupabaseClient _client;
   final PermissionEvaluator _permissions;
 
@@ -147,14 +157,13 @@ class RoleManagementRepository {
   }
 
   Future<void> createRole({
-    required String code,
     required String name,
     String? description,
-  }) => _mutate('create_custom_role', {
-    'p_code': code,
+    required Set<String> permissionKeys,
+  }) => _mutate('create_custom_role_with_permissions', {
     'p_name': name,
     'p_description': description,
-    'p_permission_keys': <String>[],
+    'p_permission_keys': permissionKeys.toList()..sort(),
   });
 
   Future<void> renameRole({
@@ -177,6 +186,41 @@ class RoleManagementRepository {
     'assign_user_to_role',
     {'p_user_id': userId, 'p_role_id': roleId},
   );
+
+  Future<void> inviteStaff({
+    required String fullName,
+    required String email,
+    required String roleId,
+  }) async {
+    await _requireAccess();
+    try {
+      await _client.functions
+          .invoke(
+            'invite-staff',
+            body: {
+              'fullName': fullName.trim(),
+              'email': email.trim().toLowerCase(),
+              'roleId': roleId,
+            },
+          )
+          .timeout(_staffInviteTimeout);
+      _permissions.invalidateAll();
+    } on FunctionException catch (error) {
+      final details = error.details;
+      final serverMessage =
+          details is Map ? details['error'] ?? details['message'] : null;
+      throw StaffInvitationException(
+        serverMessage is String && serverMessage.trim().isNotEmpty
+            ? serverMessage
+            : 'Staff invitation server ne reject kar di (${error.status}).',
+      );
+    } catch (error) {
+      if (OfflineErrorClassifier.isRetryable(error)) {
+        throw const RoleManagementOnlineRequiredException();
+      }
+      rethrow;
+    }
+  }
 
   Future<void> moveUsers(String fromRoleId, String toRoleId) => _mutate(
     'move_role_users',

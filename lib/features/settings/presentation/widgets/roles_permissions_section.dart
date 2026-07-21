@@ -19,6 +19,7 @@ class RolesPermissionsSection extends ConsumerWidget {
       loading: () => false,
     );
     final readOnly = saving || offline;
+    final data = dataState.asData?.value;
 
     return Container(
       decoration: BoxDecoration(
@@ -57,7 +58,10 @@ class RolesPermissionsSection extends ConsumerWidget {
                   ),
                 ),
                 FilledButton.icon(
-                  onPressed: readOnly ? null : () => _createRole(context, ref),
+                  onPressed:
+                      readOnly || data == null
+                          ? null
+                          : () => _createRole(context, ref, data),
                   icon: const Icon(Icons.add_rounded, size: 18),
                   label: const Text('New Role'),
                 ),
@@ -103,6 +107,7 @@ class RolesPermissionsSection extends ConsumerWidget {
                       _UserAssignments(
                         data: data,
                         busy: readOnly,
+                        onInvite: () => _inviteStaff(context, ref, data),
                         onAssign:
                             (userId, roleId) =>
                                 _assignUser(context, ref, userId, roleId),
@@ -116,14 +121,22 @@ class RolesPermissionsSection extends ConsumerWidget {
     );
   }
 
-  Future<void> _createRole(BuildContext context, WidgetRef ref) async {
-    final values = await _roleDialog(context, title: 'Create custom role');
+  Future<void> _createRole(
+    BuildContext context,
+    WidgetRef ref,
+    RoleManagementData data,
+  ) async {
+    final values = await _roleDialog(
+      context,
+      title: 'Create custom role',
+      permissions: data.permissions,
+    );
     if (values == null || !context.mounted) return;
     await _run(context, ref, (repository) {
       return repository.createRole(
-        code: values.code,
         name: values.name,
         description: values.description,
+        permissionKeys: values.permissionKeys,
       );
     });
   }
@@ -228,6 +241,27 @@ class RolesPermissionsSection extends ConsumerWidget {
       ref,
       (repository) => repository.assignUser(userId, roleId),
     );
+  }
+
+  Future<void> _inviteStaff(
+    BuildContext context,
+    WidgetRef ref,
+    RoleManagementData data,
+  ) async {
+    final values = await _staffInvitationDialog(context, data);
+    if (values == null || !context.mounted) return;
+    final success = await _run(context, ref, (repository) {
+      return repository.inviteStaff(
+        fullName: values.fullName,
+        email: values.email,
+        roleId: values.roleId,
+      );
+    });
+    if (success && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invitation ${values.email} ko send ho gayi.')),
+      );
+    }
   }
 
   Future<void> _toggleRole(
@@ -397,11 +431,13 @@ class _RoleTile extends StatelessWidget {
 class _UserAssignments extends StatelessWidget {
   final RoleManagementData data;
   final bool busy;
+  final VoidCallback onInvite;
   final Future<void> Function(String userId, String roleId) onAssign;
 
   const _UserAssignments({
     required this.data,
     required this.busy,
+    required this.onInvite,
     required this.onAssign,
   });
 
@@ -412,9 +448,23 @@ class _UserAssignments extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'User assignments',
-          style: TextStyle(fontWeight: FontWeight.w700),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'User assignments',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed:
+                  busy || RoleManagementRules.assignableStaffRoles(data).isEmpty
+                      ? null
+                      : onInvite,
+              icon: const Icon(Icons.person_add_alt_1_rounded, size: 17),
+              label: const Text('Invite User'),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         for (final user in data.users)
@@ -481,63 +531,85 @@ class _ErrorRow extends StatelessWidget {
 }
 
 class _RoleDialogValue {
-  final String code;
   final String name;
   final String? description;
-  const _RoleDialogValue(this.code, this.name, this.description);
+  final Set<String> permissionKeys;
+  const _RoleDialogValue(this.name, this.description, this.permissionKeys);
 }
 
-Future<_RoleDialogValue?> _roleDialog(
-  BuildContext context, {
-  required String title,
-  ManagedRole? role,
-}) async {
-  final code = TextEditingController(text: role?.code ?? '');
-  final name = TextEditingController(text: role?.name ?? '');
-  final description = TextEditingController(text: role?.description ?? '');
+class _StaffInvitationValue {
+  final String fullName;
+  final String email;
+  final String roleId;
+
+  const _StaffInvitationValue(this.fullName, this.email, this.roleId);
+}
+
+Future<_StaffInvitationValue?> _staffInvitationDialog(
+  BuildContext context,
+  RoleManagementData data,
+) async {
+  final roles = RoleManagementRules.assignableStaffRoles(data);
+  if (roles.isEmpty) return null;
+  var fullName = '';
+  var email = '';
+  String roleId = roles.first.id;
   final formKey = GlobalKey<FormState>();
-  final result = await showDialog<_RoleDialogValue>(
+
+  return showDialog<_StaffInvitationValue>(
     context: context,
     builder:
         (dialogContext) => AlertDialog(
-          title: Text(title),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (role == null)
+          title: const Text('Invite staff user'),
+          content: SizedBox(
+            width: 480,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   TextFormField(
-                    controller: code,
-                    decoration: const InputDecoration(
-                      labelText: 'Stable code',
-                      hintText: 'store_lead',
-                    ),
+                    decoration: const InputDecoration(labelText: 'Full name'),
+                    textCapitalization: TextCapitalization.words,
+                    onChanged: (value) => fullName = value,
                     validator:
                         (value) =>
-                            RegExp(
-                                  r'^[a-z][a-z0-9_]{1,49}$',
-                                ).hasMatch(value?.trim() ?? '')
-                                ? null
-                                : 'Lowercase code likhein, e.g. store_lead',
+                            value?.trim().isEmpty ?? true
+                                ? 'Full name required hai'
+                                : null,
                   ),
-                if (role == null) const SizedBox(height: 10),
-                TextFormField(
-                  controller: name,
-                  decoration: const InputDecoration(labelText: 'Role name'),
-                  validator:
-                      (value) =>
-                          value?.trim().isEmpty ?? true
-                              ? 'Role name required hai'
-                              : null,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: description,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                  maxLines: 2,
-                ),
-              ],
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    decoration: const InputDecoration(labelText: 'Email'),
+                    keyboardType: TextInputType.emailAddress,
+                    autocorrect: false,
+                    onChanged: (value) => email = value,
+                    validator: (value) {
+                      final normalized = value?.trim() ?? '';
+                      return RegExp(
+                            r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                          ).hasMatch(normalized)
+                          ? null
+                          : 'Valid email required hai';
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: roleId,
+                    decoration: const InputDecoration(labelText: 'Role'),
+                    items: [
+                      for (final role in roles)
+                        DropdownMenuItem(
+                          value: role.id,
+                          child: Text(role.name),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) roleId = value;
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -550,23 +622,137 @@ Future<_RoleDialogValue?> _roleDialog(
                 if (!formKey.currentState!.validate()) return;
                 Navigator.pop(
                   dialogContext,
-                  _RoleDialogValue(
-                    code.text.trim(),
-                    name.text.trim(),
-                    description.text.trim().isEmpty
-                        ? null
-                        : description.text.trim(),
+                  _StaffInvitationValue(
+                    fullName.trim(),
+                    email.trim().toLowerCase(),
+                    roleId,
                   ),
                 );
               },
-              child: const Text('Save'),
+              child: const Text('Send Invite'),
             ),
           ],
         ),
   );
-  code.dispose();
-  name.dispose();
-  description.dispose();
+}
+
+Future<_RoleDialogValue?> _roleDialog(
+  BuildContext context, {
+  required String title,
+  ManagedRole? role,
+  List<ManagedPermission>? permissions,
+}) async {
+  var roleName = role?.name ?? '';
+  var roleDescription = role?.description ?? '';
+  final selectedPermissions = <String>{};
+  final permissionsByModule = <String, List<ManagedPermission>>{};
+  for (final permission in permissions ?? const <ManagedPermission>[]) {
+    permissionsByModule
+        .putIfAbsent(permission.module, () => [])
+        .add(permission);
+  }
+  final formKey = GlobalKey<FormState>();
+  final result = await showDialog<_RoleDialogValue>(
+    context: context,
+    builder:
+        (dialogContext) => StatefulBuilder(
+          builder:
+              (context, setState) => AlertDialog(
+                title: Text(title),
+                content: SizedBox(
+                  width: 560,
+                  child: Form(
+                    key: formKey,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextFormField(
+                            initialValue: roleName,
+                            decoration: const InputDecoration(
+                              labelText: 'Role name',
+                            ),
+                            onChanged: (value) => roleName = value,
+                            validator:
+                                (value) =>
+                                    value?.trim().isEmpty ?? true
+                                        ? 'Role name required hai'
+                                        : null,
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            initialValue: roleDescription,
+                            decoration: const InputDecoration(
+                              labelText: 'Description',
+                            ),
+                            onChanged: (value) => roleDescription = value,
+                            maxLines: 2,
+                          ),
+                          if (permissionsByModule.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            for (final entry in permissionsByModule.entries)
+                              ExpansionTile(
+                                initiallyExpanded: true,
+                                title: Text(_moduleLabel(entry.key)),
+                                children: [
+                                  for (final permission in entry.value)
+                                    CheckboxListTile(
+                                      dense: true,
+                                      value: selectedPermissions.contains(
+                                        permission.key,
+                                      ),
+                                      title: Text(permission.name),
+                                      subtitle:
+                                          permission.description == null
+                                              ? null
+                                              : Text(permission.description!),
+                                      onChanged: (checked) {
+                                        setState(() {
+                                          if (checked == true) {
+                                            selectedPermissions.add(
+                                              permission.key,
+                                            );
+                                          } else {
+                                            selectedPermissions.remove(
+                                              permission.key,
+                                            );
+                                          }
+                                        });
+                                      },
+                                    ),
+                                ],
+                              ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () {
+                      if (!formKey.currentState!.validate()) return;
+                      Navigator.pop(
+                        dialogContext,
+                        _RoleDialogValue(
+                          roleName.trim(),
+                          roleDescription.trim().isEmpty
+                              ? null
+                              : roleDescription.trim(),
+                          Set<String>.from(selectedPermissions),
+                        ),
+                      );
+                    },
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+        ),
+  );
   return result;
 }
 

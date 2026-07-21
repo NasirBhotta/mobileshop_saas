@@ -172,6 +172,11 @@ abstract final class RoleManagementRules {
   ) => data.roles
       .where((candidate) => candidate.isActive && candidate.id != role.id)
       .toList(growable: false);
+
+  static List<ManagedRole> assignableStaffRoles(RoleManagementData data) => data
+      .roles
+      .where((role) => role.isActive && !role.isProtectedOwner)
+      .toList(growable: false);
 }
 
 abstract final class RoleManagementPermissions {

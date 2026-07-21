@@ -79,6 +79,12 @@ void main() {
     expect(replacements.map((role) => role.id), ['owner-role']);
   });
 
+  test('staff invitations exclude the protected owner role', () {
+    final roles = RoleManagementRules.assignableStaffRoles(data);
+
+    expect(roles.map((role) => role.id), ['custom-role']);
+  });
+
   test('permissions group by module and assignments count by role', () {
     expect(data.permissionsByModule.keys, containsAll(['inventory', 'pos']));
     expect(data.assignmentCount('custom-role'), 1);

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/accounts/presentation/screens/accounts_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/login_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/screens/signup_screen.dart';
+import 'package:mobileshop_saas/features/auth/presentation/screens/staff_password_setup_screen.dart';
 import 'package:mobileshop_saas/features/dashboard/presentation/screens/dashboard_screen.dart';
 import 'package:mobileshop_saas/features/expenses/presentation/screens/expense_form_screen.dart';
 import 'package:mobileshop_saas/features/expenses/presentation/screens/expense_report_screen.dart';
@@ -168,6 +169,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         final session = Supabase.instance.client.auth.currentSession;
 
         final isAuthRoute = location == '/login' || location == '/signup';
+        final isStaffPasswordRoute = location == '/set-staff-password';
 
         if (session == null) {
           return isAuthRoute ? null : '/login';
@@ -176,6 +178,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         if (isAuthRoute) {
           return '/';
         }
+
+        final userMetadata = session.user.userMetadata;
+        final isStaffInvitation = userMetadata?['staff_invitation_id'] != null;
+        final staffInvitationCompleted =
+            userMetadata?['staff_invitation_completed'] == true;
+        if (isStaffInvitation && !staffInvitationCompleted) {
+          return isStaffPasswordRoute ? null : '/set-staff-password';
+        }
+        if (isStaffPasswordRoute) return '/';
 
         // The recovery page must not repeat the checks that just failed.
         // Authentication and intro handling above still apply.
@@ -272,6 +283,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/signup',
         builder: (context, state) => const SignupScreen(),
+      ),
+      GoRoute(
+        path: '/set-staff-password',
+        builder: (context, state) => const StaffPasswordSetupScreen(),
       ),
       GoRoute(
         path: '/account-suspended',
