@@ -200,7 +200,7 @@ class _POCard extends ConsumerWidget {
                   ),
                 OutlinedButton(
                   onPressed:
-                      () => context.go('/purchase-orders/export', extra: po),
+                      () => context.push('/purchase-orders/export', extra: po),
                   child: const Text('Export'),
                 ),
               ],
