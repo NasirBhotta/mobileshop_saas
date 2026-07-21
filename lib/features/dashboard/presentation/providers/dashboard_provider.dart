@@ -106,6 +106,7 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
             ticket.status != RepairTicketStatus.delivered &&
             ticket.status != RepairTicketStatus.cancelled;
       }).length;
+  final priorityRepairs = selectPriorityRepairTickets(repairTickets);
   final returnTotal = returns.fold<double>(
     0,
     (sum, saleReturn) =>
@@ -216,8 +217,49 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
     totalCreditSales: totalCreditSales,
     creditCustomers: creditCustomers.take(5).toList(),
     recentSales: sales.take(5).toList(),
+    priorityRepairs: priorityRepairs,
   );
 });
+
+List<RepairTicketModel> selectPriorityRepairTickets(
+  Iterable<RepairTicketModel> tickets, {
+  int limit = 5,
+}) {
+  final actionable =
+      tickets.where((ticket) {
+        return ticket.status != RepairTicketStatus.delivered &&
+            ticket.status != RepairTicketStatus.cancelled;
+      }).toList();
+
+  actionable.sort((a, b) {
+    final aReady = a.status == RepairTicketStatus.completed;
+    final bReady = b.status == RepairTicketStatus.completed;
+    if (aReady != bReady) return aReady ? -1 : 1;
+
+    if (aReady && bReady) {
+      return _compareNullableDates(
+        a.completedAt ?? a.updatedAt ?? a.createdAt,
+        b.completedAt ?? b.updatedAt ?? b.createdAt,
+      );
+    }
+
+    final dueComparison = _compareNullableDates(
+      a.estimatedCompletionAt,
+      b.estimatedCompletionAt,
+    );
+    if (dueComparison != 0) return dueComparison;
+    return _compareNullableDates(a.createdAt, b.createdAt);
+  });
+
+  return actionable.take(limit).toList(growable: false);
+}
+
+int _compareNullableDates(DateTime? a, DateTime? b) {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a.compareTo(b);
+}
 
 Future<_DashboardInventorySummary> _loadDashboardInventorySummary(
   String branchId,
@@ -420,6 +462,7 @@ class DashboardStats {
   final double totalCreditSales;
   final List<DashboardCreditCustomer> creditCustomers;
   final List<SaleModel> recentSales;
+  final List<RepairTicketModel> priorityRepairs;
 
   const DashboardStats({
     required this.branchId,
@@ -433,6 +476,7 @@ class DashboardStats {
     required this.totalCreditSales,
     required this.creditCustomers,
     required this.recentSales,
+    required this.priorityRepairs,
   });
 }
 

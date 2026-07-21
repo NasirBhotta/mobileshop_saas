@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../../../core/extensions/repair_ticket_ext.dart';
+import '../../../repairs/data/models/repair_ticket_model.dart';
 import '../../../settings/presentation/widgets/account_menu_button.dart';
 import '../providers/dashboard_provider.dart';
 import '../widgets/quick_action_button.dart';
@@ -69,6 +71,8 @@ class _MobileDashboard extends ConsumerWidget {
                   isLoading: isLoading,
                   compact: true,
                 ),
+                const SizedBox(height: 20),
+                _PriorityRepairsPanel(stats: stats, compact: true),
                 const SizedBox(height: 20),
                 _StatsGrid(
                   stats: stats,
@@ -143,6 +147,8 @@ class _DesktopDashboard extends ConsumerWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 22),
+              _PriorityRepairsPanel(stats: stats),
               const SizedBox(height: 22),
               _StatsGrid(
                 stats: stats,
@@ -785,6 +791,150 @@ class _DashboardAlerts extends StatelessWidget {
               ),
     );
   }
+}
+
+class _PriorityRepairsPanel extends StatelessWidget {
+  final DashboardStats? stats;
+  final bool compact;
+
+  const _PriorityRepairsPanel({required this.stats, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final tickets = stats?.priorityRepairs ?? const <RepairTicketModel>[];
+
+    return _DashboardPanel(
+      title: 'Repair priority',
+      trailing: _StatusBadge(
+        label: tickets.isEmpty ? 'Clear' : '${tickets.length} pending',
+        color: tickets.isEmpty ? AppColors.success : AppColors.warning,
+      ),
+      child:
+          tickets.isEmpty
+              ? const _EmptyPanelMessage(
+                icon: Icons.build_circle_outlined,
+                message: 'Koi priority repair pending nahi.',
+              )
+              : Column(
+                children: [
+                  for (var index = 0; index < tickets.length; index++) ...[
+                    _PriorityRepairTile(
+                      ticket: tickets[index],
+                      compact: compact,
+                    ),
+                    if (index != tickets.length - 1) const Divider(height: 18),
+                  ],
+                ],
+              ),
+    );
+  }
+}
+
+class _PriorityRepairTile extends StatelessWidget {
+  final RepairTicketModel ticket;
+  final bool compact;
+
+  const _PriorityRepairTile({required this.ticket, required this.compact});
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = ticket.status == RepairTicketStatus.completed;
+    final color = ready ? AppColors.success : _repairDueColor(ticket);
+
+    return InkWell(
+      onTap: () => context.go('/repairs'),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 4 : 8,
+          vertical: compact ? 6 : 8,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(
+                ready ? Icons.inventory_rounded : Icons.build_rounded,
+                color: color,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${ticket.deviceBrand} ${ticket.deviceModel}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${ticket.customerName} • ${_repairPriorityLabel(ticket)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              ticket.ticketNo ?? 'Ticket',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _repairPriorityLabel(RepairTicketModel ticket) {
+  if (ticket.status == RepairTicketStatus.completed) {
+    return 'Ready for delivery';
+  }
+
+  final due = ticket.estimatedCompletionAt;
+  if (due == null) return '${ticket.status.label} • No due date';
+
+  final now = DateTime.now();
+  final difference = due.difference(now);
+  if (difference.isNegative) return 'Overdue';
+  if (difference.inHours < 1) return 'Due within 1 hour';
+  if (difference.inHours < 24) return 'Due in ${difference.inHours}h';
+  if (difference.inDays == 1) return 'Due tomorrow';
+  return 'Due in ${difference.inDays} days';
+}
+
+Color _repairDueColor(RepairTicketModel ticket) {
+  final due = ticket.estimatedCompletionAt;
+  if (due == null) return AppColors.info;
+  final difference = due.difference(DateTime.now());
+  if (difference.isNegative || difference.inHours < 24) {
+    return AppColors.error;
+  }
+  if (difference.inHours < 72) return AppColors.warning;
+  return AppColors.info;
 }
 
 class _DashboardAlertData {
