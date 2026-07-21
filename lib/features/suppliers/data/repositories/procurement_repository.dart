@@ -425,15 +425,6 @@ class ProcurementRepository {
     final receiptId = const Uuid().v4();
     final receiptNo = _generateNo('GR', receiptId, DateTime.now());
 
-    await ProcurementLocalStore.applyReceiptLocally(
-      po: po,
-      receiptId: receiptId,
-      receiptNo: receiptNo,
-      userId: _currentUser.id,
-      note: _clean(note),
-      inputs: inputs,
-    );
-
     try {
       await _client
           .rpc(
@@ -451,6 +442,14 @@ class ProcurementRepository {
       await fetchPurchaseOrderById(po.id);
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
+      await ProcurementLocalStore.applyReceiptLocally(
+        po: po,
+        receiptId: receiptId,
+        receiptNo: receiptNo,
+        userId: _currentUser.id,
+        note: _clean(note),
+        inputs: inputs,
+      );
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'receive_po_goods',

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
@@ -163,8 +164,13 @@ class ReceiveGoodsController extends StateNotifier<AsyncValue<void>> {
           .read(procurementRepositoryProvider)
           .receiveGoods(po: po, note: note, inputs: inputs);
 
+      await _ref
+          .read(inventoryRepositoryProvider)
+          .refreshCurrentProductsCache();
+
       state = const AsyncData(null);
       _ref.invalidate(purchaseOrdersProvider);
+      invalidateProductListProviders(_ref);
       return true;
     } catch (e, st) {
       state = AsyncError(e, st);

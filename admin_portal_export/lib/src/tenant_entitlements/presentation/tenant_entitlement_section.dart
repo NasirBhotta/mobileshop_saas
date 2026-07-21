@@ -104,7 +104,7 @@ class TenantEntitlementSection extends ConsumerWidget {
     if (!context.mounted) return;
     final activePlans = plans.where((plan) => plan.isActive).toList();
     String? selected = currentPlanId;
-    final reason = TextEditingController();
+    var reason = '';
     final confirmed = await showDialog<bool>(
       context: context,
       builder:
@@ -137,7 +137,7 @@ class TenantEntitlementSection extends ConsumerWidget {
                         ),
                         const SizedBox(height: 12),
                         TextField(
-                          controller: reason,
+                          onChanged: (value) => reason = value,
                           maxLines: 2,
                           decoration: const InputDecoration(
                             labelText: 'Reason (optional)',
@@ -170,11 +170,10 @@ class TenantEntitlementSection extends ConsumerWidget {
         (repository) => repository.changePlan(
           tenantId: tenantId,
           planId: selected!,
-          reason: _optional(reason.text),
+          reason: _optional(reason),
         ),
       );
     }
-    reason.dispose();
   }
 
   Future<void> _showLimitDialog(
@@ -300,10 +299,14 @@ class TenantEntitlementSection extends ConsumerWidget {
         .read(tenantEntitlementMutationProvider.notifier)
         .run(tenantId, operation);
     if (!context.mounted) return;
+    final mutation = ref.read(tenantEntitlementMutationProvider);
+    final failure = mutation.whenOrNull(error: (error, _) => error.toString());
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          success ? 'Entitlements updated.' : 'Entitlement update failed.',
+          success
+              ? 'Entitlements updated.'
+              : failure ?? 'Entitlement update failed.',
         ),
       ),
     );

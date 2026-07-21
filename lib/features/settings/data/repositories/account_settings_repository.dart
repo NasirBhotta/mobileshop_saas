@@ -74,14 +74,14 @@ class AccountSettingsRepository {
     return user;
   }
 
-  Future<AccountSettingsData> loadSettings() async {
+  Future<AccountSettingsData> loadSettings({bool refreshTenant = false}) async {
     unawaited(syncOfflineMutations());
 
     final profile = await _loadProfile();
     final tenantId = profile['tenant_id'] as String?;
     if (tenantId == null) throw Exception('Shop setup not found');
 
-    final tenant = await _loadTenant(tenantId);
+    final tenant = await _loadTenant(tenantId, preferRemote: refreshTenant);
     if (tenant == null) throw Exception('Shop profile not found');
 
     final branches = await _loadBranches(tenantId);
@@ -350,24 +350,34 @@ class AccountSettingsRepository {
     return tenantId;
   }
 
-  Future<Map<String, dynamic>?> _loadTenant(String tenantId) async {
+  Future<Map<String, dynamic>?> _loadTenant(
+    String tenantId, {
+    bool preferRemote = false,
+  }) async {
     final cached = await OfflineStore.loadTenant(tenantId);
-    if (cached != null) {
+    if (cached != null && !preferRemote) {
       unawaited(_refreshTenantCache(tenantId));
       return cached;
     }
 
-    final tenant = await _client
-        .from('tenants')
-        .select(
-          'id, shop_name, business_type, branch_count, plan, status, setup_complete',
-        )
-        .eq('id', tenantId)
-        .maybeSingle()
-        .timeout(_networkTimeout);
+    Map<String, dynamic>? tenant;
+    try {
+      tenant = await _client
+          .from('tenants')
+          .select(
+            'id, shop_name, business_type, branch_count, plan, status, setup_complete',
+          )
+          .eq('id', tenantId)
+          .maybeSingle()
+          .timeout(_networkTimeout);
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      if (cached != null) return cached;
+      rethrow;
+    }
 
     if (tenant != null) await OfflineStore.saveTenant(tenantId, tenant);
-    return tenant;
+    return tenant ?? cached;
   }
 
   Future<void> _refreshTenantCache(String tenantId) async {

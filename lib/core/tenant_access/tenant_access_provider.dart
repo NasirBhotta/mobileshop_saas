@@ -26,6 +26,17 @@ enum TenantAccessState {
 const _offlineAccessDuration = Duration(hours: 48);
 const _allowedClockRollback = Duration(minutes: 5);
 
+final tenantPlanRevisionProvider = NotifierProvider<TenantPlanRevision, int>(
+  TenantPlanRevision.new,
+);
+
+class TenantPlanRevision extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void refresh() => state++;
+}
+
 class _TenantAccessLease {
   final TenantAccessState state;
 
@@ -276,7 +287,14 @@ final tenantAccessRealtimeProvider = FutureProvider<void>((ref) async {
     refresh.refresh();
   }
 
+  void refreshSubscription() {
+    refreshAccess();
+    ref.read(tenantPlanRevisionProvider.notifier).refresh();
+  }
+
   void handleChange(PostgresChangePayload _) => refreshAccess();
+  void handleSubscriptionChange(PostgresChangePayload _) =>
+      refreshSubscription();
 
   tenantChannel
       .onPostgresChanges(
@@ -310,7 +328,7 @@ final tenantAccessRealtimeProvider = FutureProvider<void>((ref) async {
           column: 'tenant_id',
           value: tenantId,
         ),
-        callback: handleChange,
+        callback: handleSubscriptionChange,
       )
       .subscribe((status, error) {
         debugPrint(
@@ -318,7 +336,7 @@ final tenantAccessRealtimeProvider = FutureProvider<void>((ref) async {
           '${error == null ? '' : ' ($error)'}',
         );
         if (status == RealtimeSubscribeStatus.subscribed) {
-          refreshAccess();
+          refreshSubscription();
         }
       });
 

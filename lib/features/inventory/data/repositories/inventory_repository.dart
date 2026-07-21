@@ -680,6 +680,23 @@ class InventoryRepository {
     } catch (_) {}
   }
 
+  /// Refreshes the current branch cache before consumers are invalidated.
+  /// This is used after a server-side stock mutation; invalidating first would
+  /// let the cached-first product query publish the old inventory again.
+  Future<void> refreshCurrentProductsCache() async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    try {
+      await _fetchRemoteProducts(
+        tenantId: tenantId,
+        branchId: branchId,
+      ).timeout(_networkTimeout);
+    } catch (_) {
+      // Receiving already committed successfully. A cache refresh failure must
+      // not report the goods receipt itself as failed.
+    }
+  }
+
   Future<ProductModel> addProduct(ProductModel product) async {
     if (product.imeiTracked) {
       await _requireFeature('inventory.imei_tracking');

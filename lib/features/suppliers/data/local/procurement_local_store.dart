@@ -256,31 +256,37 @@ class ProcurementLocalStore {
       updatedItems.add(updatedItem);
       await savePurchaseOrderItem(updatedItem);
 
-      await LocalDatabase.execute(
-        '''
-        INSERT INTO inventory(branch_id, product_id, quantity, updated_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(branch_id, product_id)
-        DO UPDATE SET
-          quantity = quantity + excluded.quantity,
-          updated_at = excluded.updated_at
-        ''',
-        [
-          po.branchId,
-          item.productId,
-          input.receivedQuantity,
-          DateTime.now().toIso8601String(),
-        ],
+      final productRows = await LocalDatabase.select(
+        'SELECT cost_price FROM products WHERE id = ? LIMIT 1',
+        [item.productId],
       );
+      final currentCost =
+          productRows.isEmpty
+              ? null
+              : (productRows.first['cost_price'] as num?)?.toDouble();
+      final sameCost =
+          currentCost != null &&
+          (currentCost - input.actualUnitCost).abs() < 0.005;
 
-      if (input.updateProductCost) {
+      // A different-cost product variant is created atomically by the server.
+      // While offline, do not corrupt the original product's stock or price;
+      // the queued receipt will populate the correct variant after sync.
+      if (sameCost) {
         await LocalDatabase.execute(
           '''
-          UPDATE products
-          SET cost_price = ?
-          WHERE id = ?
+          INSERT INTO inventory(branch_id, product_id, quantity, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(branch_id, product_id)
+          DO UPDATE SET
+            quantity = quantity + excluded.quantity,
+            updated_at = excluded.updated_at
           ''',
-          [input.actualUnitCost, item.productId],
+          [
+            po.branchId,
+            item.productId,
+            input.receivedQuantity,
+            DateTime.now().toIso8601String(),
+          ],
         );
       }
     }

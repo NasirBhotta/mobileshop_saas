@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:mobileshop_saas/core/tenant_access/tenant_access_provider.dart';
 import 'package:mobileshop_saas/features/onboarding/data/models/shop_setup_model.dart';
 import 'package:mobileshop_saas/features/onboarding/data/repositories/setup_flow_repository.dart';
 import 'package:mobileshop_saas/features/settings/data/repositories/account_settings_repository.dart';
@@ -12,7 +13,10 @@ final accountSettingsRepositoryProvider = Provider<AccountSettingsRepository>((
 
 final accountSettingsProvider = FutureProvider.autoDispose<AccountSettingsData>(
   (ref) {
-    return ref.read(accountSettingsRepositoryProvider).loadSettings();
+    ref.watch(tenantPlanRevisionProvider);
+    return ref
+        .read(accountSettingsRepositoryProvider)
+        .loadSettings(refreshTenant: true);
   },
 );
 
