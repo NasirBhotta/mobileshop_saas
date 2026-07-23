@@ -73,18 +73,36 @@ class RepairsListScreen extends ConsumerWidget {
                 },
                 data: (tickets) {
                   if (tickets.isEmpty) {
-                    return _EmptyRepairsView(
-                      selectedStatus: selectedStatus,
-                      onCreate: () => context.push('/repairs/new'),
+                    return RefreshIndicator(
+                      onRefresh:
+                          () =>
+                              ref
+                                  .read(repairSyncControllerProvider.notifier)
+                                  .sync(),
+                      child: LayoutBuilder(
+                        builder:
+                            (context, constraints) => ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              children: [
+                                SizedBox(
+                                  height: constraints.maxHeight,
+                                  child: _EmptyRepairsView(
+                                    selectedStatus: selectedStatus,
+                                    onCreate:
+                                        () => context.push('/repairs/new'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                      ),
                     );
                   }
                   return RefreshIndicator(
-                    onRefresh: () async {
-                      await ref
-                          .read(repairSyncControllerProvider.notifier)
-                          .sync();
-                      ref.invalidate(repairTicketsProvider);
-                    },
+                    onRefresh:
+                        () =>
+                            ref
+                                .read(repairSyncControllerProvider.notifier)
+                                .sync(),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final isWide = constraints.maxWidth >= 850;

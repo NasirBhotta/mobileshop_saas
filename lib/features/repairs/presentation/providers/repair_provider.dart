@@ -247,11 +247,20 @@ class RepairSyncController extends StateNotifier<AsyncValue<void>> {
       final repository = _ref.read(repairRepositoryProvider);
 
       await repository.syncOfflineMutations();
+      try {
+        await repository.refreshCurrentRepairTicketsCache(
+          timeout: const Duration(seconds: 10),
+        );
+      } catch (_) {
+        // Keep showing the current local cache when the server is unavailable.
+      }
+
+      _ref
+        ..invalidate(repairTicketsProvider)
+        ..invalidate(allRepairTicketsProvider);
+      await _ref.read(repairTicketsProvider.future);
 
       state = const AsyncData(null);
-
-      /// Sync ke baad list refresh.
-      _ref.invalidate(repairTicketsProvider);
     } catch (e, st) {
       state = AsyncError(e, st);
     }
