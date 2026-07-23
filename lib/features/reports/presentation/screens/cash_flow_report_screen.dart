@@ -56,7 +56,10 @@ class CashFlowReportScreen extends ConsumerWidget {
                 data: (report) {
                   return RefreshIndicator(
                     onRefresh: () async {
-                      ref.invalidate(cashFlowReportProvider);
+                      await ref
+                          .read(businessReportSyncControllerProvider.notifier)
+                          .sync();
+                      await ref.read(cashFlowReportProvider.future);
                     },
                     child: LayoutBuilder(
                       builder: (context, constraints) {

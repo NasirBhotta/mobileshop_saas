@@ -249,6 +249,18 @@ class ExpenseRepository {
     } catch (_) {}
   }
 
+  Future<void> refreshCurrentCategoriesCache({
+    Duration timeout = _networkTimeout,
+  }) async {
+    final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
+    await _ensureDefaultCategories(tenantId: tenantId, branchId: branchId);
+    await _fetchRemoteCategories(
+      tenantId: tenantId,
+      branchId: branchId,
+    ).timeout(timeout);
+  }
+
   Future<List<ExpenseCategoryModel>> _fetchRemoteCategories({
     required String tenantId,
     required String branchId,
@@ -420,6 +432,10 @@ class ExpenseRepository {
   Future<void> refreshExpensesCache({
     required DateTime dateFrom,
     required DateTime dateTo,
+    String? categoryId,
+    ExpenseStatus? status,
+    ExpenseSource? source,
+    Duration timeout = _networkTimeout,
   }) async {
     await _gate.require('expenses.core');
     final tenantId = await _tenantId();
@@ -429,8 +445,11 @@ class ExpenseRepository {
       branchId: branchId,
       dateFrom: dateFrom,
       dateTo: dateTo,
+      categoryId: categoryId,
+      status: status,
+      source: source,
       limit: 1000,
-    ).timeout(_networkTimeout);
+    ).timeout(timeout);
   }
 
   Future<ExpenseModel?> fetchExpenseById(String expenseId) async {
@@ -778,6 +797,18 @@ class ExpenseRepository {
         branchId: branchId,
       ).timeout(_networkTimeout);
     } catch (_) {}
+  }
+
+  Future<void> refreshCurrentRecurringRulesCache({
+    Duration timeout = _networkTimeout,
+  }) async {
+    await _gate.require('expenses.recurring');
+    final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
+    await _fetchRemoteRecurringRules(
+      tenantId: tenantId,
+      branchId: branchId,
+    ).timeout(timeout);
   }
 
   Future<List<RecurringExpenseRuleModel>> _fetchRemoteRecurringRules({

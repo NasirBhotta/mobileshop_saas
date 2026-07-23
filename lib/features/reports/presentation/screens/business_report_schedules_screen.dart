@@ -36,56 +36,69 @@ class BusinessReportSchedulesScreen extends ConsumerWidget {
         label: const Text('New Schedule'),
       ),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 980;
-
-            final schedulesPanel = schedulesAsync.when(
-              loading: () => const _LoadingCard(title: 'Schedules'),
-              error: (error, _) => _ErrorCard(title: 'Schedules', error: error),
-              data:
-                  (schedules) => _SchedulesPanel(
-                    schedules: schedules,
-                    isLoading: controllerState.isLoading,
-                  ),
-            );
-
-            final jobsPanel = jobsAsync.when(
-              loading: () => const _LoadingCard(title: 'Delivery Jobs'),
-              error:
-                  (error, _) =>
-                      _ErrorCard(title: 'Delivery Jobs', error: error),
-              data: (jobs) => _DeliveryJobsPanel(jobs: jobs),
-            );
-
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1180),
-                    child:
-                        isWide
-                            ? Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(flex: 3, child: schedulesPanel),
-                                const SizedBox(width: 12),
-                                Expanded(flex: 2, child: jobsPanel),
-                              ],
-                            )
-                            : Column(
-                              children: [
-                                schedulesPanel,
-                                const SizedBox(height: 12),
-                                jobsPanel,
-                              ],
-                            ),
-                  ),
-                ),
-              ],
-            );
+        child: RefreshIndicator(
+          onRefresh: () async {
+            await ref
+                .read(businessReportSyncControllerProvider.notifier)
+                .sync();
+            await Future.wait([
+              ref.read(businessReportSchedulesProvider.future),
+              ref.read(businessReportDeliveryJobsProvider.future),
+            ]);
           },
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 980;
+
+              final schedulesPanel = schedulesAsync.when(
+                loading: () => const _LoadingCard(title: 'Schedules'),
+                error:
+                    (error, _) => _ErrorCard(title: 'Schedules', error: error),
+                data:
+                    (schedules) => _SchedulesPanel(
+                      schedules: schedules,
+                      isLoading: controllerState.isLoading,
+                    ),
+              );
+
+              final jobsPanel = jobsAsync.when(
+                loading: () => const _LoadingCard(title: 'Delivery Jobs'),
+                error:
+                    (error, _) =>
+                        _ErrorCard(title: 'Delivery Jobs', error: error),
+                data: (jobs) => _DeliveryJobsPanel(jobs: jobs),
+              );
+
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1180),
+                      child:
+                          isWide
+                              ? Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(flex: 3, child: schedulesPanel),
+                                  const SizedBox(width: 12),
+                                  Expanded(flex: 2, child: jobsPanel),
+                                ],
+                              )
+                              : Column(
+                                children: [
+                                  schedulesPanel,
+                                  const SizedBox(height: 12),
+                                  jobsPanel,
+                                ],
+                              ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

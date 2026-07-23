@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
-import 'package:mobileshop_saas/core/utils/network.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -25,6 +24,7 @@ enum TenantAccessState {
 
 const _offlineAccessDuration = Duration(hours: 48);
 const _allowedClockRollback = Duration(minutes: 5);
+const _tenantAccessNetworkTimeout = Duration(seconds: 10);
 
 final tenantPlanRevisionProvider = NotifierProvider<TenantPlanRevision, int>(
   TenantPlanRevision.new,
@@ -172,7 +172,7 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
         .select('tenant_id')
         .eq('id', user.id)
         .maybeSingle()
-        .timeout(Network.networkTimeout);
+        .timeout(_tenantAccessNetworkTimeout);
   } catch (error) {
     debugPrint('Tenant access profile lookup failed: $error');
     OfflineErrorClassifier.rethrowIfTerminal(error);
@@ -196,7 +196,7 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
         .select('id, status, plan, setup_complete')
         .eq('id', tenantId)
         .maybeSingle()
-        .timeout(Network.networkTimeout);
+        .timeout(_tenantAccessNetworkTimeout);
     subscription = await client
         .from('tenant_subscriptions')
         .select(
@@ -206,7 +206,7 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
         .eq('is_active', true)
         .isFilter('deleted_at', null)
         .maybeSingle()
-        .timeout(Network.networkTimeout);
+        .timeout(_tenantAccessNetworkTimeout);
   } catch (error) {
     debugPrint('Tenant access lookup failed: $error');
     OfflineErrorClassifier.rethrowIfTerminal(error);
@@ -457,7 +457,7 @@ Future<void> _saveOnlineCache(
 Future<DateTime> _loadServerUtcNow(SupabaseClient client) async {
   final result = await client
       .rpc('get_server_utc_now')
-      .timeout(Network.networkTimeout);
+      .timeout(_tenantAccessNetworkTimeout);
 
   final parsed = DateTime.tryParse(result.toString());
 

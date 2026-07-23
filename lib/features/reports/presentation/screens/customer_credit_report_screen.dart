@@ -56,7 +56,10 @@ class CustomerCreditReportScreen extends ConsumerWidget {
                 data: (report) {
                   return RefreshIndicator(
                     onRefresh: () async {
-                      ref.invalidate(customerCreditReportProvider);
+                      await ref
+                          .read(businessReportSyncControllerProvider.notifier)
+                          .sync();
+                      await ref.read(customerCreditReportProvider.future);
                     },
                     child: LayoutBuilder(
                       builder: (context, constraints) {

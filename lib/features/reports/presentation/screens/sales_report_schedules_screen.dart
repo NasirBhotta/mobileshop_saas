@@ -41,8 +41,11 @@ class SalesReportSchedulesScreen extends ConsumerWidget {
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
-            ref.invalidate(salesReportSchedulesProvider);
-            ref.invalidate(salesReportDeliveryJobsProvider);
+            await ref.read(salesReportSyncControllerProvider.notifier).sync();
+            await Future.wait([
+              ref.read(salesReportSchedulesProvider.future),
+              ref.read(salesReportDeliveryJobsProvider.future),
+            ]);
           },
           child: LayoutBuilder(
             builder: (context, constraints) {

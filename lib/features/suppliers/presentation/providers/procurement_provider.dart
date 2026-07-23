@@ -232,10 +232,40 @@ class ProcurementSyncController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
-      await _ref.read(procurementRepositoryProvider).syncOfflineMutations();
+      final repository = _ref.read(procurementRepositoryProvider);
+      await repository.syncOfflineMutations();
+
+      Future<void> safelyRefresh(Future<Object?> refresh) async {
+        try {
+          await refresh;
+        } catch (_) {
+          // Keep the existing local cache when a source is unavailable.
+        }
+      }
+
+      await Future.wait([
+        safelyRefresh(
+          repository.refreshCurrentSuppliersCache(
+            timeout: const Duration(seconds: 10),
+          ),
+        ),
+        safelyRefresh(
+          repository.refreshCurrentPurchaseOrdersCache(
+            status: _ref.read(selectedPOStatusProvider),
+            timeout: const Duration(seconds: 10),
+          ),
+        ),
+      ]);
+
+      _ref
+        ..invalidate(suppliersProvider)
+        ..invalidate(purchaseOrdersProvider);
+      await Future.wait([
+        safelyRefresh(_ref.read(suppliersProvider.future)),
+        safelyRefresh(_ref.read(purchaseOrdersProvider.future)),
+      ]);
+
       state = const AsyncData(null);
-      _ref.invalidate(suppliersProvider);
-      _ref.invalidate(purchaseOrdersProvider);
     } catch (e, st) {
       state = AsyncError(e, st);
     }

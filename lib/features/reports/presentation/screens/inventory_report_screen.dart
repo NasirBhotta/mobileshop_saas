@@ -56,7 +56,10 @@ class InventoryReportScreen extends ConsumerWidget {
                 data: (report) {
                   return RefreshIndicator(
                     onRefresh: () async {
-                      ref.invalidate(inventoryAnalyticsReportProvider);
+                      await ref
+                          .read(businessReportSyncControllerProvider.notifier)
+                          .sync();
+                      await ref.read(inventoryAnalyticsReportProvider.future);
                     },
                     child: LayoutBuilder(
                       builder: (context, constraints) {

@@ -105,7 +105,10 @@ class BusinessDashboardReportScreen extends ConsumerWidget {
                 data: (report) {
                   return RefreshIndicator(
                     onRefresh: () async {
-                      invalidateBusinessReports(ref);
+                      await ref
+                          .read(businessReportSyncControllerProvider.notifier)
+                          .sync();
+                      await ref.read(businessDashboardReportProvider.future);
                     },
                     child: LayoutBuilder(
                       builder: (context, constraints) {

@@ -27,7 +27,10 @@ class ExpenseReportScreen extends ConsumerWidget {
                 data: (report) {
                   return RefreshIndicator(
                     onRefresh: () async {
-                      ref.invalidate(expenseReportProvider);
+                      await ref
+                          .read(expenseSyncControllerProvider.notifier)
+                          .sync();
+                      await ref.read(expenseReportProvider.future);
                     },
                     child: LayoutBuilder(
                       builder: (context, constraints) {

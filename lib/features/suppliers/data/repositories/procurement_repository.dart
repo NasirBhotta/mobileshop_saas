@@ -170,6 +170,13 @@ class ProcurementRepository {
     } catch (_) {}
   }
 
+  Future<void> refreshCurrentSuppliersCache({
+    Duration timeout = _networkTimeout,
+  }) async {
+    final tenantId = await _tenantId();
+    await _fetchRemoteSuppliers(tenantId).timeout(timeout);
+  }
+
   Future<List<SupplierModel>> _fetchRemoteSuppliers(String tenantId) async {
     final data = await _client
         .from('suppliers')
@@ -345,6 +352,19 @@ class ProcurementRepository {
     try {
       await _fetchRemotePurchaseOrders(tenantId, branchId, status: status);
     } catch (_) {}
+  }
+
+  Future<void> refreshCurrentPurchaseOrdersCache({
+    PurchaseOrderStatus? status,
+    Duration timeout = _networkTimeout,
+  }) async {
+    final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
+    await _fetchRemotePurchaseOrders(
+      tenantId,
+      branchId,
+      status: status,
+    ).timeout(timeout);
   }
 
   Future<List<PurchaseOrderModel>> _fetchRemotePurchaseOrders(

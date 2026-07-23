@@ -88,14 +88,33 @@ class ExpensesScreen extends ConsumerWidget {
               error: (error, _) => _ExpenseErrorView(error: error),
               data: (expenses) {
                 if (expenses.isEmpty) {
-                  return const _EmptyExpensesView();
+                  return RefreshIndicator(
+                    onRefresh:
+                        () =>
+                            ref
+                                .read(expenseSyncControllerProvider.notifier)
+                                .sync(),
+                    child: LayoutBuilder(
+                      builder:
+                          (context, constraints) => ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              SizedBox(
+                                height: constraints.maxHeight,
+                                child: const _EmptyExpensesView(),
+                              ),
+                            ],
+                          ),
+                    ),
+                  );
                 }
 
                 return RefreshIndicator(
-                  onRefresh: () async {
-                    ref.invalidate(expensesProvider);
-                    ref.invalidate(expenseReportProvider);
-                  },
+                  onRefresh:
+                      () =>
+                          ref
+                              .read(expenseSyncControllerProvider.notifier)
+                              .sync(),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final isWide = constraints.maxWidth >= 850;

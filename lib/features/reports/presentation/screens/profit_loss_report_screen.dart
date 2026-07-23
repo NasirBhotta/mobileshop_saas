@@ -56,7 +56,10 @@ class ProfitLossReportScreen extends ConsumerWidget {
                 data: (report) {
                   return RefreshIndicator(
                     onRefresh: () async {
-                      ref.invalidate(profitLossReportProvider);
+                      await ref
+                          .read(businessReportSyncControllerProvider.notifier)
+                          .sync();
+                      await ref.read(profitLossReportProvider.future);
                     },
                     child: LayoutBuilder(
                       builder: (context, constraints) {

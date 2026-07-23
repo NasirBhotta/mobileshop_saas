@@ -132,18 +132,40 @@ class _SuppliersBody extends ConsumerWidget {
                     ),
                 data: (suppliers) {
                   if (suppliers.isEmpty) {
-                    return _EmptySuppliersView(
-                      onCreate: () => context.go('/suppliers/new'),
+                    return RefreshIndicator(
+                      onRefresh:
+                          () =>
+                              ref
+                                  .read(
+                                    procurementSyncControllerProvider.notifier,
+                                  )
+                                  .sync(),
+                      child: LayoutBuilder(
+                        builder:
+                            (context, constraints) => ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              children: [
+                                SizedBox(
+                                  height: constraints.maxHeight,
+                                  child: _EmptySuppliersView(
+                                    onCreate:
+                                        () => context.go('/suppliers/new'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                      ),
                     );
                   }
 
                   return RefreshIndicator(
-                    onRefresh: () async {
-                      await ref
-                          .read(procurementSyncControllerProvider.notifier)
-                          .sync();
-                      ref.invalidate(suppliersProvider);
-                    },
+                    onRefresh:
+                        () =>
+                            ref
+                                .read(
+                                  procurementSyncControllerProvider.notifier,
+                                )
+                                .sync(),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final isWide = constraints.maxWidth >= 800;

@@ -456,20 +456,61 @@ class ExpenseSyncController extends StateNotifier<AsyncValue<void>> {
       final repository = _ref.read(expenseRepositoryProvider);
 
       await repository.syncOfflineMutations();
-      if (await hasFeatureWithCompatibility(
+      final recurringEnabled = await hasFeatureWithCompatibility(
         _ref.read(entitlementEvaluatorProvider),
         'expenses.recurring',
-      )) {
+      );
+      if (recurringEnabled) {
         await repository.generateDueRecurringDrafts();
       }
 
-      state = const AsyncData(null);
+      Future<void> safelyRefresh(Future<Object?> refresh) async {
+        try {
+          await refresh;
+        } catch (_) {
+          // Preserve the current local cache if one remote source is down.
+        }
+      }
 
-      _ref.invalidate(expenseCategoriesProvider);
-      _ref.invalidate(expensesProvider);
-      _ref.invalidate(expenseReportProvider);
-      _ref.invalidate(recurringExpenseRulesProvider);
-      _ref.invalidate(activeRecurringExpenseRulesProvider);
+      final range = _ref.read(expenseDateRangeProvider);
+      await Future.wait([
+        safelyRefresh(
+          repository.refreshCurrentCategoriesCache(
+            timeout: const Duration(seconds: 10),
+          ),
+        ),
+        safelyRefresh(
+          repository.refreshExpensesCache(
+            dateFrom: range.from,
+            dateTo: range.to,
+            categoryId: _ref.read(selectedExpenseCategoryProvider),
+            status: _ref.read(selectedExpenseStatusProvider),
+            source: _ref.read(selectedExpenseSourceProvider),
+            timeout: const Duration(seconds: 10),
+          ),
+        ),
+        if (recurringEnabled)
+          safelyRefresh(
+            repository.refreshCurrentRecurringRulesCache(
+              timeout: const Duration(seconds: 10),
+            ),
+          ),
+      ]);
+
+      _ref
+        ..invalidate(expenseCategoriesProvider)
+        ..invalidate(expensesProvider)
+        ..invalidate(expenseReportProvider)
+        ..invalidate(recurringExpenseRulesProvider)
+        ..invalidate(activeRecurringExpenseRulesProvider);
+      await Future.wait([
+        safelyRefresh(_ref.read(expenseCategoriesProvider.future)),
+        safelyRefresh(_ref.read(expensesProvider.future)),
+        if (recurringEnabled)
+          safelyRefresh(_ref.read(recurringExpenseRulesProvider.future)),
+      ]);
+
+      state = const AsyncData(null);
     } catch (e, st) {
       state = AsyncError(e, st);
     }

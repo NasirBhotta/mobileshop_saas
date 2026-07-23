@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/local/local_database.dart';
+import '../../../../core/tenant_access/tenant_access_provider.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 import '../../../pos/data/models/customer_dashboard_model.dart';
@@ -22,6 +23,9 @@ import '../../../reports/data/local/business_report_local_store.dart';
 final dashboardRealtimeRefreshProvider = FutureProvider.autoDispose<void>((
   ref,
 ) async {
+  final tenantAccess = await ref.watch(tenantAccessProvider.future);
+  if (tenantAccess != TenantAccessState.active) return;
+
   final branchId = await ref.watch(selectedBranchIdProvider.future);
   final client = Supabase.instance.client;
   final channel = client.channel('dashboard-data-$branchId');
@@ -64,11 +68,25 @@ final dashboardRealtimeRefreshProvider = FutureProvider.autoDispose<void>((
     });
   }
 
-  channel.onPostgresChanges(
-    event: PostgresChangeEvent.all,
-    schema: 'public',
-    callback: refreshDashboard,
-  );
+  for (final table in const [
+    'products',
+    'inventory',
+    'sales',
+    'customers',
+    'customer_settlements',
+  ]) {
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.all,
+      schema: 'public',
+      table: table,
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'branch_id',
+        value: branchId,
+      ),
+      callback: refreshDashboard,
+    );
+  }
 
   channel.subscribe((status, error) {
     if (error != null) {

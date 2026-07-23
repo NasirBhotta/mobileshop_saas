@@ -91,7 +91,10 @@ class SalesReportScreen extends ConsumerWidget {
                 data: (report) {
                   return RefreshIndicator(
                     onRefresh: () async {
-                      ref.invalidate(salesAnalyticsReportProvider);
+                      await ref
+                          .read(salesReportSyncControllerProvider.notifier)
+                          .sync();
+                      await ref.read(salesAnalyticsReportProvider.future);
                     },
                     child: LayoutBuilder(
                       builder: (context, constraints) {

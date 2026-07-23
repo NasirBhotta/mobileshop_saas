@@ -13,6 +13,7 @@ class PurchaseOrdersScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ordersAsync = ref.watch(purchaseOrdersProvider);
     final selectedStatus = ref.watch(selectedPOStatusProvider);
+    final syncState = ref.watch(procurementSyncControllerProvider);
     final canCreate =
         ref
             .watch(
@@ -34,9 +35,20 @@ class PurchaseOrdersScreen extends ConsumerWidget {
         actions: [
           IconButton(
             onPressed:
-                () =>
-                    ref.read(procurementSyncControllerProvider.notifier).sync(),
-            icon: const Icon(Icons.sync),
+                syncState.isLoading
+                    ? null
+                    : () =>
+                        ref
+                            .read(procurementSyncControllerProvider.notifier)
+                            .sync(),
+            icon:
+                syncState.isLoading
+                    ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.sync),
           ),
         ],
       ),
@@ -69,41 +81,72 @@ class PurchaseOrdersScreen extends ConsumerWidget {
               error: (e, _) => Center(child: Text(e.toString())),
               data: (orders) {
                 if (orders.isEmpty) {
-                  return Center(
-                    child: FilledButton.icon(
-                      onPressed: () => context.go('/purchase-orders/new'),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Create Purchase Order'),
+                  return RefreshIndicator(
+                    onRefresh:
+                        () =>
+                            ref
+                                .read(
+                                  procurementSyncControllerProvider.notifier,
+                                )
+                                .sync(),
+                    child: LayoutBuilder(
+                      builder:
+                          (context, constraints) => ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              SizedBox(
+                                height: constraints.maxHeight,
+                                child: Center(
+                                  child: FilledButton.icon(
+                                    onPressed:
+                                        () =>
+                                            context.go('/purchase-orders/new'),
+                                    icon: const Icon(Icons.add),
+                                    label: const Text('Create Purchase Order'),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                     ),
                   );
                 }
 
-                return LayoutBuilder(
-                  builder: (_, constraints) {
-                    final isWide = constraints.maxWidth >= 850;
+                return RefreshIndicator(
+                  onRefresh:
+                      () =>
+                          ref
+                              .read(procurementSyncControllerProvider.notifier)
+                              .sync(),
+                  child: LayoutBuilder(
+                    builder: (_, constraints) {
+                      final isWide = constraints.maxWidth >= 850;
 
-                    if (isWide) {
-                      return GridView.builder(
-                        padding: const EdgeInsets.all(16),
-                        gridDelegate:
-                            const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 430,
-                              mainAxisSpacing: 12,
-                              crossAxisSpacing: 12,
-                              childAspectRatio: 1.45,
-                            ),
+                      if (isWide) {
+                        return GridView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 430,
+                                mainAxisSpacing: 12,
+                                crossAxisSpacing: 12,
+                                childAspectRatio: 1.45,
+                              ),
+                          itemCount: orders.length,
+                          itemBuilder: (_, i) => _POCard(po: orders[i]),
+                        );
+                      }
+
+                      return ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(12),
                         itemCount: orders.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
                         itemBuilder: (_, i) => _POCard(po: orders[i]),
                       );
-                    }
-
-                    return ListView.separated(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: orders.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10),
-                      itemBuilder: (_, i) => _POCard(po: orders[i]),
-                    );
-                  },
+                    },
+                  ),
                 );
               },
             ),

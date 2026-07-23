@@ -373,6 +373,15 @@ class AccountsRepository {
     } catch (_) {}
   }
 
+  Future<void> refreshCurrentAccountsCache({
+    Duration timeout = _networkTimeout,
+  }) async {
+    await _entitlements.require('accounts.core');
+    final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
+    await _fetchRemoteAccounts(tenantId, branchId).timeout(timeout);
+  }
+
   Future<List<AccountModel>> _fetchRemoteAccounts(
     String tenantId,
     String branchId,
@@ -406,6 +415,20 @@ class AccountsRepository {
         limit: limit,
       ).timeout(_networkTimeout);
     } catch (_) {}
+  }
+
+  Future<void> refreshCurrentTransactionsCache({
+    int limit = 80,
+    Duration timeout = _networkTimeout,
+  }) async {
+    await _entitlements.require('accounts.core');
+    final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
+    await _fetchRemoteTransactions(
+      tenantId,
+      branchId,
+      limit: limit,
+    ).timeout(timeout);
   }
 
   Future<List<AccountTransactionModel>> _fetchRemoteTransactions(

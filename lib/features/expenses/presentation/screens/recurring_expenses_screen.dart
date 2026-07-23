@@ -61,14 +61,27 @@ class RecurringExpensesScreen extends ConsumerWidget {
         error: (error, _) => _RecurringErrorView(error: error),
         data: (rules) {
           if (rules.isEmpty) {
-            return const _EmptyRecurringView();
+            return RefreshIndicator(
+              onRefresh:
+                  () => ref.read(expenseSyncControllerProvider.notifier).sync(),
+              child: LayoutBuilder(
+                builder:
+                    (context, constraints) => ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: constraints.maxHeight,
+                          child: const _EmptyRecurringView(),
+                        ),
+                      ],
+                    ),
+              ),
+            );
           }
 
           return RefreshIndicator(
-            onRefresh: () async {
-              ref.invalidate(recurringExpenseRulesProvider);
-              ref.invalidate(activeRecurringExpenseRulesProvider);
-            },
+            onRefresh:
+                () => ref.read(expenseSyncControllerProvider.notifier).sync(),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final isWide = constraints.maxWidth >= 850;

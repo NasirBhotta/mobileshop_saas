@@ -142,10 +142,39 @@ class AccountsSyncController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
-      await _ref.read(accountsRepositoryProvider).syncOfflineMutations();
+      final repository = _ref.read(accountsRepositoryProvider);
+      await repository.syncOfflineMutations();
+
+      Future<void> safelyRefresh(Future<Object?> refresh) async {
+        try {
+          await refresh;
+        } catch (_) {
+          // Preserve the current local account data when remote is unavailable.
+        }
+      }
+
+      await Future.wait([
+        safelyRefresh(
+          repository.refreshCurrentAccountsCache(
+            timeout: const Duration(seconds: 10),
+          ),
+        ),
+        safelyRefresh(
+          repository.refreshCurrentTransactionsCache(
+            timeout: const Duration(seconds: 10),
+          ),
+        ),
+      ]);
+
+      _ref
+        ..invalidate(accountsProvider)
+        ..invalidate(accountTransactionsProvider);
+      await Future.wait([
+        safelyRefresh(_ref.read(accountsProvider.future)),
+        safelyRefresh(_ref.read(accountTransactionsProvider.future)),
+      ]);
+
       state = const AsyncData(null);
-      _ref.invalidate(accountsProvider);
-      _ref.invalidate(accountTransactionsProvider);
     } catch (e, st) {
       state = AsyncError(e, st);
     }
