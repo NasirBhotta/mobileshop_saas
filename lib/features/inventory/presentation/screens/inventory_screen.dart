@@ -89,6 +89,39 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     );
   }
 
+  Future<void> _refreshInventory() async {
+    final repository = ref.read(inventoryRepositoryProvider);
+
+    try {
+      await repository.syncOfflineMutations();
+    } catch (_) {
+      // Continue with remote reads; queued mutations remain available locally.
+    }
+
+    await Future.wait([
+      repository.refreshCurrentProductsCache(
+        timeout: const Duration(seconds: 10),
+      ),
+      repository.refreshCurrentCategoriesCache(
+        timeout: const Duration(seconds: 10),
+      ),
+    ]);
+
+    if (!mounted) return;
+    _resetPaging();
+    final request = _currentRequest(limit: _pageSize);
+
+    ref
+      ..invalidate(allProductsProvider)
+      ..invalidate(categoriesProvider)
+      ..invalidate(inventoryProductsProvider);
+
+    await Future.wait([
+      ref.read(categoriesProvider.future),
+      ref.read(inventoryProductsProvider(request).future),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final categoriesState = ref.watch(categoriesProvider);
@@ -283,10 +316,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                   }
 
                   return RefreshIndicator(
-                    onRefresh: () async {
-                      _resetPaging();
-                      ref.invalidate(inventoryProductsProvider);
-                    },
+                    onRefresh: _refreshInventory,
                     child:
                         isDesktop
                             ? GridView.builder(

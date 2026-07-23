@@ -64,11 +64,6 @@ final dashboardRealtimeRefreshProvider = FutureProvider.autoDispose<void>((
     });
   }
 
-  // Listen to the tables that are actually exposed by the server's Realtime
-  // publication. Registering bindings for optional/non-published tables (for
-  // example sale_returns or repair_tickets) rejects the entire channel.
-  // The refresh queries below remain branch-scoped, so an unrelated public
-  // schema event can only trigger a refresh and cannot expose another branch.
   channel.onPostgresChanges(
     event: PostgresChangeEvent.all,
     schema: 'public',

@@ -113,6 +113,30 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
     });
   }
 
+  Future<void> _refreshProducts() async {
+    final repository = ref.read(inventoryRepositoryProvider);
+
+    try {
+      await repository.syncOfflineMutations();
+    } catch (_) {
+      // Pending mutations stay queued; continue with the remote cache refresh.
+    }
+
+    await repository.refreshCurrentProductsCache(
+      timeout: const Duration(seconds: 10),
+    );
+
+    if (!mounted) return;
+    final request = ProductSearchRequest(query: _debouncedQuery, limit: 50);
+    ref
+      ..invalidate(allProductsProvider)
+      ..invalidate(productsProvider)
+      ..invalidate(inventoryProductsProvider)
+      ..invalidate(productSearchProvider);
+
+    await ref.read(productSearchProvider(request).future);
+  }
+
   @override
   Widget build(BuildContext context) {
     final productsAsync = ref.watch(
@@ -216,36 +240,47 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
               }
 
               if (products.isEmpty) {
-                return const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.search_off_rounded,
-                        size: 48,
-                        color: AppColors.textHint,
-                      ),
-                      SizedBox(height: 12),
-                      Text(
-                        AppStrings.noProductsFound,
-                        style: TextStyle(color: AppColors.textSecondary),
+                return RefreshIndicator(
+                  onRefresh: _refreshProducts,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      SizedBox(height: 120),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.search_off_rounded,
+                            size: 48,
+                            color: AppColors.textHint,
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            AppStrings.noProductsFound,
+                            style: TextStyle(color: AppColors.textSecondary),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 );
               }
 
-              return ListView.separated(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
+              return RefreshIndicator(
+                onRefresh: _refreshProducts,
+                child: ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  itemCount: products.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 6),
+                  itemBuilder: (context, index) {
+                    final product = products[index];
+                    return _ProductTile(product: product);
+                  },
                 ),
-                itemCount: products.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 6),
-                itemBuilder: (context, index) {
-                  final product = products[index];
-                  return _ProductTile(product: product);
-                },
               );
             },
           ),

@@ -683,14 +683,16 @@ class InventoryRepository {
   /// Refreshes the current branch cache before consumers are invalidated.
   /// This is used after a server-side stock mutation; invalidating first would
   /// let the cached-first product query publish the old inventory again.
-  Future<void> refreshCurrentProductsCache() async {
+  Future<void> refreshCurrentProductsCache({
+    Duration timeout = _networkTimeout,
+  }) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     try {
       await _fetchRemoteProducts(
         tenantId: tenantId,
         branchId: branchId,
-      ).timeout(_networkTimeout);
+      ).timeout(timeout);
     } catch (_) {
       // Receiving already committed successfully. A cache refresh failure must
       // not report the goods receipt itself as failed.
@@ -1685,6 +1687,21 @@ class InventoryRepository {
         branchId: branchId,
       ).timeout(_networkTimeout);
     } catch (_) {}
+  }
+
+  Future<void> refreshCurrentCategoriesCache({
+    Duration timeout = _networkTimeout,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    try {
+      await _fetchRemoteCategories(
+        tenantId: tenantId,
+        branchId: branchId,
+      ).timeout(timeout);
+    } catch (_) {
+      // Keep the existing local categories when the server is unavailable.
+    }
   }
 
   Future<CategoryModel> addCategory(String name) async {
