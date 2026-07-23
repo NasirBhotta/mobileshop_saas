@@ -8,6 +8,7 @@ import '../../../../core/utils/responsive.dart';
 import '../../../../features/dashboard/presentation/providers/dashboard_provider.dart';
 import '../../../../features/inventory/presentation/providers/inventory_provider.dart';
 import '../../../../features/pos/presentation/providers/pos_provider.dart';
+import '../../../../features/repairs/presentation/providers/repair_provider.dart';
 import '../../../../shared/providers/navigation_loading_provider.dart';
 import '../../data/models/shop_setup_model.dart';
 import '../../data/repositories/setup_flow_repository.dart';
@@ -147,6 +148,8 @@ class _BranchSelectionScreenState extends ConsumerState<BranchSelectionScreen> {
       ref.invalidate(approvedReturnsProvider);
       ref.invalidate(returnDraftProvider);
       ref.invalidate(returnControllerProvider);
+      ref.invalidate(repairTicketsProvider);
+      ref.invalidate(allRepairTicketsProvider);
 
       if (context.mounted) {
         ref.read(navigationLoadingProvider.notifier).showFor();

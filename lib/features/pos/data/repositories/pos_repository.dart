@@ -355,6 +355,7 @@ class PosRepository {
     List<DiscountApprovalModel> discountApprovals = const [],
     String? customerId,
     String? customerName,
+    CustomerModel? attachedCustomer,
     String? notes,
   }) async {
     await _requireFeature('pos.checkout');
@@ -367,6 +368,25 @@ class PosRepository {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final user = _currentUser;
+    var effectiveCustomerId = customerId;
+    var effectiveCustomerName = customerName;
+    if (customerId != null) {
+      var resolvedCustomer = await _loadCustomerById(customerId);
+      final phone = attachedCustomer?.phone;
+      if (resolvedCustomer == null &&
+          phone != null &&
+          phone.trim().isNotEmpty) {
+        resolvedCustomer = await _findCustomerByPhone(
+          tenantId: tenantId,
+          branchId: branchId,
+          phone: phone.trim(),
+        );
+      }
+      if (resolvedCustomer != null) {
+        effectiveCustomerId = resolvedCustomer.id;
+        effectiveCustomerName = resolvedCustomer.fullName;
+      }
+    }
     final costedItems = await _withUnitCostsAtSale(
       branchId: branchId,
       items: items,
@@ -449,7 +469,7 @@ class PosRepository {
         .fold<double>(0, (sum, payment) => sum + payment.amount);
     if (creditAmount > 0) {
       await _validateCreditCheckout(
-        customerId: customerId,
+        customerId: effectiveCustomerId,
         creditAmount: creditAmount,
       );
     }
@@ -458,8 +478,8 @@ class PosRepository {
     final sale = SaleModel(
       id: saleId,
       branchId: branchId,
-      customerId: customerId,
-      customerName: customerName,
+      customerId: effectiveCustomerId,
+      customerName: effectiveCustomerName,
       userId: user.id,
       status: SaleStatus.completed,
       subtotal: subtotal,
@@ -480,9 +500,9 @@ class PosRepository {
       // Save locally as already synced (SQLite synced = 1)
       await OfflineStore.saveSale(sale);
       await LocalStore.markSaleSynced(saleId);
-      if (creditAmount > 0 && customerId != null) {
+      if (creditAmount > 0 && effectiveCustomerId != null) {
         await _adjustCustomerOutstanding(
-          customerId: customerId,
+          customerId: effectiveCustomerId,
           delta: creditAmount,
           synced: false,
         );
@@ -506,9 +526,9 @@ class PosRepository {
       if (remoteSaleAndStockCommitted) {
         await LocalStore.markSaleSynced(saleId);
       }
-      if (creditAmount > 0 && customerId != null) {
+      if (creditAmount > 0 && effectiveCustomerId != null) {
         await _adjustCustomerOutstanding(
-          customerId: customerId,
+          customerId: effectiveCustomerId,
           delta: creditAmount,
           synced: false,
         );

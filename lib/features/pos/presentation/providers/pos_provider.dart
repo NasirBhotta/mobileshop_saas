@@ -357,6 +357,7 @@ class CheckoutController extends StateNotifier<AsyncValue<SaleModel?>> {
         payments: cart.payments,
         customerId: cart.customer?.id,
         customerName: cart.customer?.fullName,
+        attachedCustomer: cart.customer,
         discountApprovals: cart.discountApprovals,
       );
       final customerId = cart.customer?.id;
