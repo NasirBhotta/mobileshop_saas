@@ -48,6 +48,8 @@ class _CustomerAttachSheetState extends ConsumerState<CustomerAttachSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final isAdding = ref.watch(customerControllerProvider).isLoading;
+
     return Padding(
       padding: EdgeInsets.fromLTRB(
         20,
@@ -161,15 +163,25 @@ class _CustomerAttachSheetState extends ConsumerState<CustomerAttachSheet> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => setState(() => _showAddForm = false),
+                    onPressed:
+                        isAdding
+                            ? null
+                            : () => setState(() => _showAddForm = false),
                     child: const Text('Back'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton(
-                    onPressed: () => _addCustomer(context),
-                    child: const Text('Add & Attach'),
+                    onPressed: isAdding ? null : () => _addCustomer(context),
+                    child:
+                        isAdding
+                            ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Text('Add & Attach'),
                   ),
                 ),
               ],
@@ -199,10 +211,20 @@ class _CustomerAttachSheetState extends ConsumerState<CustomerAttachSheet> {
           email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
         );
 
-    if (customer != null && context.mounted) {
-      ref.read(cartProvider.notifier).attachCustomer(customer);
-      Navigator.pop(context);
+    if (!context.mounted) return;
+    if (customer == null) {
+      final error = ref.read(customerControllerProvider).error;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error?.toString() ?? 'Customer add nahi hua'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
     }
+
+    ref.read(cartProvider.notifier).attachCustomer(customer);
+    Navigator.pop(context);
   }
 }
 

@@ -88,13 +88,15 @@ class LocalDatabase {
     return NativeDatabase.createInBackground(file);
   });
   static final GeneratedDatabase _db = _RawLocalDatabase(_executor);
-  static bool _initialized = false;
+  static Future<void>? _initialization;
 
-  static Future<void> initialize() async {
-    if (_initialized) return;
+  static Future<void> initialize() {
+    return _initialization ??= _initialize();
+  }
+
+  static Future<void> _initialize() async {
     await _db.customStatement('PRAGMA foreign_keys = ON');
     await _createTables();
-    _initialized = true;
   }
 
   static Future<List<Map<String, dynamic>>> select(
@@ -166,7 +168,7 @@ class LocalDatabase {
     _requireManagedTable(table);
     await _db.customStatement('DROP TABLE IF EXISTS $table');
     if (recreate) {
-      _initialized = false;
+      _initialization = null;
       await initialize();
     }
   }

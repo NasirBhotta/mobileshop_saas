@@ -276,18 +276,19 @@ class _BusinessReportFilters extends ConsumerWidget {
               onTap: () => _pickDateRange(context, ref),
             );
 
-            final branchToggle = SwitchListTile(
-              value: allBranches,
-              title: const Text('All Branches'),
-              subtitle: const Text('Consolidated owner view'),
-              contentPadding: EdgeInsets.zero,
-              onChanged: (value) {
-                ref.read(businessReportAllBranchesProvider.notifier).state =
-                    value;
-
-                invalidateBusinessReports(ref);
-              },
-            );
+            // Temporarily hidden until consolidated report validation is done.
+            // final branchToggle = SwitchListTile(
+            //   value: allBranches,
+            //   title: const Text('All Branches'),
+            //   subtitle: const Text('Consolidated owner view'),
+            //   contentPadding: EdgeInsets.zero,
+            //   onChanged: (value) {
+            //     ref.read(businessReportAllBranchesProvider.notifier).state =
+            //         value;
+            //     invalidateBusinessReports(ref);
+            //   },
+            // );
+            const branchToggle = SizedBox.shrink();
 
             if (isWide) {
               return Row(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,9 +21,17 @@ void main() async {
 
   await _initializeApp();
 
-  FlutterNativeSplash.remove();
-
   runApp(const ProviderScope(child: MobileShopApp()));
+
+  widgetsBinding.addPostFrameCallback((_) {
+    FlutterNativeSplash.remove();
+    unawaited(
+      LocalDatabase.initialize().catchError((Object error, StackTrace stack) {
+        debugPrint('Local database initialization failed: $error');
+        debugPrintStack(stackTrace: stack);
+      }),
+    );
+  });
 }
 
 Future<void> _initializeApp() async {
@@ -32,8 +42,6 @@ Future<void> _initializeApp() async {
     ),
     SharedPreferences.getInstance(),
   ]);
-
-  await LocalDatabase.initialize();
 }
 
 class MobileShopApp extends ConsumerWidget {

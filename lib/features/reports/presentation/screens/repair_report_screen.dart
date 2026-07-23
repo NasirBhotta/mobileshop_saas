@@ -199,17 +199,19 @@ class _ReportFilters extends ConsumerWidget {
               onTap: () => _pickDateRange(context, ref),
             );
 
-            final branchToggle = SwitchListTile(
-              value: allBranches,
-              title: const Text('All Branches'),
-              subtitle: const Text('Consolidated repair analytics'),
-              contentPadding: EdgeInsets.zero,
-              onChanged: (value) {
-                ref.read(businessReportAllBranchesProvider.notifier).state =
-                    value;
-                ref.invalidate(repairAnalyticsReportProvider);
-              },
-            );
+            // Temporarily hidden until consolidated report validation is done.
+            // final branchToggle = SwitchListTile(
+            //   value: allBranches,
+            //   title: const Text('All Branches'),
+            //   subtitle: const Text('Consolidated repair analytics'),
+            //   contentPadding: EdgeInsets.zero,
+            //   onChanged: (value) {
+            //     ref.read(businessReportAllBranchesProvider.notifier).state =
+            //         value;
+            //     ref.invalidate(repairAnalyticsReportProvider);
+            //   },
+            // );
+            const branchToggle = SizedBox.shrink();
 
             if (isWide) {
               return Row(

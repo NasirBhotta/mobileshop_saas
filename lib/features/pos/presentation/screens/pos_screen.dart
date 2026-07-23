@@ -120,13 +120,13 @@ class _PosBody extends ConsumerWidget {
   }
 
   // Hold dialog
-  void _showHoldDialog(BuildContext context, WidgetRef ref) {
+  Future<void> _showHoldDialog(BuildContext context, WidgetRef ref) async {
     final labelCtrl = TextEditingController();
 
-    showDialog(
+    await showDialog<void>(
       context: context,
       builder:
-          (_) => AlertDialog(
+          (dialogContext) => AlertDialog(
             title: const Text(AppStrings.holdCart),
             content: TextField(
               controller: labelCtrl,
@@ -137,20 +137,16 @@ class _PosBody extends ConsumerWidget {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('Cancel'),
               ),
               FilledButton(
                 onPressed: () async {
-                  Navigator.pop(context);
+                  final label = labelCtrl.text.trim();
+                  Navigator.of(dialogContext).pop();
                   final success = await ref
                       .read(checkoutControllerProvider.notifier)
-                      .holdCart(
-                        label:
-                            labelCtrl.text.trim().isEmpty
-                                ? null
-                                : labelCtrl.text.trim(),
-                      );
+                      .holdCart(label: label.isEmpty ? null : label);
                   if (success && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
@@ -165,16 +161,17 @@ class _PosBody extends ConsumerWidget {
             ],
           ),
     );
+    labelCtrl.dispose();
   }
 
   // Void dialog
-  void _showVoidDialog(BuildContext context, WidgetRef ref) {
+  Future<void> _showVoidDialog(BuildContext context, WidgetRef ref) async {
     final reasonCtrl = TextEditingController();
 
-    showDialog(
+    await showDialog<void>(
       context: context,
       builder:
-          (_) => AlertDialog(
+          (dialogContext) => AlertDialog(
             title: const Text(AppStrings.voidCart),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -193,21 +190,17 @@ class _PosBody extends ConsumerWidget {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('Cancel'),
               ),
               FilledButton(
                 style: FilledButton.styleFrom(backgroundColor: AppColors.error),
                 onPressed: () async {
-                  Navigator.pop(context);
+                  final reason = reasonCtrl.text.trim();
+                  Navigator.of(dialogContext).pop();
                   await ref
                       .read(checkoutControllerProvider.notifier)
-                      .voidCart(
-                        reason:
-                            reasonCtrl.text.trim().isEmpty
-                                ? null
-                                : reasonCtrl.text.trim(),
-                      );
+                      .voidCart(reason: reason.isEmpty ? null : reason);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
@@ -222,6 +215,7 @@ class _PosBody extends ConsumerWidget {
             ],
           ),
     );
+    reasonCtrl.dispose();
   }
 }
 

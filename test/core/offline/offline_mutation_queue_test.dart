@@ -61,6 +61,59 @@ void main() {
     expect(remaining.single.id, isNot(oldMutation.id));
   });
 
+  test('concurrent sync snapshots do not resurrect completed work', () async {
+    await OfflineStore.enqueueMutation(
+      userId: userId,
+      type: 'sale_checkout',
+      payload: {'sale_id': 'sale-1'},
+    );
+    await OfflineStore.enqueueMutation(
+      userId: userId,
+      type: 'create_expense',
+      payload: {'expense_id': 'expense-1'},
+    );
+    final snapshot = await OfflineStore.loadMutations(userId);
+    final sale = snapshot.first;
+    final expense = snapshot.last;
+
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: snapshot,
+      remaining: [expense],
+    );
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: snapshot,
+      remaining: [sale],
+    );
+
+    expect(await OfflineStore.loadMutations(userId), isEmpty);
+  });
+
+  test('sync result preserves mutations enqueued after its snapshot', () async {
+    await OfflineStore.enqueueMutation(
+      userId: userId,
+      type: 'sale_checkout',
+      payload: {'sale_id': 'sale-1'},
+    );
+    final snapshot = await OfflineStore.loadMutations(userId);
+
+    await OfflineStore.enqueueMutation(
+      userId: userId,
+      type: 'create_expense',
+      payload: {'expense_id': 'expense-new'},
+    );
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: snapshot,
+      remaining: const [],
+    );
+
+    final remaining = await OfflineStore.loadMutations(userId);
+    expect(remaining, hasLength(1));
+    expect(remaining.single.payload['expense_id'], 'expense-new');
+  });
+
   test(
     'revoked account cleanup removes only user-scoped session cache',
     () async {

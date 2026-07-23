@@ -303,7 +303,11 @@ class AccountSettingsRepository {
       }
     }
 
-    await OfflineStore.saveMutations(userId, remaining);
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: mutations,
+      remaining: remaining,
+    );
   }
 
   Future<Map<String, dynamic>> _loadProfile() async {

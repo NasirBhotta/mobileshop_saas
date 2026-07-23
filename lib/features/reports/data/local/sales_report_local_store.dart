@@ -107,6 +107,12 @@ class SalesReportLocalStore {
         0
       )
       ''';
+    const saleItemRevenue = '''
+      (
+        COALESCE(si.unit_price, 0) -
+        COALESCE(si.discount_amount, 0)
+      ) * COALESCE(si.quantity, 0)
+      ''';
     const returnItemCogs = '''
       COALESCE(
         CASE
@@ -128,7 +134,15 @@ class SalesReportLocalStore {
     final summaryRows = await LocalDatabase.select('''
       SELECT
         COUNT(DISTINCT s.id) AS total_orders,
-        COALESCE(SUM(s.total), 0) AS revenue,
+        COALESCE(SUM((
+          SELECT SUM(
+            (COALESCE(summary_item.unit_price, 0) -
+             COALESCE(summary_item.discount_amount, 0)) *
+            COALESCE(summary_item.quantity, 0)
+          )
+          FROM sale_items summary_item
+          WHERE summary_item.sale_id = s.id
+        )), 0) AS revenue,
         COALESCE(SUM(s.discount_amount), 0) AS discount,
         COALESCE(SUM(s.tax_amount), 0) AS tax
       FROM sales s
@@ -146,7 +160,7 @@ class SalesReportLocalStore {
       FROM (
         SELECT
           si.quantity AS quantity,
-          COALESCE(si.line_total, si.unit_price * si.quantity, 0) AS revenue,
+          $saleItemRevenue AS revenue,
           $saleItemCogs AS cogs
         FROM sale_items si
         JOIN sales s ON s.id = si.sale_id
@@ -227,7 +241,7 @@ class SalesReportLocalStore {
           COALESCE(si.product_name, p.name, 'Unknown Product') AS product_name,
           COALESCE(si.product_sku, p.sku) AS sku,
           si.quantity AS quantity,
-          COALESCE(si.line_total, si.unit_price * si.quantity, 0) AS revenue,
+          $saleItemRevenue AS revenue,
           $saleItemCogs AS cogs
         FROM sale_items si
         JOIN sales s ON s.id = si.sale_id
@@ -275,7 +289,7 @@ class SalesReportLocalStore {
           s.id AS sale_id,
           s.customer_id AS customer_id,
           COALESCE(c.full_name, 'Walk-in Customer') AS customer_name,
-          COALESCE(si.line_total, si.unit_price * si.quantity, 0) AS revenue,
+          $saleItemRevenue AS revenue,
           $saleItemCogs AS cogs
         FROM sale_items si
         JOIN sales s ON s.id = si.sale_id
@@ -326,7 +340,7 @@ class SalesReportLocalStore {
           s.id AS sale_id,
           s.branch_id AS branch_id,
           COALESCE(b.name, 'Branch') AS branch_name,
-          COALESCE(si.line_total, si.unit_price * si.quantity, 0) AS revenue,
+          $saleItemRevenue AS revenue,
           $saleItemCogs AS cogs
         FROM sale_items si
         JOIN sales s ON s.id = si.sale_id
@@ -376,7 +390,7 @@ class SalesReportLocalStore {
           p.category_id AS category_id,
           COALESCE(c.name, 'Uncategorized') AS category_name,
           si.quantity AS quantity,
-          COALESCE(si.line_total, si.unit_price * si.quantity, 0) AS revenue,
+          $saleItemRevenue AS revenue,
           $saleItemCogs AS cogs
         FROM sale_items si
         JOIN sales s ON s.id = si.sale_id
@@ -424,7 +438,7 @@ class SalesReportLocalStore {
         SELECT
           substr(s.created_at, 1, 10) AS date,
           s.id AS sale_id,
-          COALESCE(si.line_total, si.unit_price * si.quantity, 0) AS revenue,
+          $saleItemRevenue AS revenue,
           $saleItemCogs AS cogs
         FROM sale_items si
         JOIN sales s ON s.id = si.sale_id

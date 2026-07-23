@@ -636,7 +636,11 @@ class ProcurementRepository {
       }
     }
 
-    await OfflineStore.saveMutations(userId, remaining);
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: mutations,
+      remaining: remaining,
+    );
   }
 
   String buildPurchaseOrderDocument({

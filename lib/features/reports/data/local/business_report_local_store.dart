@@ -149,6 +149,28 @@ class BusinessReportLocalStore {
     return map;
   }
 
+  static Future<double> loadGrossProfit({
+    required String tenantId,
+    required String branchId,
+    required DateTime dateFrom,
+    required DateTime dateTo,
+  }) async {
+    final sales = await SalesReportLocalStore.buildLocalReport(
+      tenantId: tenantId,
+      branchId: branchId,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      netReturns: true,
+    );
+    final repairs = await _repairRevenue(
+      tenantId: tenantId,
+      branchId: branchId,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+    );
+    return sales.summary.grossProfit + repairs;
+  }
+
   static Future<void> saveSchedule(BusinessReportScheduleModel schedule) async {
     await LocalDatabase.execute(
       '''

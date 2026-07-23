@@ -164,6 +164,38 @@ class SalesReportRepository {
     final plan = await _tenantPlan(tenantId);
     final exportAllowed = await _entitlements.hasFeature('reports.export');
 
+    if (allBranches) {
+      try {
+        return await _fetchRemoteSalesReport(
+          tenantId: tenantId,
+          branchId: null,
+          dateFrom: dateFrom,
+          dateTo: dateTo,
+        ).timeout(_networkTimeout);
+      } catch (e) {
+        debugPrint(
+          'All-branch sales report refresh failed, using offline data: $e',
+        );
+
+        final cached = await SalesReportLocalStore.loadReportCache(
+          tenantId: tenantId,
+          branchId: null,
+          dateFrom: dateFrom,
+          dateTo: dateTo,
+        );
+        if (cached != null) return cached;
+
+        return SalesReportLocalStore.buildLocalReport(
+          tenantId: tenantId,
+          branchId: null,
+          dateFrom: dateFrom,
+          dateTo: dateTo,
+          plan: plan,
+          exportAllowed: exportAllowed,
+        );
+      }
+    }
+
     try {
       final report = await SalesReportLocalStore.buildLocalReport(
         tenantId: tenantId,
@@ -755,7 +787,11 @@ class SalesReportRepository {
       }
     }
 
-    await OfflineStore.saveMutations(userId, remaining);
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: mutations,
+      remaining: remaining,
+    );
   }
 
   Future<void> _syncCreateSchedule(Map<String, dynamic> payload) async {

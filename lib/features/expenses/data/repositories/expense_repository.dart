@@ -415,6 +415,24 @@ class ExpenseRepository {
     }
   }
 
+  /// Refreshes the local expense rows before another local-first feature
+  /// (such as business reports) aggregates them.
+  Future<void> refreshExpensesCache({
+    required DateTime dateFrom,
+    required DateTime dateTo,
+  }) async {
+    await _gate.require('expenses.core');
+    final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
+    await _fetchRemoteExpenses(
+      tenantId: tenantId,
+      branchId: branchId,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      limit: 1000,
+    ).timeout(_networkTimeout);
+  }
+
   Future<ExpenseModel?> fetchExpenseById(String expenseId) async {
     await _gate.require('expenses.core');
     try {
@@ -467,6 +485,7 @@ class ExpenseRepository {
     String? categoryId,
     ExpenseStatus? status,
     ExpenseSource? source,
+    int limit = 200,
   }) async {
     var query = _client
         .from('expenses')
@@ -497,7 +516,7 @@ class ExpenseRepository {
     final data = await query
         .order('expense_date', ascending: false)
         .order('created_at', ascending: false)
-        .limit(200);
+        .limit(limit);
 
     final expenses =
         (data as List).map((row) => ExpenseModel.fromMap(row)).toList();
@@ -987,7 +1006,11 @@ class ExpenseRepository {
       }
     }
 
-    await OfflineStore.saveMutations(userId, remaining);
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: mutations,
+      remaining: remaining,
+    );
   }
 
   Future<void> _syncCategory(Map<String, dynamic> payload) async {

@@ -332,7 +332,11 @@ class AccountsRepository {
       }
     }
 
-    await OfflineStore.saveMutations(userId, remaining);
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: mutations,
+      remaining: remaining,
+    );
     if (accountSyncError != null) {
       throw Exception('Accounts could not sync yet: $accountSyncError');
     }

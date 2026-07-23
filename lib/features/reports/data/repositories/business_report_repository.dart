@@ -6,6 +6,7 @@ import 'package:mobileshop_saas/core/authorization/permission_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
+import 'package:mobileshop_saas/features/expenses/data/repositories/expense_repository.dart';
 import 'package:mobileshop_saas/features/reports/data/local/business_report_local_store.dart';
 import 'package:mobileshop_saas/features/reports/data/models/business_report_models.dart';
 import 'package:mobileshop_saas/features/reports/domain/report_entitlement_gate.dart';
@@ -19,6 +20,10 @@ class BusinessReportRepository {
   final PermissionEvaluator _permissions;
   final EntitlementEvaluator _entitlements;
   late final ReportEntitlementGate _gate = ReportEntitlementGate(_entitlements);
+  late final ExpenseRepository _expenseRepository = ExpenseRepository(
+    client: _client,
+    entitlements: _entitlements,
+  );
 
   BusinessReportRepository({
     SupabaseClient? client,
@@ -166,6 +171,52 @@ class BusinessReportRepository {
 
     final branchId = allBranches ? null : await _branchId(tenantId);
     final plan = await _tenantPlan(tenantId);
+
+    if (!allBranches && _usesExpenses(reportType)) {
+      try {
+        await _expenseRepository.refreshExpensesCache(
+          dateFrom: dateFrom,
+          dateTo: dateTo,
+        );
+      } catch (e) {
+        debugPrint('Report expense refresh unavailable; using local cache: $e');
+      }
+    }
+
+    if (allBranches) {
+      try {
+        return await _fetchRemoteRawReport(
+          reportType: reportType,
+          tenantId: tenantId,
+          branchId: null,
+          dateFrom: dateFrom,
+          dateTo: dateTo,
+        ).timeout(_networkTimeout);
+      } catch (e) {
+        debugPrint(
+          'All-branch business report refresh failed, using offline data: $e',
+        );
+
+        final cached = await BusinessReportLocalStore.loadReportCache(
+          reportType: reportType,
+          tenantId: tenantId,
+          branchId: null,
+          dateFrom: dateFrom,
+          dateTo: dateTo,
+        );
+        if (cached != null) return cached;
+
+        return BusinessReportLocalStore.buildLocalReport(
+          reportType: reportType,
+          tenantId: tenantId,
+          branchId: null,
+          dateFrom: dateFrom,
+          dateTo: dateTo,
+          plan: plan,
+          exportAllowed: await _entitlements.hasFeature('reports.export'),
+        );
+      }
+    }
 
     try {
       final report = await BusinessReportLocalStore.buildLocalReport(
@@ -354,6 +405,12 @@ class BusinessReportRepository {
       case BusinessReportType.dashboard:
         return 'get_business_dashboard_report';
     }
+  }
+
+  bool _usesExpenses(BusinessReportType reportType) {
+    return reportType == BusinessReportType.profitLoss ||
+        reportType == BusinessReportType.cashFlow ||
+        reportType == BusinessReportType.dashboard;
   }
 
   // ════════════════════════════════════════
@@ -890,7 +947,11 @@ class BusinessReportRepository {
       }
     }
 
-    await OfflineStore.saveMutations(userId, remaining);
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: mutations,
+      remaining: remaining,
+    );
   }
 
   Future<void> _syncCreateSchedule(Map<String, dynamic> payload) async {

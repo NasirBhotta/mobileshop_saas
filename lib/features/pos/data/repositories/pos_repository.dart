@@ -1162,11 +1162,16 @@ class PosRepository {
           .eq('status', SaleReturnStatus.pendingApproval.code)
           .order('created_at', ascending: false)
           .timeout(Network.networkTimeout);
-      return (rows as List).map((row) {
-        final map = Map<String, dynamic>.from(row as Map);
-        map['items'] = map['sale_return_items'];
-        return SaleReturnModel.fromMap(map);
-      }).toList();
+      final returns =
+          (rows as List).map((row) {
+            final map = Map<String, dynamic>.from(row as Map);
+            map['items'] = map['sale_return_items'];
+            return SaleReturnModel.fromMap(map);
+          }).toList();
+      for (final saleReturn in returns) {
+        await _saveReturnLocally(saleReturn, synced: true);
+      }
+      return returns;
     } catch (_) {}
 
     final rows = await LocalDatabase.select(
@@ -1202,11 +1207,16 @@ class PosRepository {
           .order('created_at', ascending: false)
           .limit(limit)
           .timeout(Network.networkTimeout);
-      return (rows as List).map((row) {
-        final map = Map<String, dynamic>.from(row as Map);
-        map['items'] = map['sale_return_items'];
-        return SaleReturnModel.fromMap(map);
-      }).toList();
+      final returns =
+          (rows as List).map((row) {
+            final map = Map<String, dynamic>.from(row as Map);
+            map['items'] = map['sale_return_items'];
+            return SaleReturnModel.fromMap(map);
+          }).toList();
+      for (final saleReturn in returns) {
+        await _saveReturnLocally(saleReturn, synced: true);
+      }
+      return returns;
     } catch (_) {}
 
     final rows = await LocalDatabase.select(
@@ -1401,6 +1411,12 @@ class PosRepository {
       ],
     );
 
+    // Keep the local child rows an exact mirror of the remote return. This is
+    // required because offline reports aggregate sale_return_items directly.
+    await LocalDatabase.execute(
+      'DELETE FROM sale_return_items WHERE return_id = ?',
+      [saleReturn.id],
+    );
     for (final item in saleReturn.items) {
       await LocalDatabase.execute(
         '''
@@ -1716,83 +1732,24 @@ class PosRepository {
 
     // Save locally first
     await OfflineStore.saveCustomer(customer);
-
-    try {
-      final data = await _client
-          .from('customers')
-          .insert(_customerRemotePayload(customer))
-          .select()
-          .single()
-          .timeout(Network.networkTimeout);
-
-      final savedCustomer = CustomerModel.fromMap(data);
-      await OfflineStore.saveCustomer(savedCustomer);
-      return savedCustomer;
-    } catch (e) {
-      if (_isMissingCustomerCreditSchema(e)) {
-        try {
-          final data = await _client
-              .from('customers')
-              .insert(_customerRemotePayload(customer, includeCredit: false))
-              .select()
-              .single()
-              .timeout(Network.networkTimeout);
-
-          final savedCustomer = CustomerModel.fromMap(data);
-          await OfflineStore.saveCustomer(savedCustomer);
-          return savedCustomer;
-        } catch (fallbackError) {
-          OfflineErrorClassifier.rethrowIfTerminal(fallbackError);
-          debugPrint(
-            'Customer insert fallback failed. Queueing mutation. Error: $fallbackError',
-          );
-        }
-      }
-      if (!_isMissingCustomerCreditSchema(e)) {
-        OfflineErrorClassifier.rethrowIfTerminal(e);
-      }
-      debugPrint(
-        'Offline addCustomer: saved locally. Queueing mutation. Error: $e',
-      );
-      await OfflineStore.enqueueMutation(
-        userId: user.id,
-        type: 'add_customer',
-        payload: {
-          'id': customerId,
-          'tenant_id': tenantId,
-          'branch_id': branchId,
-          'full_name': fullName,
-          'phone': normalizedPhone,
-          'email': normalizedEmail,
-          'notes': normalizedNotes,
-          'credit_limit': effectiveCreditLimit,
-          'outstanding_balance': 0,
-          'created_at': customer.createdAt?.toIso8601String(),
-        },
-      );
-      return customer;
-    }
-  }
-
-  Map<String, dynamic> _customerRemotePayload(
-    CustomerModel customer, {
-    bool includeCredit = true,
-  }) {
-    final payload = <String, dynamic>{
-      'id': customer.id,
-      'tenant_id': customer.tenantId,
-      'branch_id': customer.branchId,
-      'full_name': customer.fullName,
-      'phone': customer.phone,
-      'email': customer.email,
-      'notes': customer.notes,
-      'created_at': customer.createdAt?.toIso8601String(),
-    };
-    if (includeCredit) {
-      payload['credit_limit'] = customer.creditLimit;
-      payload['outstanding_balance'] = customer.outstandingBalance;
-    }
-    return payload;
+    await OfflineStore.enqueueMutation(
+      userId: user.id,
+      type: 'add_customer',
+      payload: {
+        'id': customerId,
+        'tenant_id': tenantId,
+        'branch_id': branchId,
+        'full_name': fullName,
+        'phone': normalizedPhone,
+        'email': normalizedEmail,
+        'notes': normalizedNotes,
+        'credit_limit': effectiveCreditLimit,
+        'outstanding_balance': 0,
+        'created_at': customer.createdAt?.toIso8601String(),
+      },
+    );
+    unawaited(syncOfflineMutations());
+    return customer;
   }
 
   String? _normalizeOptionalString(String? value) {
@@ -2085,12 +2042,14 @@ class PosRepository {
     if (customer == null) throw Exception('Customer profile nahi mila.');
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
-    final purchases = (await OfflineStore.loadSales(branchId))
-        .where((sale) => sale.customerId == customerId)
-        .toList();
-    final settlements = (await OfflineStore.loadCustomerSettlements(customerId))
-        .where((settlement) => settlement.branchId == branchId)
-        .toList();
+    final purchases =
+        (await OfflineStore.loadSales(
+          branchId,
+        )).where((sale) => sale.customerId == customerId).toList();
+    final settlements =
+        (await OfflineStore.loadCustomerSettlements(
+          customerId,
+        )).where((settlement) => settlement.branchId == branchId).toList();
     final outstanding = _effectiveOutstanding(
       customer: customer,
       purchases: purchases,
@@ -2459,7 +2418,11 @@ class PosRepository {
         }
       }
 
-      await OfflineStore.saveMutations(userId, remaining);
+      await OfflineStore.saveMutationSyncResult(
+        userId: userId,
+        snapshot: mutations,
+        remaining: remaining,
+      );
     } catch (_) {}
   }
 
@@ -2474,12 +2437,13 @@ class PosRepository {
     required String? phone,
   }) async {
     if (phone == null || phone.trim().isEmpty) return null;
-    final customer = await _client
-        .from('customers')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('phone', phone)
-        .maybeSingle();
+    final customer =
+        await _client
+            .from('customers')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .eq('phone', phone)
+            .maybeSingle();
     return customer?['id'] as String?;
   }
 

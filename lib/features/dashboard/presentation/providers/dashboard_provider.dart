@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/local/local_database.dart';
+import '../../../inventory/presentation/providers/inventory_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
-import '../../../pos/data/models/cart_item_model.dart';
 import '../../../pos/data/models/customer_dashboard_model.dart';
 import '../../../pos/data/models/customer_model.dart';
 import '../../../pos/data/models/sale_model.dart';
@@ -13,9 +17,83 @@ import '../../../repairs/presentation/providers/repair_provider.dart';
 import '../../../repairs/data/models/repair_ticket_model.dart';
 import '../../../../core/extensions/repair_ticket_ext.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
+import '../../../reports/data/local/business_report_local_store.dart';
+
+final dashboardRealtimeRefreshProvider = FutureProvider.autoDispose<void>((
+  ref,
+) async {
+  final branchId = await ref.watch(selectedBranchIdProvider.future);
+  final client = Supabase.instance.client;
+  final channel = client.channel('dashboard-data-$branchId');
+  final inventoryRepository = ref.read(inventoryRepositoryProvider);
+  final posRepository = ref.read(posRepositoryProvider);
+  final repairRepository = ref.read(repairRepositoryProvider);
+  Timer? debounce;
+  var disposed = false;
+
+  Future<void> safelyRefresh(Future<Object?> refresh) async {
+    try {
+      await refresh;
+    } catch (_) {}
+  }
+
+  Future<void> refreshCaches() {
+    return Future.wait([
+      safelyRefresh(inventoryRepository.refreshCurrentProductsCache()),
+      safelyRefresh(posRepository.fetchSales(limit: 1000)),
+      safelyRefresh(posRepository.fetchCustomers()),
+      safelyRefresh(posRepository.fetchCustomerSettlements()),
+      safelyRefresh(posRepository.fetchApprovedReturns(limit: 1000)),
+      safelyRefresh(repairRepository.refreshCurrentRepairTicketsCache()),
+    ]);
+  }
+
+  void refreshDashboard(PostgresChangePayload _) {
+    debounce?.cancel();
+    debounce = Timer(const Duration(milliseconds: 400), () async {
+      await refreshCaches();
+      if (disposed) return;
+
+      ref
+        ..invalidate(allProductsProvider)
+        ..invalidate(allSalesProvider)
+        ..invalidate(allCustomersProvider)
+        ..invalidate(allCustomerSettlementsProvider)
+        ..invalidate(allApprovedReturnsProvider)
+        ..invalidate(allRepairTicketsProvider);
+    });
+  }
+
+  // Listen to the tables that are actually exposed by the server's Realtime
+  // publication. Registering bindings for optional/non-published tables (for
+  // example sale_returns or repair_tickets) rejects the entire channel.
+  // The refresh queries below remain branch-scoped, so an unrelated public
+  // schema event can only trigger a refresh and cannot expose another branch.
+  channel.onPostgresChanges(
+    event: PostgresChangeEvent.all,
+    schema: 'public',
+    callback: refreshDashboard,
+  );
+
+  channel.subscribe((status, error) {
+    if (error != null) {
+      debugPrint('Dashboard realtime error: $error');
+    }
+  });
+
+  ref.onDispose(() {
+    disposed = true;
+    debounce?.cancel();
+    client.removeChannel(channel);
+  });
+
+  await refreshCaches();
+});
 
 final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
+  await ref.watch(dashboardRealtimeRefreshProvider.future);
   final branchId = await ref.watch(selectedBranchIdProvider.future);
+  ref.watch(allProductsProvider);
   final enabledFeatures = await Future.wait<bool>([
     ref.watch(featureEntitlementProvider('pos.returns').future),
     ref.watch(featureEntitlementProvider('repairs.tickets').future),
@@ -45,11 +123,6 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final completedSales =
       sales.where((sale) => sale.status == SaleStatus.completed).toList();
   final inventorySummary = await _loadDashboardInventorySummary(branchId);
-  final costByProductId = await _loadDashboardProductCosts(
-    branchId: branchId,
-    sales: completedSales,
-    returns: returns,
-  );
   final today = DateTime.now();
   final todaySales =
       completedSales.where((sale) {
@@ -114,22 +187,6 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
             ? sum + saleReturn.refundAmount
             : sum,
   );
-  final saleById = {
-    for (final sale in completedSales)
-      if (sale.id != null) sale.id!: sale,
-  };
-  final returnProfit = returns.fold<double>(0, (sum, saleReturn) {
-    if (saleReturn.refundMethod != RefundMethod.cash) return sum;
-    final itemsProfit = saleReturn.items.fold<double>(0, (itemSum, item) {
-      return itemSum +
-          _returnedItemProfit(
-            item,
-            saleById[saleReturn.originalSaleId],
-            costByProductId,
-          );
-    });
-    return sum + itemsProfit;
-  });
   final settlementTotal = settlements.fold<double>(
     0,
     (sum, settlement) => sum + settlement.amount,
@@ -142,18 +199,13 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
       settlementTotal +
       totalRepairRevenue -
       returnTotal;
-  final totalProfit =
-      completedSales.fold<double>(
-        0,
-        (sum, sale) => sum + _realizedCheckoutProfit(sale, costByProductId),
-      ) +
-      _realizedSettlementProfit(
-        sales: completedSales,
-        settlements: settlements,
-        costByProductId: costByProductId,
-      ) +
-      totalRepairRevenue -
-      returnProfit;
+  final tenantId = await _loadDashboardTenantId(branchId);
+  final totalProfit = await BusinessReportLocalStore.loadGrossProfit(
+    tenantId: tenantId,
+    branchId: branchId,
+    dateFrom: DateTime(today.year, today.month, today.day),
+    dateTo: DateTime(today.year, today.month, today.day),
+  );
   final totalCreditSales = completedSales.fold<double>(
     0,
     (sum, sale) => sum + sale.creditAmount,
@@ -299,34 +351,16 @@ Future<_DashboardInventorySummary> _loadDashboardInventorySummary(
   );
 }
 
-Future<Map<String, double>> _loadDashboardProductCosts({
-  required String branchId,
-  required List<SaleModel> sales,
-  required List<SaleReturnModel> returns,
-}) async {
-  final productIds = <String>{
-    for (final sale in sales)
-      for (final item in sale.items) item.productId,
-    for (final saleReturn in returns)
-      for (final item in saleReturn.items) item.productId,
-  };
-  if (productIds.isEmpty) return const <String, double>{};
-
-  final placeholders = List.filled(productIds.length, '?').join(',');
+Future<String> _loadDashboardTenantId(String branchId) async {
   final rows = await LocalDatabase.select(
-    '''
-    SELECT id, cost_price
-    FROM products
-    WHERE branch_id = ?
-      AND id IN ($placeholders)
-    ''',
-    [branchId, ...productIds],
+    'SELECT tenant_id FROM branches WHERE id = ? LIMIT 1',
+    [branchId],
   );
-
-  return {
-    for (final row in rows)
-      row['id'] as String: ((row['cost_price'] as num?)?.toDouble() ?? 0),
-  };
+  final tenantId = rows.firstOrNull?['tenant_id'] as String?;
+  if (tenantId == null || tenantId.isEmpty) {
+    throw StateError('Selected branch tenant is not available locally.');
+  }
+  return tenantId;
 }
 
 int _intValue(Object? value) {
@@ -343,97 +377,6 @@ class _DashboardInventorySummary {
     required this.totalStock,
     required this.lowStock,
   });
-}
-
-double _saleProfit(SaleModel sale, Map<String, double> costByProductId) {
-  return sale.items.fold<double>(0, (sum, item) {
-    return sum + _saleItemProfit(item, costByProductId);
-  });
-}
-
-double _saleItemProfit(
-  CartItemModel item,
-  Map<String, double> costByProductId,
-) {
-  final revenuePerUnit = item.unitPrice - item.discountAmount;
-  final cost = item.unitCost ?? costByProductId[item.productId];
-  if (cost == null) return 0;
-  return (revenuePerUnit - cost) * item.quantity;
-}
-
-double _returnedItemProfit(
-  SaleReturnItemModel item,
-  SaleModel? originalSale,
-  Map<String, double> costByProductId,
-) {
-  final originalItem = originalSale?.items.where(
-    (saleItem) => saleItem.productId == item.productId,
-  );
-  final matchedOriginalItem =
-      originalItem == null || originalItem.isEmpty ? null : originalItem.first;
-  final cost = matchedOriginalItem?.unitCost ?? costByProductId[item.productId];
-  if (cost == null) return 0;
-  return item.refundAmount - (cost * item.quantity);
-}
-
-double _realizedCheckoutProfit(
-  SaleModel sale,
-  Map<String, double> costByProductId,
-) {
-  if (sale.total <= 0) return 0;
-  final realizedRatio = (sale.nonCreditAmount / sale.total).clamp(0.0, 1.0);
-  return _saleProfit(sale, costByProductId) * realizedRatio;
-}
-
-double _realizedSettlementProfit({
-  required List<SaleModel> sales,
-  required List<CustomerSettlementModel> settlements,
-  required Map<String, double> costByProductId,
-}) {
-  final settlementByCustomer = <String, double>{};
-  for (final settlement in settlements) {
-    settlementByCustomer.update(
-      settlement.customerId,
-      (amount) => amount + settlement.amount,
-      ifAbsent: () => settlement.amount,
-    );
-  }
-
-  final salesByCustomer = <String, List<SaleModel>>{};
-  for (final sale in sales) {
-    final customerId = sale.customerId;
-    if (customerId == null || sale.creditAmount <= 0) continue;
-    salesByCustomer.putIfAbsent(customerId, () => []).add(sale);
-  }
-
-  var realizedProfit = 0.0;
-  for (final entry in salesByCustomer.entries) {
-    var remainingSettlement = settlementByCustomer[entry.key] ?? 0;
-    if (remainingSettlement <= 0) continue;
-
-    final customerSales =
-        entry.value..sort((a, b) {
-          final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          return aDate.compareTo(bDate);
-        });
-
-    for (final sale in customerSales) {
-      if (remainingSettlement <= 0) break;
-      if (sale.total <= 0 || sale.creditAmount <= 0) continue;
-
-      final realizedAmount =
-          remainingSettlement > sale.creditAmount
-              ? sale.creditAmount
-              : remainingSettlement;
-      final saleProfit = _saleProfit(sale, costByProductId);
-      final creditProfit = saleProfit * (sale.creditAmount / sale.total);
-      realizedProfit += creditProfit * (realizedAmount / sale.creditAmount);
-      remainingSettlement -= realizedAmount;
-    }
-  }
-
-  return realizedProfit;
 }
 
 extension _SaleCreditAmount on SaleModel {
@@ -504,4 +447,52 @@ class DashboardCreditCustomer {
       creditLimit: customer.creditLimit,
     );
   }
+}
+
+Future<void> refreshDashboardData(WidgetRef ref) async {
+  final inventoryRepository = ref.read(inventoryRepositoryProvider);
+  final posRepository = ref.read(posRepositoryProvider);
+  final repairRepository = ref.read(repairRepositoryProvider);
+
+  Future<void> safelyRefresh(Future<Object?> refresh) async {
+    try {
+      await refresh;
+    } catch (error) {
+      debugPrint('Dashboard manual refresh skipped one source: $error');
+    }
+  }
+
+  // Existing repository sync methods hon to pehle unhein await karo.
+  await Future.wait([
+    inventoryRepository.syncOfflineMutations(),
+    posRepository.syncOfflineMutations(),
+    repairRepository.syncOfflineMutations(),
+  ]);
+
+  // Server data fetch karke local cache update hone ka wait karo.
+  await Future.wait([
+    safelyRefresh(inventoryRepository.refreshCurrentProductsCache()),
+    safelyRefresh(posRepository.fetchSales(limit: 1000)),
+    safelyRefresh(posRepository.fetchCustomers()),
+    safelyRefresh(posRepository.fetchCustomerSettlements()),
+    safelyRefresh(posRepository.fetchApprovedReturns(limit: 1000)),
+    safelyRefresh(
+      repairRepository.refreshCurrentRepairTicketsCache(
+        timeout: const Duration(seconds: 10),
+      ),
+    ),
+  ]);
+
+  // Cached providers ko dobara calculate karwao.
+  ref
+    ..invalidate(allProductsProvider)
+    ..invalidate(allSalesProvider)
+    ..invalidate(allCustomersProvider)
+    ..invalidate(allCustomerSettlementsProvider)
+    ..invalidate(allApprovedReturnsProvider)
+    ..invalidate(allRepairTicketsProvider)
+    ..invalidate(dashboardStatsProvider);
+
+  // RefreshIndicator tab tak loading dikhaye jab tak dashboard ready na ho.
+  await ref.read(dashboardStatsProvider.future);
 }

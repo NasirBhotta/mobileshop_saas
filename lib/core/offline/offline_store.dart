@@ -539,6 +539,39 @@ class OfflineStore {
     List<OfflineMutation> mutations,
   ) => _withMutationWriteLock(userId, () => _writeMutations(userId, mutations));
 
+  /// Applies one sync worker's result without overwriting mutations queued or
+  /// removed by another worker after [snapshot] was read.
+  static Future<void> saveMutationSyncResult({
+    required String userId,
+    required List<OfflineMutation> snapshot,
+    required List<OfflineMutation> remaining,
+  }) => _withMutationWriteLock(userId, () async {
+    final current = await _readMutations(userId);
+    final snapshotIds = snapshot.map((mutation) => mutation.id).toSet();
+    final remainingById = {
+      for (final mutation in remaining) mutation.id: mutation,
+    };
+    final reconciled = <OfflineMutation>[];
+
+    for (final mutation in current) {
+      if (!snapshotIds.contains(mutation.id)) {
+        // Enqueued after this worker took its snapshot.
+        reconciled.add(mutation);
+        continue;
+      }
+
+      final retained = remainingById[mutation.id];
+      if (retained != null) {
+        reconciled.add(retained);
+      }
+      // Missing from remaining means this worker completed it. If another
+      // worker already removed it, it is absent from current and cannot be
+      // resurrected.
+    }
+
+    await _writeMutations(userId, reconciled);
+  });
+
   static Future<void> removeMutation({
     required String userId,
     required String mutationId,

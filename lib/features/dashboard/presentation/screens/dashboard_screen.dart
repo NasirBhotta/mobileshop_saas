@@ -46,10 +46,11 @@ class _MobileDashboard extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.background,
+
       body: SafeArea(
         child: RefreshIndicator(
           color: AppColors.primary,
-          onRefresh: () async => ref.invalidate(dashboardStatsProvider),
+          onRefresh: () => refreshDashboardData(ref),
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -117,7 +118,7 @@ class _DesktopDashboard extends ConsumerWidget {
       backgroundColor: AppColors.background,
       body: RefreshIndicator(
         color: AppColors.primary,
-        onRefresh: () async => ref.invalidate(dashboardStatsProvider),
+        onRefresh: () => refreshDashboardData(ref),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
@@ -326,7 +327,7 @@ class _TodaySnapshot extends StatelessWidget {
                             Expanded(
                               child: _SnapshotPill(
                                 icon: Icons.stacked_line_chart_rounded,
-                                label: 'Profit',
+                                label: 'Today profit',
                                 value: profit,
                                 color: AppColors.secondaryLight,
                                 compact: true,
@@ -362,7 +363,7 @@ class _TodaySnapshot extends StatelessWidget {
                         const SizedBox(width: 18),
                         _SnapshotPill(
                           icon: Icons.stacked_line_chart_rounded,
-                          label: 'Realized profit',
+                          label: 'Today gross profit',
                           value: profit,
                           color: AppColors.secondaryLight,
                         ),
@@ -588,7 +589,7 @@ class _StatsGrid extends StatelessWidget {
           isCompact: compact,
         ),
         StatCard(
-          title: AppStrings.dashboardOverallProfit,
+          title: 'Today Gross Profit',
           subtitle: 'Before expenses',
           value: _moneyOrLoading(stats?.totalProfit, isLoading),
           icon: Icons.stacked_line_chart_rounded,

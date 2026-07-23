@@ -459,6 +459,17 @@ class RepairRepository {
     } catch (_) {}
   }
 
+  Future<void> refreshCurrentRepairTicketsCache({
+    Duration timeout = _networkTimeout,
+  }) async {
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    await _fetchRemoteRepairTickets(
+      tenantId: tenantId,
+      branchId: branchId,
+    ).timeout(timeout);
+  }
+
   // ════════════════════════════════════════
   // STATUS LOGS
   // ════════════════════════════════════════
@@ -632,7 +643,11 @@ class RepairRepository {
       }
     }
 
-    await OfflineStore.saveMutations(userId, remaining);
+    await OfflineStore.saveMutationSyncResult(
+      userId: userId,
+      snapshot: mutations,
+      remaining: remaining,
+    );
   }
 
   Future<void> _syncUpsertRepairTicket(Map<String, dynamic> payload) async {
