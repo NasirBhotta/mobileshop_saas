@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,6 +6,8 @@ import '../../../../core/local/local_database.dart';
 import '../../../../core/tenant_access/tenant_access_provider.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
 import '../../../mobile_services/data/repositories/mobile_services_repository.dart';
+import '../../../mobile_services/data/models/mobile_service_models.dart';
+import '../../../mobile_services/presentation/providers/mobile_services_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 import '../../../pos/data/models/customer_dashboard_model.dart';
 import '../../../pos/data/models/customer_model.dart';
@@ -21,92 +21,11 @@ import '../../../../core/extensions/repair_ticket_ext.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../reports/data/local/business_report_local_store.dart';
 
-final dashboardRealtimeRefreshProvider = FutureProvider.autoDispose<void>((
-  ref,
-) async {
-  final tenantAccess = await ref.watch(tenantAccessProvider.future);
-  if (tenantAccess != TenantAccessState.active) return;
-
-  final branchId = await ref.watch(selectedBranchIdProvider.future);
-  final client = Supabase.instance.client;
-  final channel = client.channel('dashboard-data-$branchId');
-  final inventoryRepository = ref.read(inventoryRepositoryProvider);
-  final posRepository = ref.read(posRepositoryProvider);
-  final repairRepository = ref.read(repairRepositoryProvider);
-  Timer? debounce;
-  var disposed = false;
-
-  Future<void> safelyRefresh(Future<Object?> refresh) async {
-    try {
-      await refresh;
-    } catch (_) {}
-  }
-
-  Future<void> refreshCaches() {
-    return Future.wait([
-      safelyRefresh(inventoryRepository.refreshCurrentProductsCache()),
-      safelyRefresh(posRepository.fetchSales(limit: 1000)),
-      safelyRefresh(posRepository.fetchCustomers()),
-      safelyRefresh(posRepository.fetchCustomerSettlements()),
-      safelyRefresh(posRepository.fetchApprovedReturns(limit: 1000)),
-      safelyRefresh(repairRepository.refreshCurrentRepairTicketsCache()),
-    ]);
-  }
-
-  void refreshDashboard(PostgresChangePayload _) {
-    debounce?.cancel();
-    debounce = Timer(const Duration(milliseconds: 400), () async {
-      await refreshCaches();
-      if (disposed) return;
-
-      ref
-        ..invalidate(allProductsProvider)
-        ..invalidate(allSalesProvider)
-        ..invalidate(allCustomersProvider)
-        ..invalidate(allCustomerSettlementsProvider)
-        ..invalidate(allApprovedReturnsProvider)
-        ..invalidate(allRepairTicketsProvider);
-    });
-  }
-
-  for (final table in const [
-    'products',
-    'inventory',
-    'sales',
-    'customers',
-    'customer_settlements',
-    'mobile_service_transactions',
-  ]) {
-    channel.onPostgresChanges(
-      event: PostgresChangeEvent.all,
-      schema: 'public',
-      table: table,
-      filter: PostgresChangeFilter(
-        type: PostgresChangeFilterType.eq,
-        column: 'branch_id',
-        value: branchId,
-      ),
-      callback: refreshDashboard,
-    );
-  }
-
-  channel.subscribe((status, error) {
-    if (error != null) {
-      debugPrint('Dashboard realtime error: $error');
-    }
-  });
-
-  ref.onDispose(() {
-    disposed = true;
-    debounce?.cancel();
-    client.removeChannel(channel);
-  });
-
-  await refreshCaches();
-});
-
 final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
-  await ref.watch(dashboardRealtimeRefreshProvider.future);
+  final tenantAccess = await ref.watch(tenantAccessProvider.future);
+  if (tenantAccess != TenantAccessState.active) {
+    throw StateError('Tenant access is not active.');
+  }
   final branchId = await ref.watch(selectedBranchIdProvider.future);
   ref.watch(allProductsProvider);
   final enabledFeatures = await Future.wait<bool>([
@@ -130,6 +49,10 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
       ref.watch(allRepairTicketsProvider.future)
     else
       Future.value(const <RepairTicketModel>[]),
+    if (mobileServicesEnabled)
+      ref.watch(mobileServiceTransactionsProvider(1000).future)
+    else
+      Future.value(const <MobileServiceTransactionModel>[]),
   ]);
   final sales = dashboardData[0] as List<SaleModel>;
   final customers = dashboardData[1] as List<CustomerModel>;
@@ -223,10 +146,10 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
     dateFrom: DateTime(today.year, today.month, today.day),
     dateTo: DateTime(today.year, today.month, today.day),
   );
-  final mobileServiceTodayProfit =
+  final mobileServiceSummary =
       mobileServicesEnabled
-          ? await _loadMobileServiceTodayProfit(branchId, today)
-          : 0.0;
+          ? await _loadMobileServiceDashboardSummary(branchId, today)
+          : const MobileServiceProfitSummary(todayProfit: 0, totalProfit: 0);
   final totalCreditSales = completedSales.fold<double>(
     0,
     (sum, sale) => sum + sale.creditAmount,
@@ -283,9 +206,17 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
         todaySalesTotal +
         todaySettlementsTotal +
         todayRepairTotal -
-        todayRefundTotal,
-    totalSalesTotal: totalSalesTotal,
-    totalProfit: totalProfit + mobileServiceTodayProfit,
+        todayRefundTotal +
+        mobileServiceSummary.todayCashReceived,
+    totalSalesTotal: totalSalesTotal + mobileServiceSummary.totalCashReceived,
+    totalProfit: totalProfit + mobileServiceSummary.todayProfit,
+    mobileServicesEnabled: mobileServicesEnabled,
+    mobileServiceTodayCashPaid: mobileServiceSummary.todayCashPaid,
+    mobileServiceTodayNetCash:
+        mobileServiceSummary.todayCashReceived -
+        mobileServiceSummary.todayCashPaid,
+    mobileServiceTodayWalletIn: mobileServiceSummary.todayWalletIn,
+    mobileServiceTodayWalletOut: mobileServiceSummary.todayWalletOut,
     totalOutstanding: totalOutstanding,
     totalCreditSales: totalCreditSales,
     creditCustomers: creditCustomers.take(5).toList(),
@@ -294,7 +225,7 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   );
 });
 
-Future<double> _loadMobileServiceTodayProfit(
+Future<MobileServiceProfitSummary> _loadMobileServiceDashboardSummary(
   String branchId,
   DateTime today,
 ) async {
@@ -306,10 +237,10 @@ Future<double> _loadMobileServiceTodayProfit(
       dayStart: dayStart,
       dayEnd: dayEnd,
     );
-    return summary.todayProfit;
+    return summary;
   } catch (error) {
     debugPrint('Mobile Services dashboard profit unavailable: $error');
-    return 0;
+    return const MobileServiceProfitSummary(todayProfit: 0, totalProfit: 0);
   }
 }
 
@@ -441,6 +372,11 @@ class DashboardStats {
   final double todaySalesTotal;
   final double totalSalesTotal;
   final double totalProfit;
+  final bool mobileServicesEnabled;
+  final double mobileServiceTodayCashPaid;
+  final double mobileServiceTodayNetCash;
+  final double mobileServiceTodayWalletIn;
+  final double mobileServiceTodayWalletOut;
   final double totalOutstanding;
   final double totalCreditSales;
   final List<DashboardCreditCustomer> creditCustomers;
@@ -455,6 +391,11 @@ class DashboardStats {
     required this.todaySalesTotal,
     required this.totalSalesTotal,
     required this.totalProfit,
+    this.mobileServicesEnabled = false,
+    this.mobileServiceTodayCashPaid = 0,
+    this.mobileServiceTodayNetCash = 0,
+    this.mobileServiceTodayWalletIn = 0,
+    this.mobileServiceTodayWalletOut = 0,
     required this.totalOutstanding,
     required this.totalCreditSales,
     required this.creditCustomers,
@@ -493,6 +434,9 @@ Future<void> refreshDashboardData(WidgetRef ref) async {
   final inventoryRepository = ref.read(inventoryRepositoryProvider);
   final posRepository = ref.read(posRepositoryProvider);
   final repairRepository = ref.read(repairRepositoryProvider);
+  final mobileServicesRepository = ref.read(mobileServicesRepositoryProvider);
+  final branchId = await ref.read(selectedBranchIdProvider.future);
+  final userId = Supabase.instance.client.auth.currentUser?.id;
 
   Future<void> safelyRefresh(Future<Object?> refresh) async {
     try {
@@ -507,6 +451,8 @@ Future<void> refreshDashboardData(WidgetRef ref) async {
     inventoryRepository.syncOfflineMutations(),
     posRepository.syncOfflineMutations(),
     repairRepository.syncOfflineMutations(),
+    if (userId != null)
+      safelyRefresh(mobileServicesRepository.syncOfflineMutations(userId)),
   ]);
 
   // Server data fetch karke local cache update hone ka wait karo.
@@ -520,6 +466,11 @@ Future<void> refreshDashboardData(WidgetRef ref) async {
       repairRepository.refreshCurrentRepairTicketsCache(
         timeout: const Duration(seconds: 10),
       ),
+    ),
+    safelyRefresh(
+      mobileServicesRepository
+          .fetchTransactions(branchId, limit: 1000)
+          .timeout(const Duration(seconds: 5)),
     ),
   ]);
 

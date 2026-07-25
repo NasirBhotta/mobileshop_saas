@@ -392,16 +392,40 @@ class MobileServiceReportSummary {
 class MobileServiceProfitSummary {
   final double todayProfit;
   final double totalProfit;
+  final double todayCashReceived;
+  final double totalCashReceived;
+  final double todayCashPaid;
+  final double totalCashPaid;
+  final double todayWalletIn;
+  final double totalWalletIn;
+  final double todayWalletOut;
+  final double totalWalletOut;
 
   const MobileServiceProfitSummary({
     required this.todayProfit,
     required this.totalProfit,
+    this.todayCashReceived = 0,
+    this.totalCashReceived = 0,
+    this.todayCashPaid = 0,
+    this.totalCashPaid = 0,
+    this.todayWalletIn = 0,
+    this.totalWalletIn = 0,
+    this.todayWalletOut = 0,
+    this.totalWalletOut = 0,
   });
 
   factory MobileServiceProfitSummary.fromMap(Map<String, dynamic> map) {
     return MobileServiceProfitSummary(
       todayProfit: _requiredDouble(map, 'today_profit'),
       totalProfit: _requiredDouble(map, 'total_profit'),
+      todayCashReceived: _optionalDouble(map['today_cash_received']) ?? 0,
+      totalCashReceived: _optionalDouble(map['total_cash_received']) ?? 0,
+      todayCashPaid: _optionalDouble(map['today_cash_paid']) ?? 0,
+      totalCashPaid: _optionalDouble(map['total_cash_paid']) ?? 0,
+      todayWalletIn: _optionalDouble(map['today_wallet_in']) ?? 0,
+      totalWalletIn: _optionalDouble(map['total_wallet_in']) ?? 0,
+      todayWalletOut: _optionalDouble(map['today_wallet_out']) ?? 0,
+      totalWalletOut: _optionalDouble(map['total_wallet_out']) ?? 0,
     );
   }
 }

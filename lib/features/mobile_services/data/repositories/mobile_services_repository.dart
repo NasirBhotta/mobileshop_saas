@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
+import 'package:mobileshop_saas/core/utils/network.dart';
 import 'package:mobileshop_saas/features/mobile_services/data/local/mobile_services_local_store.dart';
 import 'package:mobileshop_saas/features/mobile_services/data/local/mobile_services_mutation_queue.dart';
 import 'package:mobileshop_saas/features/mobile_services/data/models/mobile_service_commands.dart';
@@ -10,10 +13,12 @@ import 'package:mobileshop_saas/features/mobile_services/domain/service_charge_c
 
 class MobileServicesRepository {
   static const recordTransactionMutation = 'record_mobile_service_transaction';
+  static const _transactionNetworkTimeout = Duration(seconds: 5);
 
   final MobileServicesRemoteDataSource _remote;
   final MobileServicesLocalDataSource _local;
   final MobileServicesMutationQueue _mutationQueue;
+  final Map<String, Future<void>> _offlineSyncInFlightByUser = {};
 
   MobileServicesRepository({
     MobileServicesRemoteDataSource? remote,
@@ -28,7 +33,9 @@ class MobileServicesRepository {
     String branchId,
   ) async {
     try {
-      final rows = await _remote.fetchProviders(branchId);
+      final rows = await _remote
+          .fetchProviders(branchId)
+          .timeout(Network.networkTimeout);
       final providers = rows.map(MobileServiceProviderModel.fromMap).toList();
       try {
         await _local.saveProviders(providers);
@@ -44,7 +51,9 @@ class MobileServicesRepository {
     String branchId,
   ) async {
     try {
-      final rows = await _remote.fetchChargeRules(branchId);
+      final rows = await _remote
+          .fetchChargeRules(branchId)
+          .timeout(Network.networkTimeout);
       final rules = rows.map(MobileServiceChargeRuleModel.fromMap).toList();
       try {
         await _local.saveChargeRules(rules);
@@ -62,7 +71,9 @@ class MobileServicesRepository {
   }) async {
     if (limit <= 0) throw ArgumentError.value(limit, 'limit');
     try {
-      final rows = await _remote.fetchTransactions(branchId, limit: limit);
+      final rows = await _remote
+          .fetchTransactions(branchId, limit: limit)
+          .timeout(Network.networkTimeout);
       final transactions =
           rows.map(MobileServiceTransactionModel.fromMap).toList();
       try {
@@ -207,11 +218,13 @@ class MobileServicesRepository {
     required DateTime dayEnd,
   }) async {
     try {
-      final map = await _remote.invokeMapRpc('mobile_service_profit_summary', {
-        'p_branch_id': branchId,
-        'p_day_start': dayStart.toIso8601String(),
-        'p_day_end': dayEnd.toIso8601String(),
-      });
+      final map = await _remote
+          .invokeMapRpc('mobile_service_profit_summary', {
+            'p_branch_id': branchId,
+            'p_day_start': dayStart.toIso8601String(),
+            'p_day_end': dayEnd.toIso8601String(),
+          })
+          .timeout(Network.networkTimeout);
       return MobileServiceProfitSummary.fromMap(map);
     } catch (error) {
       OfflineErrorClassifier.rethrowIfTerminal(error);
@@ -223,7 +236,32 @@ class MobileServicesRepository {
     }
   }
 
-  Future<void> syncOfflineMutations(String userId) async {
+  Future<MobileServiceProfitSummary> loadCachedProfitSummary({
+    required String branchId,
+    required DateTime dayStart,
+    required DateTime dayEnd,
+  }) {
+    return _local.loadProfitSummary(
+      branchId: branchId,
+      dayStart: dayStart,
+      dayEnd: dayEnd,
+    );
+  }
+
+  Future<void> syncOfflineMutations(String userId) {
+    final activeSync = _offlineSyncInFlightByUser[userId];
+    if (activeSync != null) return activeSync;
+
+    final sync = _syncOfflineMutations(userId);
+    _offlineSyncInFlightByUser[userId] = sync;
+    return sync.whenComplete(() {
+      if (identical(_offlineSyncInFlightByUser[userId], sync)) {
+        _offlineSyncInFlightByUser.remove(userId);
+      }
+    });
+  }
+
+  Future<void> _syncOfflineMutations(String userId) async {
     final snapshot = await _mutationQueue.load(userId);
     if (snapshot.isEmpty) return;
 
@@ -260,13 +298,15 @@ class MobileServicesRepository {
 
   Future<MobileServiceTransactionModel> _sendTransaction(
     Map<String, dynamic> params,
-  ) async {
-    final id = await _remote.invokeUuidRpc(
-      'record_mobile_service_transaction',
-      params,
-    );
-    final row = await _remote.fetchTransactionById(id);
-    return MobileServiceTransactionModel.fromMap(row);
+  ) {
+    return (() async {
+      final id = await _remote.invokeUuidRpc(
+        'record_mobile_service_transaction',
+        params,
+      );
+      final row = await _remote.fetchTransactionById(id);
+      return MobileServiceTransactionModel.fromMap(row);
+    })().timeout(_transactionNetworkTimeout);
   }
 
   MobileServiceTransactionModel _buildPendingTransaction({

@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/features/accounts/presentation/providers/accounts_provider.dart';
@@ -17,6 +21,82 @@ final mobileServicesRepositoryProvider = Provider<MobileServicesRepository>((
 
 final mobileServiceCurrentUserIdProvider = Provider<String?>((ref) {
   return Supabase.instance.client.auth.currentUser?.id;
+});
+
+/// Keeps the existing shared offline queue moving without requiring the
+/// Mobile Services screen to be open. Connectivity is only a retry signal;
+/// failed attempts remain queued by the repository.
+final mobileServiceAutoSyncProvider = Provider<void>((ref) {
+  final connectivity = Connectivity();
+  Timer? debounce;
+  var disposed = false;
+
+  Future<void> attemptSync() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || disposed) return;
+
+    try {
+      await ref
+          .read(mobileServicesRepositoryProvider)
+          .syncOfflineMutations(userId);
+      if (disposed) return;
+
+      final accountsRepository = ref.read(accountsRepositoryProvider);
+      try {
+        await Future.wait([
+          accountsRepository.refreshCurrentAccountsCache(
+            timeout: const Duration(seconds: 10),
+          ),
+          accountsRepository.refreshCurrentTransactionsCache(
+            timeout: const Duration(seconds: 10),
+          ),
+        ]);
+      } catch (_) {
+        // The queue has already synced. Normal cache refresh can retry later.
+      }
+
+      if (disposed) return;
+      ref
+        ..invalidate(mobileServiceTransactionsProvider)
+        ..invalidate(mobileServiceReportProvider)
+        ..invalidate(accountsProvider)
+        ..invalidate(accountTransactionsProvider)
+        ..invalidate(dashboardStatsProvider);
+    } catch (error) {
+      // Offline-first: a failed reconnect probe must not surface as an app
+      // error or remove the queued mutation.
+      debugPrint('Mobile Services auto-sync deferred: $error');
+    }
+  }
+
+  void scheduleSync() {
+    debounce?.cancel();
+    debounce = Timer(const Duration(milliseconds: 750), () {
+      unawaited(attemptSync());
+    });
+  }
+
+  final connectivitySubscription = connectivity.onConnectivityChanged.listen((
+    results,
+  ) {
+    if (results.any((result) => result != ConnectivityResult.none)) {
+      scheduleSync();
+    }
+  });
+  final authSubscription = Supabase.instance.client.auth.onAuthStateChange
+      .listen((authState) {
+        if (authState.session != null) scheduleSync();
+      });
+
+  // Covers an already-restored session on application startup.
+  scheduleSync();
+
+  ref.onDispose(() {
+    disposed = true;
+    debounce?.cancel();
+    unawaited(connectivitySubscription.cancel());
+    unawaited(authSubscription.cancel());
+  });
 });
 
 final mobileServiceProvidersProvider =
@@ -420,12 +500,12 @@ class MobileServiceActionController
             rule: rule,
           );
       state = const AsyncData(MobileServiceSubmissionResult.completed);
-      _afterFinancialChange();
+      await _afterFinancialChange(refreshAccountCache: true);
       formController.reset();
       return true;
     } on MobileServiceQueuedOfflineException {
       state = const AsyncData(MobileServiceSubmissionResult.queued);
-      _afterFinancialChange();
+      await _afterFinancialChange(refreshAccountCache: false);
       formController.reset();
       return true;
     } catch (error, stackTrace) {
@@ -448,7 +528,7 @@ class MobileServiceActionController
           .read(mobileServicesRepositoryProvider)
           .voidTransaction(command);
       state = const AsyncData(MobileServiceSubmissionResult.completed);
-      _afterFinancialChange();
+      await _afterFinancialChange(refreshAccountCache: true);
       return true;
     } catch (error, stackTrace) {
       state = AsyncError(error, stackTrace);
@@ -466,7 +546,7 @@ class MobileServiceActionController
           .read(mobileServicesRepositoryProvider)
           .syncOfflineMutations(userId);
       state = const AsyncData(MobileServiceSubmissionResult.completed);
-      _afterFinancialChange();
+      await _afterFinancialChange(refreshAccountCache: true);
     } catch (error, stackTrace) {
       state = AsyncError(error, stackTrace);
     }
@@ -476,7 +556,25 @@ class MobileServiceActionController
     state = const AsyncData(null);
   }
 
-  void _afterFinancialChange() {
+  Future<void> _afterFinancialChange({
+    required bool refreshAccountCache,
+  }) async {
+    if (refreshAccountCache) {
+      final accountsRepository = _ref.read(accountsRepositoryProvider);
+      try {
+        await Future.wait([
+          accountsRepository.refreshCurrentAccountsCache(
+            timeout: const Duration(seconds: 10),
+          ),
+          accountsRepository.refreshCurrentTransactionsCache(
+            timeout: const Duration(seconds: 10),
+          ),
+        ]);
+      } catch (_) {
+        // The financial RPC already succeeded. Keep the successful result and
+        // let the normal account refresh/realtime path retry stale cache data.
+      }
+    }
     _ref
       ..invalidate(mobileServiceTransactionsProvider)
       ..invalidate(mobileServiceReportProvider)

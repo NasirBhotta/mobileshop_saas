@@ -596,6 +596,49 @@ class _StatsGrid extends StatelessWidget {
           color: AppColors.secondaryDark,
           isCompact: compact,
         ),
+        if (stats?.mobileServicesEnabled == true) ...[
+          StatCard(
+            title: 'Today Cash Paid',
+            subtitle: 'Mobile Services',
+            value: _moneyOrLoading(
+              stats?.mobileServiceTodayCashPaid,
+              isLoading,
+            ),
+            icon: Icons.money_off_csred_rounded,
+            color: AppColors.error,
+            isCompact: compact,
+          ),
+          StatCard(
+            title: 'Net Service Cash',
+            subtitle: 'Cash received − cash paid',
+            value: _moneyOrLoading(stats?.mobileServiceTodayNetCash, isLoading),
+            icon: Icons.account_balance_wallet_outlined,
+            color: AppColors.info,
+            isCompact: compact,
+          ),
+          StatCard(
+            title: 'Wallet In',
+            subtitle: 'Today • Easypaisa/JazzCash',
+            value: _moneyOrLoading(
+              stats?.mobileServiceTodayWalletIn,
+              isLoading,
+            ),
+            icon: Icons.south_west_rounded,
+            color: AppColors.success,
+            isCompact: compact,
+          ),
+          StatCard(
+            title: 'Wallet Out',
+            subtitle: 'Today • Easypaisa/JazzCash',
+            value: _moneyOrLoading(
+              stats?.mobileServiceTodayWalletOut,
+              isLoading,
+            ),
+            icon: Icons.north_east_rounded,
+            color: AppColors.warning,
+            isCompact: compact,
+          ),
+        ],
         StatCard(
           title: AppStrings.dashboardTotalUdhar,
           value: _moneyOrLoading(stats?.totalOutstanding, isLoading),

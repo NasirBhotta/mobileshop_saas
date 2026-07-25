@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobileshop_saas/features/auth/presentation/providers/auth_provider.dart';
+import 'package:mobileshop_saas/features/mobile_services/presentation/providers/mobile_services_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -52,6 +53,7 @@ class MobileShopApp extends ConsumerWidget {
     ref.watch(authListenerProvider);
     ref.watch(tenantAccessRealtimeProvider);
     ref.watch(tenantAccessSafetyRefreshProvider);
+    ref.watch(mobileServiceAutoSyncProvider);
     final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(

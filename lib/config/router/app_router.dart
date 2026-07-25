@@ -212,15 +212,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         // Authentication and intro handling above still apply.
         if (location == '/router-error') return null;
 
-        debugPrint("Router evaluating: ${state.uri.path}");
-
         if (setupReadyUserId != session.user.id) {
           setupReadyUserId = session.user.id;
           setupReadyStatus = null;
         }
         final setupStatus = await loadSetupStatus(session.user.id);
-
-        debugPrint("Router target: ${setupStatus.target}");
 
         if (setupStatus.target == SetupRouteTarget.setup) {
           return location == '/setup' ? null : '/setup';

@@ -157,13 +157,15 @@ final entitlementRealtimeRefreshProvider = Provider<void>((ref) {
       callback: refresh,
     );
   }
+  var realtimeFailureLogged = false;
   channel.subscribe((status, error) {
-    debugPrint(
-      'Entitlement realtime: $status${error == null ? '' : ' ($error)'}',
-    );
     if (status == RealtimeSubscribeStatus.subscribed) {
+      realtimeFailureLogged = false;
       ref.read(entitlementRevisionProvider.notifier).refresh();
       ref.read(entitlementRouterRefreshProvider).refresh();
+    } else if (error != null && !realtimeFailureLogged) {
+      realtimeFailureLogged = true;
+      debugPrint('Entitlement realtime unavailable; using cached access.');
     }
   });
   ref.onDispose(() => client.removeChannel(channel));

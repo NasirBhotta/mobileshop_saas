@@ -126,7 +126,18 @@ void main() {
   });
 
   test('profit summary is converted for dashboard totals', () async {
-    remote.mapResult = {'today_profit': '45.00', 'total_profit': '350.00'};
+    remote.mapResult = {
+      'today_profit': '45.00',
+      'total_profit': '350.00',
+      'today_cash_received': '1020.00',
+      'total_cash_received': '12000.00',
+      'today_cash_paid': '980.00',
+      'total_cash_paid': '8000.00',
+      'today_wallet_in': '1000.00',
+      'total_wallet_in': '8200.00',
+      'today_wallet_out': '1000.00',
+      'total_wallet_out': '11700.00',
+    };
 
     final summary = await repository.fetchProfitSummary(
       branchId: 'branch-1',
@@ -136,6 +147,10 @@ void main() {
 
     expect(summary.todayProfit, 45);
     expect(summary.totalProfit, 350);
+    expect(summary.todayCashReceived, 1020);
+    expect(summary.todayCashPaid, 980);
+    expect(summary.todayWalletIn, 1000);
+    expect(summary.todayWalletOut, 1000);
     expect(remote.lastFunctionName, 'mobile_service_profit_summary');
   });
 

@@ -165,6 +165,26 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
   final user = client.auth.currentUser;
   if (user == null) return TenantAccessState.active;
 
+  // Offline-first fast path: a still-valid signed lease is sufficient to open
+  // the app immediately. Online verification runs in the background and can
+  // revoke access, but network latency never blocks an already verified user.
+  final cachedProfile = await _loadCachedProfile(user.id);
+  final cachedTenantId = cachedProfile?['tenant_id'] as String?;
+  if (cachedTenantId != null) {
+    final cachedAccess = await _resolveOfflineAccess(cachedTenantId);
+    if (cachedAccess == TenantAccessState.active) {
+      unawaited(
+        _refreshTenantAccessOnline(
+          ref: ref,
+          client: client,
+          userId: user.id,
+          tenantId: cachedTenantId,
+        ),
+      );
+      return cachedAccess;
+    }
+  }
+
   final Map<String, dynamic>? profile;
   try {
     profile = await client
@@ -257,6 +277,74 @@ final tenantAccessProvider = FutureProvider<TenantAccessState>((ref) async {
   _scheduleOfflineAccessRefresh(ref, lease);
   return result;
 });
+
+Future<void> _refreshTenantAccessOnline({
+  required Ref ref,
+  required SupabaseClient client,
+  required String userId,
+  required String tenantId,
+}) async {
+  try {
+    final results = await Future.wait<Map<String, dynamic>?>([
+      client
+          .from('users')
+          .select('tenant_id')
+          .eq('id', userId)
+          .maybeSingle()
+          .timeout(_tenantAccessNetworkTimeout),
+      client
+          .from('tenants')
+          .select('id, status, plan, setup_complete')
+          .eq('id', tenantId)
+          .maybeSingle()
+          .timeout(_tenantAccessNetworkTimeout),
+      client
+          .from('tenant_subscriptions')
+          .select(
+            'tenant_id, status, trial_ends_at, grace_ends_at, expires_at, is_active, deleted_at',
+          )
+          .eq('tenant_id', tenantId)
+          .eq('is_active', true)
+          .isFilter('deleted_at', null)
+          .maybeSingle()
+          .timeout(_tenantAccessNetworkTimeout),
+    ]);
+    final profile = results[0];
+    final tenant = results[1];
+    final subscription = results[2];
+    if (profile?['tenant_id']?.toString() != tenantId || tenant == null) return;
+
+    final serverNow = await _loadServerUtcNow(
+      client,
+    ).timeout(_tenantAccessNetworkTimeout);
+    final state = resolveTenantAccessState(
+      tenant['status'],
+      subscription: subscription,
+      requireSubscription: tenant['setup_complete'] == true,
+      now: serverNow,
+    );
+    final deviceNow = DateTime.now().toUtc();
+    final lease = _TenantAccessLease(
+      state: state,
+      serverVerifiedAt: serverNow,
+      deviceTimeAtVerification: deviceNow,
+      lastObservedDeviceTime: deviceNow,
+      offlineAccessUntil: _calculateOfflineAccessDeadline(
+        serverNow: serverNow,
+        subscription: subscription,
+      ),
+    );
+    await _saveOnlineCache(tenantId, tenant, lease);
+    _scheduleOfflineAccessRefresh(ref, lease);
+    if (state != TenantAccessState.active) {
+      ref.invalidate(tenantAccessProvider);
+      ref.read(tenantAccessRefreshProvider).refresh();
+    }
+  } catch (_) {
+    // Expected offline state. The signed cached lease remains authoritative
+    // until its deadline and the next lifecycle/periodic refresh retries.
+  }
+}
 
 final tenantAccessRealtimeProvider = FutureProvider<void>((ref) async {
   final client = Supabase.instance.client;

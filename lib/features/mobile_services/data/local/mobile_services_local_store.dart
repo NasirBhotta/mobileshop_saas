@@ -261,17 +261,48 @@ class MobileServicesLocalStore implements MobileServicesLocalDataSource {
     );
     var todayProfit = 0.0;
     var totalProfit = 0.0;
+    var todayCashReceived = 0.0;
+    var totalCashReceived = 0.0;
+    var todayCashPaid = 0.0;
+    var totalCashPaid = 0.0;
+    var todayWalletIn = 0.0;
+    var totalWalletIn = 0.0;
+    var todayWalletOut = 0.0;
+    var totalWalletOut = 0.0;
     for (final row in rows) {
       final transaction = _transactionFromRow(row);
       totalProfit += transaction.profitAmount;
+      final isCashReceived = transaction.operation.code == 'send';
+      if (isCashReceived) {
+        totalCashReceived += transaction.customerCashAmount;
+        totalWalletOut += transaction.serviceAmount;
+      } else {
+        totalCashPaid += transaction.customerCashAmount;
+        totalWalletIn += transaction.serviceAmount;
+      }
       final occurredAt = transaction.transactionAt;
       if (!occurredAt.isBefore(dayStart) && occurredAt.isBefore(dayEnd)) {
         todayProfit += transaction.profitAmount;
+        if (isCashReceived) {
+          todayCashReceived += transaction.customerCashAmount;
+          todayWalletOut += transaction.serviceAmount;
+        } else {
+          todayCashPaid += transaction.customerCashAmount;
+          todayWalletIn += transaction.serviceAmount;
+        }
       }
     }
     return MobileServiceProfitSummary(
       todayProfit: todayProfit,
       totalProfit: totalProfit,
+      todayCashReceived: todayCashReceived,
+      totalCashReceived: totalCashReceived,
+      todayCashPaid: todayCashPaid,
+      totalCashPaid: totalCashPaid,
+      todayWalletIn: todayWalletIn,
+      totalWalletIn: totalWalletIn,
+      todayWalletOut: todayWalletOut,
+      totalWalletOut: totalWalletOut,
     );
   }
 

@@ -299,6 +299,14 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
         widget.providers
             .where((provider) => provider.id == form.providerId)
             .firstOrNull;
+    final selectedWallet =
+        selectedProvider == null
+            ? null
+            : widget.accounts
+                .where(
+                  (account) => account.id == selectedProvider.providerAccountId,
+                )
+                .firstOrNull;
     final selectedRule =
         widget.rules
             .where(
@@ -369,9 +377,18 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
                       },
             ),
             const SizedBox(height: 12),
+            _LinkedWalletCard(
+              provider: selectedProvider,
+              wallet: selectedWallet,
+            ),
+            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               initialValue: _cashAccountId,
-              decoration: const InputDecoration(labelText: 'Cash account'),
+              decoration: const InputDecoration(
+                labelText: 'Customer cash account',
+                helperText:
+                    'Cash received from or paid to the customer is recorded here.',
+              ),
               items: [
                 for (final account in widget.cashAccounts)
                   DropdownMenuItem(
@@ -465,13 +482,7 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
                     widget.accounts
                         .where((account) => account.id == _cashAccountId)
                         .firstOrNull,
-                walletAccount:
-                    widget.accounts
-                        .where(
-                          (account) =>
-                              account.id == selectedProvider.providerAccountId,
-                        )
-                        .firstOrNull,
+                walletAccount: selectedWallet,
               ),
             ],
             const SizedBox(height: 16),
@@ -479,7 +490,11 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed:
-                    widget.busy || !form.canSubmit || _cashAccountId == null
+                    widget.busy ||
+                            !form.canSubmit ||
+                            _cashAccountId == null ||
+                            selectedWallet == null ||
+                            !selectedWallet.isActive
                         ? null
                         : () => _confirmAndSubmit(context),
                 icon: const Icon(Icons.check_circle_outline_rounded),
@@ -558,6 +573,60 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
       _referenceController.clear();
       _descriptionController.clear();
     }
+  }
+}
+
+class _LinkedWalletCard extends StatelessWidget {
+  final MobileServiceProviderModel? provider;
+  final AccountModel? wallet;
+
+  const _LinkedWalletCard({required this.provider, required this.wallet});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    if (provider == null) {
+      return const SizedBox.shrink();
+    }
+    final available = wallet != null && wallet!.isActive;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color:
+            available
+                ? colors.primaryContainer.withValues(alpha: 0.45)
+                : colors.errorContainer,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            available
+                ? Icons.account_balance_wallet_outlined
+                : Icons.warning_amber_rounded,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  available ? 'Linked wallet' : 'Linked wallet unavailable',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  available
+                      ? '${wallet!.name} • Rs ${_money(wallet!.currentBalance)}'
+                      : '${provider!.name} ko Settings mein an active mobile wallet se link karein.',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
