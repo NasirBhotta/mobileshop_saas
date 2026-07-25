@@ -125,6 +125,37 @@ void main() {
     expect(remote.lastFunctionName, 'mobile_service_report_summary');
   });
 
+  test('profit summary is converted for dashboard totals', () async {
+    remote.mapResult = {'today_profit': '45.00', 'total_profit': '350.00'};
+
+    final summary = await repository.fetchProfitSummary(
+      branchId: 'branch-1',
+      dayStart: DateTime.utc(2026, 7, 25),
+      dayEnd: DateTime.utc(2026, 7, 26),
+    );
+
+    expect(summary.todayProfit, 45);
+    expect(summary.totalProfit, 350);
+    expect(remote.lastFunctionName, 'mobile_service_profit_summary');
+  });
+
+  test('profit summary falls back to cached values while offline', () async {
+    remote.error = TimeoutException('offline');
+    local.profitSummary = const MobileServiceProfitSummary(
+      todayProfit: 20,
+      totalProfit: 120,
+    );
+
+    final summary = await repository.fetchProfitSummary(
+      branchId: 'branch-1',
+      dayStart: DateTime.utc(2026, 7, 25),
+      dayEnd: DateTime.utc(2026, 7, 26),
+    );
+
+    expect(summary.todayProfit, 20);
+    expect(local.lastBranchId, 'branch-1');
+  });
+
   test('failed transaction is queued with the same stable IDs', () async {
     remote.error = TimeoutException('offline');
     final provider = MobileServiceProviderModel.fromMap(_providerMap());
@@ -286,6 +317,10 @@ class _FakeLocal implements MobileServicesLocalDataSource {
   List<MobileServiceChargeRuleModel> rules = [];
   List<MobileServiceTransactionModel> transactions = [];
   String? lastBranchId;
+  MobileServiceProfitSummary profitSummary = const MobileServiceProfitSummary(
+    todayProfit: 0,
+    totalProfit: 0,
+  );
 
   @override
   Future<List<MobileServiceProviderModel>> loadProviders(
@@ -320,6 +355,16 @@ class _FakeLocal implements MobileServicesLocalDataSource {
   }) async {
     lastBranchId = branchId;
     return transactions.take(limit).toList();
+  }
+
+  @override
+  Future<MobileServiceProfitSummary> loadProfitSummary({
+    required String branchId,
+    required DateTime dayStart,
+    required DateTime dayEnd,
+  }) async {
+    lastBranchId = branchId;
+    return profitSummary;
   }
 
   @override

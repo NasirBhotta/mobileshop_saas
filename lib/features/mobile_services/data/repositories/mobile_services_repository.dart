@@ -206,12 +206,21 @@ class MobileServicesRepository {
     required DateTime dayStart,
     required DateTime dayEnd,
   }) async {
-    final map = await _remote.invokeMapRpc('mobile_service_profit_summary', {
-      'p_branch_id': branchId,
-      'p_day_start': dayStart.toIso8601String(),
-      'p_day_end': dayEnd.toIso8601String(),
-    });
-    return MobileServiceProfitSummary.fromMap(map);
+    try {
+      final map = await _remote.invokeMapRpc('mobile_service_profit_summary', {
+        'p_branch_id': branchId,
+        'p_day_start': dayStart.toIso8601String(),
+        'p_day_end': dayEnd.toIso8601String(),
+      });
+      return MobileServiceProfitSummary.fromMap(map);
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      return _local.loadProfitSummary(
+        branchId: branchId,
+        dayStart: dayStart,
+        dayEnd: dayEnd,
+      );
+    }
   }
 
   Future<void> syncOfflineMutations(String userId) async {

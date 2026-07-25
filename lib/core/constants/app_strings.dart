@@ -5,6 +5,7 @@ class AppStrings {
   // App General
   // ═══════════════════════════════════════
   static const String appName = 'MobileShop SaaS';
+  static const String navMobileServices = 'Mobile Services';
 
   // ═══════════════════════════════════════
   // Intro Screens

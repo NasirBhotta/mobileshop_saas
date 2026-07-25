@@ -22,6 +22,12 @@ abstract interface class MobileServicesLocalDataSource {
     String branchId, {
     required int limit,
   });
+
+  Future<MobileServiceProfitSummary> loadProfitSummary({
+    required String branchId,
+    required DateTime dayStart,
+    required DateTime dayEnd,
+  });
 }
 
 class MobileServicesLocalStore implements MobileServicesLocalDataSource {
@@ -236,6 +242,37 @@ class MobileServicesLocalStore implements MobileServicesLocalDataSource {
       [branchId, limit],
     );
     return rows.map(_transactionFromRow).toList();
+  }
+
+  @override
+  Future<MobileServiceProfitSummary> loadProfitSummary({
+    required String branchId,
+    required DateTime dayStart,
+    required DateTime dayEnd,
+  }) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT payload_json
+      FROM mobile_service_transactions
+      WHERE branch_id = ?
+        AND status IN ('completed', 'pending_sync')
+      ''',
+      [branchId],
+    );
+    var todayProfit = 0.0;
+    var totalProfit = 0.0;
+    for (final row in rows) {
+      final transaction = _transactionFromRow(row);
+      totalProfit += transaction.profitAmount;
+      final occurredAt = transaction.transactionAt;
+      if (!occurredAt.isBefore(dayStart) && occurredAt.isBefore(dayEnd)) {
+        todayProfit += transaction.profitAmount;
+      }
+    }
+    return MobileServiceProfitSummary(
+      todayProfit: todayProfit,
+      totalProfit: totalProfit,
+    );
   }
 
   MobileServiceProviderModel _providerFromRow(Map<String, dynamic> row) {

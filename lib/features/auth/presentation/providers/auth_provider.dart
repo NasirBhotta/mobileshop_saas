@@ -10,6 +10,7 @@ import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../../core/tenant_access/tenant_access_provider.dart';
 import '../../../dashboard/presentation/providers/dashboard_provider.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
+import '../../../mobile_services/presentation/providers/mobile_services_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 import '../../../onboarding/presentation/providers/shop_setup_provider.dart';
 import '../../../pos/presentation/providers/pos_provider.dart';
@@ -142,6 +143,14 @@ void _invalidateAuthScopedProviders(Ref ref) {
   ref.invalidate(approvedReturnsProvider);
   ref.invalidate(allApprovedReturnsProvider);
   ref.invalidate(allCustomerSettlementsProvider);
+  ref.invalidate(mobileServiceProvidersProvider);
+  ref.invalidate(mobileServiceChargeRulesProvider);
+  ref.invalidate(mobileServiceTransactionsProvider);
+  ref.invalidate(mobileServiceReportFilterProvider);
+  ref.invalidate(mobileServiceReportProvider);
+  ref.invalidate(mobileServiceFormControllerProvider);
+  ref.invalidate(mobileServiceActionControllerProvider);
+  ref.invalidate(mobileServiceSettingsControllerProvider);
 
   ref.invalidate(selectedRepairStatusFilterProvider);
   ref.invalidate(repairTicketsProvider);

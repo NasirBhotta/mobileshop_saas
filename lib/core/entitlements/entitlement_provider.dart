@@ -178,6 +178,7 @@ const routeFeatureEntitlements = <String, String>{
   '/suppliers': 'suppliers.access',
   '/purchase-orders': 'purchases.access',
   '/accounts': 'accounts.access',
+  '/mobile-services': 'mobile_services.access',
   '/expenses': 'expenses.access',
   '/reports': 'reports.access',
   '/settings': 'settings.access',

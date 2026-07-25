@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/local/local_database.dart';
 import '../../../../core/tenant_access/tenant_access_provider.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
+import '../../../mobile_services/data/repositories/mobile_services_repository.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 import '../../../pos/data/models/customer_dashboard_model.dart';
 import '../../../pos/data/models/customer_model.dart';
@@ -74,6 +75,7 @@ final dashboardRealtimeRefreshProvider = FutureProvider.autoDispose<void>((
     'sales',
     'customers',
     'customer_settlements',
+    'mobile_service_transactions',
   ]) {
     channel.onPostgresChanges(
       event: PostgresChangeEvent.all,
@@ -110,9 +112,11 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final enabledFeatures = await Future.wait<bool>([
     ref.watch(featureEntitlementProvider('pos.returns').future),
     ref.watch(featureEntitlementProvider('repairs.tickets').future),
+    ref.watch(featureEntitlementProvider('mobile_services.access').future),
   ]);
   final returnsEnabled = enabledFeatures[0];
   final repairsEnabled = enabledFeatures[1];
+  final mobileServicesEnabled = enabledFeatures[2];
 
   final dashboardData = await Future.wait<Object>([
     ref.watch(allSalesProvider.future),
@@ -219,6 +223,10 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
     dateFrom: DateTime(today.year, today.month, today.day),
     dateTo: DateTime(today.year, today.month, today.day),
   );
+  final mobileServiceTodayProfit =
+      mobileServicesEnabled
+          ? await _loadMobileServiceTodayProfit(branchId, today)
+          : 0.0;
   final totalCreditSales = completedSales.fold<double>(
     0,
     (sum, sale) => sum + sale.creditAmount,
@@ -277,7 +285,7 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
         todayRepairTotal -
         todayRefundTotal,
     totalSalesTotal: totalSalesTotal,
-    totalProfit: totalProfit,
+    totalProfit: totalProfit + mobileServiceTodayProfit,
     totalOutstanding: totalOutstanding,
     totalCreditSales: totalCreditSales,
     creditCustomers: creditCustomers.take(5).toList(),
@@ -285,6 +293,25 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
     priorityRepairs: priorityRepairs,
   );
 });
+
+Future<double> _loadMobileServiceTodayProfit(
+  String branchId,
+  DateTime today,
+) async {
+  final dayStart = DateTime(today.year, today.month, today.day);
+  final dayEnd = dayStart.add(const Duration(days: 1));
+  try {
+    final summary = await MobileServicesRepository().fetchProfitSummary(
+      branchId: branchId,
+      dayStart: dayStart,
+      dayEnd: dayEnd,
+    );
+    return summary.todayProfit;
+  } catch (error) {
+    debugPrint('Mobile Services dashboard profit unavailable: $error');
+    return 0;
+  }
+}
 
 List<RepairTicketModel> selectPriorityRepairTickets(
   Iterable<RepairTicketModel> tickets, {

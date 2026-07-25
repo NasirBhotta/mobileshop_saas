@@ -21,6 +21,9 @@ import 'package:mobileshop_saas/features/inventory/presentation/screens/csv_impo
 import 'package:mobileshop_saas/features/inventory/presentation/screens/inventory_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/product_form_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/stock_adjustment_screen.dart';
+import 'package:mobileshop_saas/features/mobile_services/presentation/screens/mobile_service_settings_screen.dart';
+import 'package:mobileshop_saas/features/mobile_services/presentation/screens/mobile_service_report_screen.dart';
+import 'package:mobileshop_saas/features/mobile_services/presentation/screens/mobile_services_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/app_intro_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/branch_selection_screen.dart';
 import 'package:mobileshop_saas/features/onboarding/presentation/screens/shop_setup_screen.dart';
@@ -403,6 +406,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             },
           ),
           GoRoute(
+            path: '/mobile-services',
+            builder: (_, _) => const MobileServicesScreen(),
+          ),
+          GoRoute(
+            path: '/mobile-services/settings',
+            builder: (_, _) => const MobileServiceSettingsScreen(),
+          ),
+          GoRoute(
             path: '/expenses',
             builder: (context, state) {
               return const ExpensesScreen();
@@ -463,6 +474,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) {
               return const ReportsHomeScreen();
             },
+          ),
+          GoRoute(
+            path: '/reports/mobile-services',
+            builder: (_, _) => const MobileServiceReportScreen(),
           ),
 
           GoRoute(
@@ -677,7 +692,8 @@ int _shellIndexForLocation(String location) {
   if (location.startsWith('/purchase-orders')) return 5;
   if (location.startsWith('/expenses')) return 6;
   if (location.startsWith('/accounts')) return 7;
-  if (location.startsWith('/reports')) return 8;
-  if (location.startsWith('/settings')) return 9;
+  if (location.startsWith('/mobile-services')) return 8;
+  if (location.startsWith('/reports')) return 9;
+  if (location.startsWith('/settings')) return 10;
   return 0;
 }

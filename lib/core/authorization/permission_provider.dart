@@ -12,3 +12,8 @@ final permissionEvaluatorProvider = Provider<PermissionEvaluator>((ref) {
     dataSource: ref.watch(permissionDataSourceProvider),
   );
 });
+
+final permissionAccessProvider =
+    FutureProvider.family<PermissionAccessResult, String>((ref, key) {
+      return ref.watch(permissionEvaluatorProvider).can(key);
+    });

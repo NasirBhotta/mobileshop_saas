@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/entitlements/entitlement_provider.dart';
+import '../../core/authorization/permission_provider.dart';
 import '../../features/onboarding/data/repositories/setup_flow_repository.dart';
 import '../providers/navigation_loading_provider.dart';
 
@@ -68,6 +69,12 @@ class DesktopNav extends ConsumerWidget {
       feature: 'accounts.access',
     ),
     (
+      icon: Icons.swap_horiz_rounded,
+      label: AppStrings.navMobileServices,
+      path: '/mobile-services',
+      feature: 'mobile_services.access',
+    ),
+    (
       icon: Icons.insights_rounded,
       label: AppStrings.navReports,
       path: '/reports',
@@ -99,11 +106,27 @@ class DesktopNav extends ConsumerWidget {
             bool enabled,
           })
         >[];
+    final mobileServiceViewAccess = ref.watch(
+      permissionAccessProvider('mobile_service.transaction.view'),
+    );
+    final mobileServiceCreateAccess = ref.watch(
+      permissionAccessProvider('mobile_service.transaction.create'),
+    );
+    final mobileServicePermissionResolved =
+        mobileServiceViewAccess.hasValue && mobileServiceCreateAccess.hasValue;
+    final mobileServicePermissionAllowed =
+        mobileServiceViewAccess.value?.isAllowed == true ||
+        mobileServiceCreateAccess.value?.isAllowed == true;
     for (var index = 0; index < _items.length; index++) {
       final item = _items[index];
       final access = ref.watch(
         compatibleFeatureEntitlementProvider(item.feature),
       );
+      if (item.path == '/mobile-services' &&
+          mobileServicePermissionResolved &&
+          !mobileServicePermissionAllowed) {
+        continue;
+      }
       visibleItems.add((
         originalIndex: index,
         icon: item.icon,

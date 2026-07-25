@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
+import '../../../../core/authorization/permission_provider.dart';
 
 class ReportsHomeScreen extends ConsumerWidget {
   const ReportsHomeScreen({super.key});
@@ -14,6 +15,22 @@ class ReportsHomeScreen extends ConsumerWidget {
     final businessEnabled =
         ref.watch(reportFeatureEntitlementProvider('reports.business')).value !=
         false;
+    final mobileServicesEnabled =
+        ref.watch(featureEntitlementProvider('mobile_services.access')).value !=
+        false;
+    final mobileReportAccess = ref.watch(
+      permissionAccessProvider('mobile_service.report.view'),
+    );
+    final businessReportAccess = ref.watch(
+      permissionAccessProvider('report.business.view'),
+    );
+    final mobileReportPermissionResolved =
+        mobileReportAccess.hasValue && businessReportAccess.hasValue;
+    final showMobileServices =
+        mobileServicesEnabled &&
+        (!mobileReportPermissionResolved ||
+            mobileReportAccess.value?.isAllowed == true ||
+            businessReportAccess.value?.isAllowed == true);
     return Scaffold(
       appBar: AppBar(title: const Text('Reports')),
       body: SafeArea(
@@ -59,6 +76,10 @@ class ReportsHomeScreen extends ConsumerWidget {
                             const SizedBox(height: 14),
                           if (businessEnabled) const _BusinessReportsCard(),
                         ],
+                        if (showMobileServices) ...[
+                          const SizedBox(height: 14),
+                          const _MobileServicesReportsCard(),
+                        ],
                       ],
                     ),
                   ),
@@ -68,6 +89,29 @@ class ReportsHomeScreen extends ConsumerWidget {
           },
         ),
       ),
+    );
+  }
+}
+
+class _MobileServicesReportsCard extends StatelessWidget {
+  const _MobileServicesReportsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ReportGroupCard(
+      icon: Icons.swap_horiz_rounded,
+      title: 'Mobile Services',
+      subtitle:
+          'Easypaisa and JazzCash send/receive totals, customer cash flow, and service profit.',
+      primaryLabel: 'Open Mobile Services Report',
+      primaryRoute: '/reports/mobile-services',
+      links: [
+        _ReportLink(
+          icon: Icons.analytics_outlined,
+          label: 'Mobile Services Summary',
+          route: '/reports/mobile-services',
+        ),
+      ],
     );
   }
 }

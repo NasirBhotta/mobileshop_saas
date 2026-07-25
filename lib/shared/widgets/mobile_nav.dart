@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/entitlements/entitlement_provider.dart';
+import '../../core/authorization/permission_provider.dart';
 import '../../features/onboarding/data/repositories/setup_flow_repository.dart';
 import '../providers/navigation_loading_provider.dart';
 
@@ -25,6 +26,17 @@ class MobileNav extends ConsumerWidget {
     for (final key in routeFeatureEntitlements.values.toSet()) {
       enabled[key] = ref.watch(featureEntitlementProvider(key)).value != false;
     }
+    final mobileServiceViewAccess = ref.watch(
+      permissionAccessProvider('mobile_service.transaction.view'),
+    );
+    final mobileServiceCreateAccess = ref.watch(
+      permissionAccessProvider('mobile_service.transaction.create'),
+    );
+    final mobileServicePermissionResolved =
+        mobileServiceViewAccess.hasValue && mobileServiceCreateAccess.hasValue;
+    final mobileServicePermissionAllowed =
+        mobileServiceViewAccess.value?.isAllowed == true ||
+        mobileServiceCreateAccess.value?.isAllowed == true;
     final items =
         <({int originalIndex, String? path, Widget destination, bool enabled})>[
           (
@@ -106,6 +118,9 @@ class MobileNav extends ConsumerWidget {
               ref,
               hasMultipleBranches: hasMultipleBranches,
               enabled: enabled,
+              showMobileServices:
+                  !mobileServicePermissionResolved ||
+                  mobileServicePermissionAllowed,
             );
             return;
           }
@@ -125,6 +140,7 @@ class MobileNav extends ConsumerWidget {
     WidgetRef ref, {
     required bool hasMultipleBranches,
     required Map<String, bool> enabled,
+    required bool showMobileServices,
   }) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -212,6 +228,26 @@ class MobileNav extends ConsumerWidget {
                       context.go('/accounts');
                     },
                   ),
+                  if (showMobileServices)
+                    ListTile(
+                      leading: const Icon(
+                        Icons.swap_horiz_rounded,
+                        color: AppColors.primary,
+                      ),
+                      title: const Text(
+                        AppStrings.navMobileServices,
+                        style: TextStyle(color: AppColors.primary),
+                      ),
+                      trailing:
+                          enabled['mobile_services.access']!
+                              ? null
+                              : const Icon(Icons.lock_outline_rounded),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        ref.read(navigationLoadingProvider.notifier).showFor();
+                        context.go('/mobile-services');
+                      },
+                    ),
                   ListTile(
                     leading: const Icon(
                       Icons.insights_rounded,
