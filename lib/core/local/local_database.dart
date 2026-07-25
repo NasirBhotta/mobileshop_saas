@@ -41,12 +41,18 @@ class LocalDatabase {
     'supplier_payments',
     'accounts',
     'account_transactions',
+    'mobile_service_providers',
+    'mobile_service_charge_rules',
+    'mobile_service_transactions',
     'business_report_schedules',
     'business_report_delivery_jobs',
     'business_report_cache',
   };
 
   static const List<String> _deleteOrder = [
+    'mobile_service_transactions',
+    'mobile_service_charge_rules',
+    'mobile_service_providers',
     'account_transactions',
     'accounts',
     'business_report_cache',
@@ -117,6 +123,11 @@ class LocalDatabase {
   ]) async {
     await initialize();
     await _db.customStatement(sql, variables);
+  }
+
+  static Future<T> runInTransaction<T>(Future<T> Function() action) async {
+    await initialize();
+    return _db.transaction(action);
   }
 
   static Future<void> deleteRows({
@@ -818,6 +829,45 @@ class LocalDatabase {
         created_at TEXT
       )
     ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS mobile_service_providers (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        payload_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS mobile_service_charge_rules (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        payload_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS mobile_service_transactions (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        status TEXT NOT NULL,
+        transaction_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+      )
+    ''');
     // ════════════════════════════════════════
     // EXPENSE MANAGEMENT
     // ════════════════════════════════════════
@@ -1266,6 +1316,20 @@ class LocalDatabase {
     await _db.customStatement('''
       CREATE INDEX IF NOT EXISTS idx_account_transactions_account
       ON account_transactions(account_id, transaction_at);
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_mobile_service_providers_branch
+      ON mobile_service_providers(branch_id, is_active, name);
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_mobile_service_rules_branch
+      ON mobile_service_charge_rules(
+        branch_id, provider_id, operation, is_active
+      );
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_mobile_service_transactions_branch
+      ON mobile_service_transactions(branch_id, transaction_at DESC);
     ''');
   }
 
