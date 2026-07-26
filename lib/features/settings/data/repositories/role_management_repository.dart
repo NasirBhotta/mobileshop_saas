@@ -94,6 +94,23 @@ class RoleManagementRepository {
           .select('user_id, role_id')
           .eq('tenant_id', tenantId)
           .isFilter('revoked_at', null),
+      _client
+          .from('branches')
+          .select('id, name')
+          .eq('tenant_id', tenantId)
+          .order('name'),
+      _client
+          .from('user_branch_role_assignments')
+          .select('user_id, branch_id, role_id')
+          .eq('tenant_id', tenantId)
+          .isFilter('revoked_at', null),
+      _client
+          .from('user_branch_permission_overrides')
+          .select(
+            'user_id, branch_id, is_allowed, '
+            'permissions!inner(key, is_active)',
+          )
+          .eq('tenant_id', tenantId),
     ]);
 
     final roleRows = results[0];
@@ -101,6 +118,9 @@ class RoleManagementRepository {
     final rolePermissionRows = results[2];
     final userRows = results[3];
     final assignmentRows = results[4];
+    final branchRows = results[5];
+    final branchRoleRows = results[6];
+    final branchOverrideRows = results[7];
     final permissionKeyById = {
       for (final row in permissionRows)
         row['id'] as String: row['key'] as String,
@@ -152,6 +172,32 @@ class RoleManagementRepository {
             roleId: roleByUser[row['id'] as String],
           ),
       ],
+      branches: [
+        for (final row in branchRows)
+          ManagedBranch(
+            id: row['id'] as String,
+            name: row['name'] as String? ?? 'Unnamed branch',
+          ),
+      ],
+      branchRoles: [
+        for (final row in branchRoleRows)
+          ManagedUserBranchRole(
+            userId: row['user_id'] as String,
+            branchId: row['branch_id'] as String,
+            roleId: row['role_id'] as String,
+          ),
+      ],
+      branchPermissionOverrides: [
+        for (final row in branchOverrideRows)
+          if ((row['permissions'] as Map<String, dynamic>)['is_active'] == true)
+            ManagedUserBranchPermissionOverride(
+              userId: row['user_id'] as String,
+              branchId: row['branch_id'] as String,
+              permissionKey:
+                  (row['permissions'] as Map<String, dynamic>)['key'] as String,
+              isAllowed: row['is_allowed'] as bool,
+            ),
+      ],
       cachedAt: DateTime.now().toUtc(),
     );
   }
@@ -186,6 +232,26 @@ class RoleManagementRepository {
     'assign_user_to_role',
     {'p_user_id': userId, 'p_role_id': roleId},
   );
+
+  Future<void> setUserBranchRole({
+    required String userId,
+    required String branchId,
+    String? roleId,
+  }) => _mutate('set_user_branch_role', {
+    'p_user_id': userId,
+    'p_branch_id': branchId,
+    'p_role_id': roleId,
+  });
+
+  Future<void> replaceUserBranchPermissionOverrides({
+    required String userId,
+    required String branchId,
+    required Map<String, bool> overrides,
+  }) => _mutate('replace_user_branch_permission_overrides', {
+    'p_user_id': userId,
+    'p_branch_id': branchId,
+    'p_overrides': overrides,
+  });
 
   Future<void> inviteStaff({
     required String fullName,

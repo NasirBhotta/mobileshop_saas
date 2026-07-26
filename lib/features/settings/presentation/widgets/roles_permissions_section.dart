@@ -111,6 +111,9 @@ class RolesPermissionsSection extends ConsumerWidget {
                         onAssign:
                             (userId, roleId) =>
                                 _assignUser(context, ref, userId, roleId),
+                        onManageBranches:
+                            (user) =>
+                                _manageUserBranches(context, ref, data, user),
                       ),
                     ],
                   ),
@@ -240,6 +243,229 @@ class RolesPermissionsSection extends ConsumerWidget {
       context,
       ref,
       (repository) => repository.assignUser(userId, roleId),
+    );
+  }
+
+  Future<void> _manageUserBranches(
+    BuildContext context,
+    WidgetRef ref,
+    RoleManagementData data,
+    ManagedUserRole user,
+  ) async {
+    final selected = {
+      for (final branch in data.branches)
+        branch.id: data.branchRoleId(user.userId, branch.id),
+    };
+    await showDialog<void>(
+      context: context,
+      builder:
+          (dialogContext) => StatefulBuilder(
+            builder:
+                (context, setState) => AlertDialog(
+                  title: Text('${user.fullName} branch access'),
+                  content: SizedBox(
+                    width: 430,
+                    child:
+                        data.branches.isEmpty
+                            ? const Text('Is shop mein koi branch nahi mili.')
+                            : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: data.branches.length,
+                              separatorBuilder:
+                                  (_, _) => const SizedBox(height: 10),
+                              itemBuilder: (context, index) {
+                                final branch = data.branches[index];
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    DropdownButtonFormField<String>(
+                                      initialValue: selected[branch.id] ?? '',
+                                      decoration: InputDecoration(
+                                        labelText: branch.name,
+                                      ),
+                                      items: [
+                                        const DropdownMenuItem(
+                                          value: '',
+                                          child: Text('No access'),
+                                        ),
+                                        for (final role
+                                            in RoleManagementRules.assignableStaffRoles(
+                                              data,
+                                            ))
+                                          DropdownMenuItem(
+                                            value: role.id,
+                                            child: Text(role.name),
+                                          ),
+                                      ],
+                                      onChanged: (value) async {
+                                        final roleId =
+                                            value == null || value.isEmpty
+                                                ? null
+                                                : value;
+                                        final success = await _run(
+                                          context,
+                                          ref,
+                                          (repository) =>
+                                              repository.setUserBranchRole(
+                                                userId: user.userId,
+                                                branchId: branch.id,
+                                                roleId: roleId,
+                                              ),
+                                        );
+                                        if (success && context.mounted) {
+                                          setState(() {
+                                            selected[branch.id] = roleId;
+                                          });
+                                        }
+                                      },
+                                    ),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton.icon(
+                                        onPressed:
+                                            selected[branch.id] == null
+                                                ? null
+                                                : () =>
+                                                    _editBranchPermissionOverrides(
+                                                      context,
+                                                      ref,
+                                                      data,
+                                                      user,
+                                                      branch,
+                                                    ),
+                                        icon: const Icon(
+                                          Icons.tune_rounded,
+                                          size: 17,
+                                        ),
+                                        label: const Text(
+                                          'Customize permissions',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Done'),
+                    ),
+                  ],
+                ),
+          ),
+    );
+  }
+
+  Future<void> _editBranchPermissionOverrides(
+    BuildContext context,
+    WidgetRef ref,
+    RoleManagementData data,
+    ManagedUserRole user,
+    ManagedBranch branch,
+  ) async {
+    final selected = Map<String, bool>.from(
+      data.branchOverrides(user.userId, branch.id),
+    );
+    final result = await showDialog<Map<String, bool>>(
+      context: context,
+      builder:
+          (dialogContext) => StatefulBuilder(
+            builder:
+                (context, setState) => AlertDialog(
+                  title: Text('${branch.name} permission overrides'),
+                  content: SizedBox(
+                    width: 600,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          const Text(
+                            'Inherit role default rakhein, ya sirf is user aur branch ke liye allow/deny karein.',
+                          ),
+                          const SizedBox(height: 10),
+                          for (final entry in data.permissionsByModule.entries)
+                            ExpansionTile(
+                              title: Text(_moduleLabel(entry.key)),
+                              children: [
+                                for (final permission in entry.value)
+                                  ListTile(
+                                    dense: true,
+                                    title: Text(permission.name),
+                                    subtitle:
+                                        permission.description == null
+                                            ? null
+                                            : Text(permission.description!),
+                                    trailing: SizedBox(
+                                      width: 145,
+                                      child: DropdownButtonFormField<String>(
+                                        initialValue:
+                                            selected.containsKey(permission.key)
+                                                ? selected[permission.key]!
+                                                    ? 'allow'
+                                                    : 'deny'
+                                                : 'inherit',
+                                        items: const [
+                                          DropdownMenuItem(
+                                            value: 'inherit',
+                                            child: Text('Inherit role'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'allow',
+                                            child: Text('Allow'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'deny',
+                                            child: Text('Deny'),
+                                          ),
+                                        ],
+                                        onChanged: (value) {
+                                          setState(() {
+                                            if (value == 'allow') {
+                                              selected[permission.key] = true;
+                                            } else if (value == 'deny') {
+                                              selected[permission.key] = false;
+                                            } else {
+                                              selected.remove(permission.key);
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed:
+                          () => Navigator.pop(
+                            dialogContext,
+                            Map<String, bool>.from(selected),
+                          ),
+                      child: const Text('Save overrides'),
+                    ),
+                  ],
+                ),
+          ),
+    );
+    if (result == null || !context.mounted) return;
+    await _run(
+      context,
+      ref,
+      (repository) => repository.replaceUserBranchPermissionOverrides(
+        userId: user.userId,
+        branchId: branch.id,
+        overrides: result,
+      ),
     );
   }
 
@@ -433,12 +659,14 @@ class _UserAssignments extends StatelessWidget {
   final bool busy;
   final VoidCallback onInvite;
   final Future<void> Function(String userId, String roleId) onAssign;
+  final Future<void> Function(ManagedUserRole user) onManageBranches;
 
   const _UserAssignments({
     required this.data,
     required this.busy,
     required this.onInvite,
     required this.onAssign,
+    required this.onManageBranches,
   });
 
   @override
@@ -473,23 +701,46 @@ class _UserAssignments extends StatelessWidget {
             title: Text(user.fullName),
             subtitle: Text(user.email),
             trailing: SizedBox(
-              width: 180,
-              child: DropdownButtonFormField<String>(
-                initialValue:
-                    activeIds.contains(user.roleId) ? user.roleId : null,
-                hint: const Text('Select role'),
-                items: [
-                  for (final role in activeRoles)
-                    DropdownMenuItem(value: role.id, child: Text(role.name)),
+              width: 250,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue:
+                          activeIds.contains(user.roleId) ? user.roleId : null,
+                      hint: const Text('Tenant role'),
+                      items: [
+                        for (final role in activeRoles)
+                          DropdownMenuItem(
+                            value: role.id,
+                            child: Text(role.name),
+                          ),
+                      ],
+                      onChanged:
+                          busy
+                              ? null
+                              : (roleId) {
+                                if (roleId != null && roleId != user.roleId) {
+                                  onAssign(user.userId, roleId);
+                                }
+                              },
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Branch access',
+                    onPressed:
+                        busy ||
+                                data.branches.isEmpty ||
+                                data.roles.any(
+                                  (role) =>
+                                      role.id == user.roleId &&
+                                      role.isProtectedOwner,
+                                )
+                            ? null
+                            : () => onManageBranches(user),
+                    icon: const Icon(Icons.storefront_outlined),
+                  ),
                 ],
-                onChanged:
-                    busy
-                        ? null
-                        : (roleId) {
-                          if (roleId != null && roleId != user.roleId) {
-                            onAssign(user.userId, roleId);
-                          }
-                        },
               ),
             ),
           ),

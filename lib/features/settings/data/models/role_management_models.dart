@@ -99,11 +99,83 @@ class ManagedUserRole {
   );
 }
 
+class ManagedBranch {
+  final String id;
+  final String name;
+
+  const ManagedBranch({required this.id, required this.name});
+
+  Map<String, dynamic> toMap() => {'id': id, 'name': name};
+
+  factory ManagedBranch.fromMap(Map<String, dynamic> map) => ManagedBranch(
+    id: map['id'] as String,
+    name: map['name'] as String? ?? 'Unnamed branch',
+  );
+}
+
+class ManagedUserBranchRole {
+  final String userId;
+  final String branchId;
+  final String roleId;
+
+  const ManagedUserBranchRole({
+    required this.userId,
+    required this.branchId,
+    required this.roleId,
+  });
+
+  Map<String, dynamic> toMap() => {
+    'user_id': userId,
+    'branch_id': branchId,
+    'role_id': roleId,
+  };
+
+  factory ManagedUserBranchRole.fromMap(Map<String, dynamic> map) =>
+      ManagedUserBranchRole(
+        userId: map['user_id'] as String,
+        branchId: map['branch_id'] as String,
+        roleId: map['role_id'] as String,
+      );
+}
+
+class ManagedUserBranchPermissionOverride {
+  final String userId;
+  final String branchId;
+  final String permissionKey;
+  final bool isAllowed;
+
+  const ManagedUserBranchPermissionOverride({
+    required this.userId,
+    required this.branchId,
+    required this.permissionKey,
+    required this.isAllowed,
+  });
+
+  Map<String, dynamic> toMap() => {
+    'user_id': userId,
+    'branch_id': branchId,
+    'permission_key': permissionKey,
+    'is_allowed': isAllowed,
+  };
+
+  factory ManagedUserBranchPermissionOverride.fromMap(
+    Map<String, dynamic> map,
+  ) => ManagedUserBranchPermissionOverride(
+    userId: map['user_id'] as String,
+    branchId: map['branch_id'] as String,
+    permissionKey: map['permission_key'] as String,
+    isAllowed: map['is_allowed'] as bool,
+  );
+}
+
 class RoleManagementData {
   final String tenantId;
   final List<ManagedRole> roles;
   final List<ManagedPermission> permissions;
   final List<ManagedUserRole> users;
+  final List<ManagedBranch> branches;
+  final List<ManagedUserBranchRole> branchRoles;
+  final List<ManagedUserBranchPermissionOverride> branchPermissionOverrides;
   final bool isOffline;
   final DateTime? cachedAt;
 
@@ -112,6 +184,9 @@ class RoleManagementData {
     required this.roles,
     required this.permissions,
     required this.users,
+    this.branches = const [],
+    this.branchRoles = const [],
+    this.branchPermissionOverrides = const [],
     this.isOffline = false,
     this.cachedAt,
   });
@@ -122,6 +197,11 @@ class RoleManagementData {
     'roles': roles.map((role) => role.toMap()).toList(),
     'permissions': permissions.map((permission) => permission.toMap()).toList(),
     'users': users.map((user) => user.toMap()).toList(),
+    'branches': branches.map((branch) => branch.toMap()).toList(),
+    'branch_roles':
+        branchRoles.map((assignment) => assignment.toMap()).toList(),
+    'branch_permission_overrides':
+        branchPermissionOverrides.map((override) => override.toMap()).toList(),
   };
 
   factory RoleManagementData.fromMap(
@@ -141,6 +221,20 @@ class RoleManagementData {
       for (final row in map['users'] as List? ?? const [])
         ManagedUserRole.fromMap(Map<String, dynamic>.from(row as Map)),
     ],
+    branches: [
+      for (final row in map['branches'] as List? ?? const [])
+        ManagedBranch.fromMap(Map<String, dynamic>.from(row as Map)),
+    ],
+    branchRoles: [
+      for (final row in map['branch_roles'] as List? ?? const [])
+        ManagedUserBranchRole.fromMap(Map<String, dynamic>.from(row as Map)),
+    ],
+    branchPermissionOverrides: [
+      for (final row in map['branch_permission_overrides'] as List? ?? const [])
+        ManagedUserBranchPermissionOverride.fromMap(
+          Map<String, dynamic>.from(row as Map),
+        ),
+    ],
     isOffline: isOffline,
     cachedAt: DateTime.tryParse(map['cached_at'] as String? ?? ''),
   );
@@ -158,6 +252,21 @@ class RoleManagementData {
 
   int assignmentCount(String roleId) =>
       users.where((user) => user.roleId == roleId).length;
+
+  String? branchRoleId(String userId, String branchId) {
+    for (final assignment in branchRoles) {
+      if (assignment.userId == userId && assignment.branchId == branchId) {
+        return assignment.roleId;
+      }
+    }
+    return null;
+  }
+
+  Map<String, bool> branchOverrides(String userId, String branchId) => {
+    for (final override in branchPermissionOverrides)
+      if (override.userId == userId && override.branchId == branchId)
+        override.permissionKey: override.isAllowed,
+  };
 }
 
 abstract final class RoleManagementRules {

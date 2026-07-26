@@ -46,6 +46,8 @@ final permissionRealtimeRefreshProvider = Provider<void>((ref) {
     'roles',
     'role_permissions',
     'user_role_assignments',
+    'user_branch_role_assignments',
+    'user_branch_permission_overrides',
   ]) {
     channel.onPostgresChanges(
       event: PostgresChangeEvent.all,

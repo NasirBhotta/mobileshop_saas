@@ -5,7 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/authorization/permission_locked_screen.dart';
-import '../../../../core/authorization/permission_provider.dart';
+import '../../../../core/authorization/branch_permission_shadow_provider.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
@@ -22,7 +22,7 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final access = ref.watch(
-      permissionAccessProvider('dashboard.overview.view'),
+      branchAwarePermissionProvider('dashboard.overview.view'),
     );
 
     return access.when(
@@ -37,8 +37,8 @@ class DashboardScreen extends ConsumerWidget {
             accountAction: AccountMenuButton(),
           ),
       data:
-          (result) =>
-              result.isAllowed
+          (isAllowed) =>
+              isAllowed
                   ? Responsive.isDesktop(context)
                       ? const _DesktopDashboard()
                       : const _MobileDashboard()

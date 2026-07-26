@@ -16,12 +16,11 @@ import '../widgets/setup_status_message.dart';
 
 final branchSelectionProvider = FutureProvider.autoDispose
     .family<List<BranchInputModel>, String>((ref, userId) async {
-      final repository = ref.read(setupFlowRepositoryProvider);
-      final status = await repository.loadStatus(userId);
+      final status = await ref.watch(setupFlowStatusProvider.future);
       final tenantId = status.profile?['tenant_id'] as String?;
       if (tenantId == null) throw Exception('Tenant setup required');
 
-      return repository.loadBranches(tenantId);
+      return status.branches;
     });
 
 class BranchSelectionScreen extends ConsumerStatefulWidget {
@@ -65,54 +64,63 @@ class _BranchSelectionScreenState extends ConsumerState<BranchSelectionScreen> {
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (error, _) => SetupStatusMessage(error: error),
                 data:
-                    (branches) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Select Branch',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
-                              ),
+                    (branches) =>
+                        branches.isEmpty
+                            ? const SetupStatusMessage(
+                              error:
+                                  'Aap ko kisi branch ka access nahi diya gaya. Owner se rabta karein.',
+                            )
+                            : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Select Branch',
+                                      style: TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    SizedBox(height: 6),
+                                    Text(
+                                      'Choose the branch you want to open.',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 24),
+                                Expanded(
+                                  child: ListView.separated(
+                                    itemCount: branches.length,
+                                    separatorBuilder:
+                                        (_, _) => const SizedBox(height: 12),
+                                    itemBuilder: (context, index) {
+                                      final branch = branches[index];
+                                      final isSelecting =
+                                          _selectingBranchId == branch.id;
+                                      return _BranchTile(
+                                        branch: branch,
+                                        isLoading: isSelecting,
+                                        onTap:
+                                            _selectingBranchId == null
+                                                ? () => _selectBranch(
+                                                  context,
+                                                  ref,
+                                                  branch,
+                                                )
+                                                : null,
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
-                            SizedBox(height: 6),
-                            Text(
-                              'Choose the branch you want to open.',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        Expanded(
-                          child: ListView.separated(
-                            itemCount: branches.length,
-                            separatorBuilder:
-                                (_, _) => const SizedBox(height: 12),
-                            itemBuilder: (context, index) {
-                              final branch = branches[index];
-                              final isSelecting =
-                                  _selectingBranchId == branch.id;
-                              return _BranchTile(
-                                branch: branch,
-                                isLoading: isSelecting,
-                                onTap:
-                                    _selectingBranchId == null
-                                        ? () =>
-                                            _selectBranch(context, ref, branch)
-                                        : null,
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
               ),
             ),
           ),

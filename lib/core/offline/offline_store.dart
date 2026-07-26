@@ -69,6 +69,8 @@ class OfflineStore {
   static String _branchesKey(String tenantId) => 'offline.branches.$tenantId';
   static String _selectedBranchKey(String userId) =>
       'offline.selected_branch.$userId';
+  static String _branchAccessKey(String userId) =>
+      'offline.branch_access.$userId';
   static String _productsKey(String branchId) => 'offline.products.$branchId';
   static String _categoriesKey(String branchId) =>
       'offline.categories.$branchId';
@@ -138,6 +140,28 @@ class OfflineStore {
     return profile;
   }
 
+  static Future<void> saveBranchAccess(
+    String userId, {
+    required bool configured,
+    required Set<String> branchIds,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _branchAccessKey(userId),
+      jsonEncode({
+        'configured': configured,
+        'branch_ids': branchIds.toList()..sort(),
+      }),
+    );
+  }
+
+  static Future<Map<String, dynamic>?> loadBranchAccess(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_branchAccessKey(userId));
+    if (raw == null) return null;
+    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+  }
+
   static Future<void> clearUserSessionCache(String userId) async {
     try {
       await LocalStore.deleteProfile(userId);
@@ -148,6 +172,7 @@ class OfflineStore {
       await Future.wait([
         prefs.remove(_profileKey(userId)),
         prefs.remove(_selectedBranchKey(userId)),
+        prefs.remove(_branchAccessKey(userId)),
         prefs.remove(_mutationsKey(userId)),
       ]);
     });

@@ -6,8 +6,50 @@ import 'package:mobileshop_saas/core/authorization/permission_provider.dart';
 import 'package:mobileshop_saas/features/dashboard/presentation/screens/dashboard_screen.dart';
 import 'package:mobileshop_saas/features/settings/presentation/providers/account_settings_provider.dart';
 import 'package:mobileshop_saas/features/settings/presentation/widgets/account_menu_button.dart';
+import 'dart:io';
 
 void main() {
+  test('dashboard and navigation use branch-aware permission access', () {
+    final dashboard =
+        File(
+          'lib/features/dashboard/presentation/screens/dashboard_screen.dart',
+        ).readAsStringSync();
+    final desktopNav =
+        File('lib/shared/widgets/desktop_nav.dart').readAsStringSync();
+    final mobileNav =
+        File('lib/shared/widgets/mobile_nav.dart').readAsStringSync();
+
+    for (final source in [dashboard, desktopNav, mobileNav]) {
+      expect(
+        source,
+        contains("branchAwarePermissionProvider('dashboard.overview.view')"),
+      );
+    }
+  });
+
+  test('branch permission tables participate in realtime refresh', () {
+    final provider =
+        File(
+          'lib/core/authorization/permission_provider.dart',
+        ).readAsStringSync();
+    final migration =
+        File(
+          'supabase/migrations/20260726000400_enable_branch_permission_realtime.sql',
+        ).readAsStringSync();
+
+    for (final table in const [
+      'user_branch_role_assignments',
+      'user_branch_permission_overrides',
+    ]) {
+      expect(provider, contains("'$table'"));
+      expect(migration, contains("'$table'"));
+      expect(
+        migration,
+        contains('alter table public.$table replica identity full'),
+      );
+    }
+  });
+
   testWidgets('dashboard stays visible as locked without view permission', (
     tester,
   ) async {

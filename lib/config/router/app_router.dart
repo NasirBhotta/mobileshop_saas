@@ -123,6 +123,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     load = ref
         .read(setupFlowRepositoryProvider)
         .loadStatus(userId)
+        .then(
+          (status) => ref
+              .read(setupFlowRepositoryProvider)
+              .restrictToAccessibleBranches(userId, status),
+        )
         .then((status) {
           if (status.target == SetupRouteTarget.dashboard &&
               setupLoadUserId == userId &&

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/offline/offline_store.dart';
+import '../../../../core/authorization/permission_provider.dart';
 import '../../../../core/utils/offline_error_classifier.dart';
 import '../models/shop_setup_model.dart';
 
@@ -13,10 +14,13 @@ final setupFlowRepositoryProvider = Provider<SetupFlowRepository>((ref) {
 });
 
 final setupFlowStatusProvider = FutureProvider<SetupFlowStatus>((ref) async {
+  ref.watch(permissionRevisionProvider);
   final user = Supabase.instance.client.auth.currentUser;
   if (user == null) throw Exception('User not logged in');
 
-  return ref.read(setupFlowRepositoryProvider).loadStatus(user.id);
+  final repository = ref.read(setupFlowRepositoryProvider);
+  final status = await repository.loadStatus(user.id);
+  return repository.restrictToAccessibleBranches(user.id, status);
 });
 
 final selectedBranchIdProvider = FutureProvider<String>((ref) async {
@@ -70,6 +74,30 @@ class SetupFlowStatus {
     this.tenant,
     this.branches = const [],
   });
+}
+
+SetupFlowStatus filterSetupStatusForBranchAccess(
+  SetupFlowStatus status, {
+  required bool configured,
+  required Set<String> accessibleBranchIds,
+}) {
+  if (!configured) return status;
+  final branches = status.branches
+      .where((branch) => accessibleBranchIds.contains(branch.id))
+      .toList(growable: false);
+  final selectedBranchId = status.profile?['branch_id'] as String?;
+  final selectedBranchExists = branches.any(
+    (branch) => branch.id == selectedBranchId,
+  );
+  return SetupFlowStatus(
+    target:
+        selectedBranchExists
+            ? SetupRouteTarget.dashboard
+            : SetupRouteTarget.branchSelection,
+    profile: status.profile,
+    tenant: status.tenant,
+    branches: branches,
+  );
 }
 
 class SetupFlowRepository {
@@ -205,6 +233,52 @@ class SetupFlowRepository {
       profile: profile,
       tenant: tenant,
       branches: branches,
+    );
+  }
+
+  Future<SetupFlowStatus> restrictToAccessibleBranches(
+    String userId,
+    SetupFlowStatus status,
+  ) async {
+    final tenantId = status.profile?['tenant_id'] as String?;
+    if (tenantId == null ||
+        status.target == SetupRouteTarget.setup ||
+        status.profile?['role'] == 'owner') {
+      return status;
+    }
+
+    late final bool configured;
+    late final Set<String> accessibleIds;
+    try {
+      final rows = await _client
+          .from('user_branch_role_assignments')
+          .select('branch_id, revoked_at')
+          .eq('tenant_id', tenantId)
+          .eq('user_id', userId)
+          .timeout(_networkTimeout);
+      configured = rows.isNotEmpty;
+      accessibleIds = {
+        for (final row in rows)
+          if (row['revoked_at'] == null) row['branch_id'] as String,
+      };
+      await OfflineStore.saveBranchAccess(
+        userId,
+        configured: configured,
+        branchIds: accessibleIds,
+      );
+    } catch (_) {
+      final cached = await OfflineStore.loadBranchAccess(userId);
+      if (cached == null) return status;
+      configured = cached['configured'] == true;
+      accessibleIds = Set<String>.from(
+        cached['branch_ids'] as List? ?? const [],
+      );
+    }
+
+    return filterSetupStatusForBranchAccess(
+      status,
+      configured: configured,
+      accessibleBranchIds: accessibleIds,
     );
   }
 
@@ -463,6 +537,13 @@ class SetupFlowRepository {
     final profile = await loadProfile(userId);
     final tenantId = profile?['tenant_id'] as String?;
     if (tenantId == null) throw Exception('Tenant setup required');
+    final accessibleStatus = await restrictToAccessibleBranches(
+      userId,
+      await loadStatus(userId),
+    );
+    if (!accessibleStatus.branches.any((branch) => branch.id == branchId)) {
+      throw Exception('Selected branch is not assigned to this user.');
+    }
 
     bool belongsToTenant;
     try {

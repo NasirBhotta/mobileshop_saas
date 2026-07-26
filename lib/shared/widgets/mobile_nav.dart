@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/entitlements/entitlement_provider.dart';
 import '../../core/authorization/permission_provider.dart';
+import '../../core/authorization/branch_permission_shadow_provider.dart';
 import '../../features/onboarding/data/repositories/setup_flow_repository.dart';
 import '../providers/navigation_loading_provider.dart';
 
@@ -38,10 +39,10 @@ class MobileNav extends ConsumerWidget {
         mobileServiceViewAccess.value?.isAllowed == true ||
         mobileServiceCreateAccess.value?.isAllowed == true;
     final dashboardAccess = ref.watch(
-      permissionAccessProvider('dashboard.overview.view'),
+      branchAwarePermissionProvider('dashboard.overview.view'),
     );
     final dashboardLockedByPermission =
-        dashboardAccess.hasValue && dashboardAccess.value?.isAllowed != true;
+        dashboardAccess.hasValue && dashboardAccess.value != true;
     final items = <
       ({int originalIndex, String? path, Widget destination, bool enabled})
     >[
