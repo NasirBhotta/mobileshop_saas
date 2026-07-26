@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/router/app_router.dart';
 import 'config/supabase/supabase_config.dart';
 import 'config/theme/app_theme.dart';
+import 'core/authorization/permission_provider.dart';
 import 'core/constants/app_strings.dart';
 import 'core/local/local_database.dart';
 import 'core/tenant_access/tenant_access_provider.dart';
@@ -51,6 +52,7 @@ class MobileShopApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(authListenerProvider);
+    ref.watch(permissionRealtimeRefreshProvider);
     ref.watch(tenantAccessRealtimeProvider);
     ref.watch(tenantAccessSafetyRefreshProvider);
     ref.watch(mobileServiceAutoSyncProvider);

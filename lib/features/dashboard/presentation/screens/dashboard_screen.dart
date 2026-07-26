@@ -31,14 +31,21 @@ class DashboardScreen extends ConsumerWidget {
             backgroundColor: AppColors.background,
             body: Center(child: CircularProgressIndicator()),
           ),
-      error: (_, _) => const PermissionLockedScreen(moduleName: 'Dashboard'),
+      error:
+          (_, _) => const PermissionLockedScreen(
+            moduleName: 'Dashboard',
+            accountAction: AccountMenuButton(),
+          ),
       data:
           (result) =>
               result.isAllowed
                   ? Responsive.isDesktop(context)
                       ? const _DesktopDashboard()
                       : const _MobileDashboard()
-                  : const PermissionLockedScreen(moduleName: 'Dashboard'),
+                  : const PermissionLockedScreen(
+                    moduleName: 'Dashboard',
+                    accountAction: AccountMenuButton(),
+                  ),
     );
   }
 }

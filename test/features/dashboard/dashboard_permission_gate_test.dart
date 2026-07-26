@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/core/authorization/permission_evaluator.dart';
 import 'package:mobileshop_saas/core/authorization/permission_provider.dart';
 import 'package:mobileshop_saas/features/dashboard/presentation/screens/dashboard_screen.dart';
+import 'package:mobileshop_saas/features/settings/presentation/providers/account_settings_provider.dart';
+import 'package:mobileshop_saas/features/settings/presentation/widgets/account_menu_button.dart';
 
 void main() {
   testWidgets('dashboard stays visible as locked without view permission', (
@@ -14,6 +16,9 @@ void main() {
         overrides: [
           permissionDataSourceProvider.overrideWithValue(
             const _DashboardPermissionDataSource(permissionKeys: {}),
+          ),
+          accountSettingsProvider.overrideWith(
+            (ref) => throw Exception('Account settings unavailable in test'),
           ),
         ],
         child: const MaterialApp(home: DashboardScreen()),
@@ -27,6 +32,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('permission-lock-icon')), findsOneWidget);
+    expect(find.byType(AccountMenuButton), findsOneWidget);
   });
 }
 
