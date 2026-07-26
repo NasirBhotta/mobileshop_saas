@@ -21,6 +21,7 @@ import 'package:mobileshop_saas/features/inventory/presentation/screens/csv_impo
 import 'package:mobileshop_saas/features/inventory/presentation/screens/inventory_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/product_form_screen.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/screens/stock_adjustment_screen.dart';
+import 'package:mobileshop_saas/core/authorization/branch_permission_gate.dart';
 import 'package:mobileshop_saas/features/mobile_services/presentation/screens/mobile_service_settings_screen.dart';
 import 'package:mobileshop_saas/features/mobile_services/presentation/screens/mobile_service_report_screen.dart';
 import 'package:mobileshop_saas/features/mobile_services/presentation/screens/mobile_services_screen.dart';
@@ -569,7 +570,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/expenses/add', redirect: (_, _) => '/expenses/new'),
       GoRoute(
         path: '/inventory/add',
-        builder: (_, _) => const ProductFormScreen(),
+        builder:
+            (_, _) => const BranchPermissionGate(
+              permissionKey: 'inventory.product.create',
+              moduleName: 'Add product',
+              child: ProductFormScreen(),
+            ),
       ),
       GoRoute(
         path: '/inventory/edit',
@@ -578,12 +584,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final product = state.extra;
           if (product is! ProductModel) return const InventoryScreen();
-          return ProductFormScreen(product: product);
+          return BranchPermissionGate(
+            permissionKey: 'inventory.product.update',
+            moduleName: 'Edit product',
+            child: ProductFormScreen(product: product),
+          );
         },
       ),
       GoRoute(
         path: '/inventory/categories',
-        builder: (_, _) => const CategoriesScreen(), // next step mein banayenge
+        builder:
+            (_, _) => const BranchPermissionGate(
+              permissionKey: 'inventory.category.view',
+              moduleName: 'Categories',
+              child: CategoriesScreen(),
+            ),
       ),
       GoRoute(
         path: '/inventory/adjust',
@@ -592,12 +607,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final product = state.extra;
           if (product is! ProductModel) return const InventoryScreen();
-          return StockAdjustmentScreen(product: product);
+          return BranchPermissionGate(
+            permissionKey: 'inventory.stock.adjust',
+            moduleName: 'Stock adjustment',
+            child: StockAdjustmentScreen(product: product),
+          );
         },
       ),
       GoRoute(
         path: '/inventory/import',
-        builder: (_, _) => const CsvImportScreen(),
+        builder:
+            (_, _) => const BranchPermissionGate(
+              permissionKey: 'inventory.product.create',
+              moduleName: 'Inventory import',
+              child: CsvImportScreen(),
+            ),
       ),
       GoRoute(path: '/pos/return', builder: (_, _) => const ReturnScreen()),
       GoRoute(

@@ -123,6 +123,11 @@ class DesktopNav extends ConsumerWidget {
     );
     final dashboardLockedByPermission =
         dashboardAccess.hasValue && dashboardAccess.value != true;
+    final inventoryAccess = ref.watch(
+      branchAwarePermissionProvider('inventory.product.view'),
+    );
+    final inventoryLockedByPermission =
+        inventoryAccess.hasValue && inventoryAccess.value != true;
     for (var index = 0; index < _items.length; index++) {
       final item = _items[index];
       final access = ref.watch(
@@ -141,7 +146,8 @@ class DesktopNav extends ConsumerWidget {
         feature: item.feature,
         enabled:
             access.value != false &&
-            !(item.path == '/dashboard' && dashboardLockedByPermission),
+            !(item.path == '/dashboard' && dashboardLockedByPermission) &&
+            !(item.path == '/inventory' && inventoryLockedByPermission),
       ));
     }
 

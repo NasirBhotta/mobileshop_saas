@@ -7,11 +7,14 @@ import 'package:mobileshop_saas/features/inventory/presentation/widgets/product_
 import 'package:mobileshop_saas/features/inventory/presentation/widgets/sort_bottom_sheet.dart';
 import 'package:mobileshop_saas/shared/widgets/search_bar_field.dart';
 
+import '../../../../core/authorization/branch_permission_shadow_provider.dart';
+import '../../../../core/authorization/permission_locked_screen.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../../shared/providers/navigation_loading_provider.dart';
+import '../../../settings/presentation/widgets/account_menu_button.dart';
 import '../providers/inventory_provider.dart';
 
 class InventoryScreen extends ConsumerWidget {
@@ -19,7 +22,30 @@ class InventoryScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return _InventoryBody();
+    final access = ref.watch(
+      branchAwarePermissionProvider('inventory.product.view'),
+    );
+
+    return access.when(
+      loading:
+          () => const Scaffold(
+            backgroundColor: AppColors.background,
+            body: Center(child: CircularProgressIndicator()),
+          ),
+      error:
+          (_, _) => const PermissionLockedScreen(
+            moduleName: 'Inventory',
+            accountAction: AccountMenuButton(),
+          ),
+      data:
+          (isAllowed) =>
+              isAllowed
+                  ? _InventoryBody()
+                  : const PermissionLockedScreen(
+                    moduleName: 'Inventory',
+                    accountAction: AccountMenuButton(),
+                  ),
+    );
   }
 }
 
@@ -147,6 +173,26 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     final bulkPricingEnabled = isEntitledActionVisible(
       ref.watch(featureEntitlementProvider('inventory.bulk_pricing')).value,
     );
+    final canCreate =
+        ref
+            .watch(branchAwarePermissionProvider('inventory.product.create'))
+            .value ==
+        true;
+    final canUpdate =
+        ref
+            .watch(branchAwarePermissionProvider('inventory.product.update'))
+            .value ==
+        true;
+    final canViewCategories =
+        ref
+            .watch(branchAwarePermissionProvider('inventory.category.view'))
+            .value ==
+        true;
+    final canAdjustStock =
+        ref
+            .watch(branchAwarePermissionProvider('inventory.stock.adjust'))
+            .value ==
+        true;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -175,7 +221,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       icon: const Icon(Icons.close_rounded),
                       tooltip: 'Clear selection',
                     ),
-                    if (bulkPricingEnabled)
+                    if (bulkPricingEnabled && canUpdate)
                       FilledButton.icon(
                         onPressed:
                             isUpdating
@@ -186,15 +232,18 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       ),
                   ] else ...[
                     // Categories button
-                    IconButton(
-                      onPressed: () {
-                        ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.push('/inventory/categories');
-                      },
-                      icon: const Icon(Icons.label_outline_rounded),
-                      color: AppColors.textSecondary,
-                      tooltip: AppStrings.categoriesTitle,
-                    ),
+                    if (canViewCategories)
+                      IconButton(
+                        onPressed: () {
+                          ref
+                              .read(navigationLoadingProvider.notifier)
+                              .showFor();
+                          context.push('/inventory/categories');
+                        },
+                        icon: const Icon(Icons.label_outline_rounded),
+                        color: AppColors.textSecondary,
+                        tooltip: AppStrings.categoriesTitle,
+                      ),
 
                     IconButton(
                       onPressed:
@@ -207,17 +256,20 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       tooltip: AppStrings.sortBy,
                     ),
                     // Add product button
-                    FilledButton.icon(
-                      onPressed: () {
-                        ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.push('/inventory/add');
-                      },
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text('Add'),
-                    ),
+                    if (canCreate)
+                      FilledButton.icon(
+                        onPressed: () {
+                          ref
+                              .read(navigationLoadingProvider.notifier)
+                              .showFor();
+                          context.push('/inventory/add');
+                        },
+                        icon: const Icon(Icons.add_rounded, size: 18),
+                        label: const Text('Add'),
+                      ),
                   ],
 
-                  if (csvImportEnabled)
+                  if (csvImportEnabled && canCreate)
                     IconButton(
                       onPressed: () => context.push('/inventory/import'),
                       icon: const Icon(Icons.upload_file_rounded),
@@ -299,17 +351,19 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                             AppStrings.inventoryEmptyDesc,
                             style: TextStyle(color: AppColors.textHint),
                           ),
-                          const SizedBox(height: 24),
-                          FilledButton.icon(
-                            onPressed: () {
-                              ref
-                                  .read(navigationLoadingProvider.notifier)
-                                  .showFor();
-                              context.push('/inventory/add');
-                            },
-                            icon: const Icon(Icons.add_rounded),
-                            label: Text(AppStrings.inventoryAddProduct),
-                          ),
+                          if (canCreate) ...[
+                            const SizedBox(height: 24),
+                            FilledButton.icon(
+                              onPressed: () {
+                                ref
+                                    .read(navigationLoadingProvider.notifier)
+                                    .showFor();
+                                context.push('/inventory/add');
+                              },
+                              icon: const Icon(Icons.add_rounded),
+                              label: Text(AppStrings.inventoryAddProduct),
+                            ),
+                          ],
                         ],
                       ),
                     );
@@ -339,6 +393,8 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                                 return _buildProductCard(
                                   context,
                                   products[index],
+                                  canUpdate: canUpdate,
+                                  canAdjustStock: canAdjustStock,
                                 );
                               },
                             )
@@ -363,6 +419,8 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                                 return _buildProductCard(
                                   context,
                                   products[index],
+                                  canUpdate: canUpdate,
+                                  canAdjustStock: canAdjustStock,
                                 );
                               },
                             )
@@ -378,6 +436,8 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                                 return _buildProductCard(
                                   context,
                                   products[index],
+                                  canUpdate: canUpdate,
+                                  canAdjustStock: canAdjustStock,
                                 );
                               },
                             ),
@@ -397,9 +457,16 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
         : products.length;
   }
 
-  Widget _buildProductCard(BuildContext context, ProductModel product) {
+  Widget _buildProductCard(
+    BuildContext context,
+    ProductModel product, {
+    required bool canUpdate,
+    required bool canAdjustStock,
+  }) {
     return ProductCard(
       product: product,
+      canEdit: canUpdate,
+      canAdjustStock: canAdjustStock,
       isSelectionMode: _isSelectionMode,
       isSelected: _selectedProductIds.contains(product.id),
       onSelectionChanged: (selected) => _toggleSelection(product.id, selected),

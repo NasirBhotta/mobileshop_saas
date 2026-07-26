@@ -50,6 +50,32 @@ void main() {
     }
   });
 
+  test('permission refresh recovers after auth and missed realtime events', () {
+    final permissionProvider =
+        File(
+          'lib/core/authorization/permission_provider.dart',
+        ).readAsStringSync();
+    final authProvider =
+        File(
+          'lib/features/auth/presentation/providers/auth_provider.dart',
+        ).readAsStringSync();
+    final main = File('lib/main.dart').readAsStringSync();
+
+    expect(
+      authProvider,
+      contains('ref.invalidate(permissionRealtimeRefreshProvider)'),
+    );
+    expect(permissionProvider, contains('permissionSafetyRefreshProvider'));
+    expect(permissionProvider, contains('AppLifecycleState.resumed'));
+    expect(permissionProvider, contains('Duration(seconds: 30)'));
+    expect(permissionProvider, isNot(contains('Timer.periodic')));
+    expect(
+      permissionProvider,
+      contains('fallbackTimer = Timer(const Duration(seconds: 30), refresh)'),
+    );
+    expect(main, contains('ref.watch(permissionSafetyRefreshProvider)'));
+  });
+
   testWidgets('dashboard stays visible as locked without view permission', (
     tester,
   ) async {

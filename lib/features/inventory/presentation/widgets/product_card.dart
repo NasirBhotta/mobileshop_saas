@@ -12,6 +12,8 @@ class ProductCard extends ConsumerWidget {
   final VoidCallback onTap;
   final bool isSelectionMode;
   final bool isSelected;
+  final bool canEdit;
+  final bool canAdjustStock;
   final ValueChanged<bool>? onSelectionChanged;
 
   const ProductCard({
@@ -20,6 +22,8 @@ class ProductCard extends ConsumerWidget {
     required this.onTap,
     this.isSelectionMode = false,
     this.isSelected = false,
+    this.canEdit = true,
+    this.canAdjustStock = true,
     this.onSelectionChanged,
   });
 
@@ -35,8 +39,12 @@ class ProductCard extends ConsumerWidget {
 
     return InkWell(
       onTap:
-          isSelectionMode ? () => onSelectionChanged?.call(!isSelected) : onTap,
-      onLongPress: () => onSelectionChanged?.call(true),
+          isSelectionMode
+              ? () => onSelectionChanged?.call(!isSelected)
+              : canEdit
+              ? onTap
+              : null,
+      onLongPress: canEdit ? () => onSelectionChanged?.call(true) : null,
       borderRadius: BorderRadius.circular(10),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -144,7 +152,7 @@ class ProductCard extends ConsumerWidget {
                 ),
                 SizedBox(height: 5),
                 // ProductCard ke andar, bottom mein
-                if (stockAdjustmentsEnabled)
+                if (stockAdjustmentsEnabled && canAdjustStock)
                   TextButton.icon(
                     onPressed:
                         () => context.push('/inventory/adjust', extra: product),

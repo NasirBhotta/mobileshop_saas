@@ -76,13 +76,19 @@ final mobileServiceAutoSyncProvider = Provider<void>((ref) {
     });
   }
 
-  final connectivitySubscription = connectivity.onConnectivityChanged.listen((
-    results,
-  ) {
-    if (results.any((result) => result != ConnectivityResult.none)) {
-      scheduleSync();
-    }
-  });
+  final connectivitySubscription = connectivity.onConnectivityChanged.listen(
+    (results) {
+      if (results.any((result) => result != ConnectivityResult.none)) {
+        scheduleSync();
+      }
+    },
+    onError: (Object error, StackTrace stackTrace) {
+      // Some Windows NetworkManager configurations cannot activate the
+      // native event stream. Startup and auth-triggered sync remain active,
+      // so this optional reconnect signal can safely degrade.
+      debugPrint('Connectivity retry signal unavailable: $error');
+    },
+  );
   final authSubscription = Supabase.instance.client.auth.onAuthStateChange
       .listen((authState) {
         if (authState.session != null) scheduleSync();

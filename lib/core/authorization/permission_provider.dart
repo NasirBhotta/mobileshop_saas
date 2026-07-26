@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -63,4 +66,42 @@ final permissionRealtimeRefreshProvider = Provider<void>((ref) {
     }
   });
   ref.onDispose(() => client.removeChannel(channel));
+});
+
+class _PermissionLifecycleObserver extends WidgetsBindingObserver {
+  final VoidCallback onResume;
+
+  _PermissionLifecycleObserver({required this.onResume});
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) onResume();
+  }
+}
+
+/// Realtime remains the primary refresh path. This safety refresh prevents a
+/// stale permission screen when Windows sleeps, the socket reconnects, or a
+/// database change event is missed.
+final permissionSafetyRefreshProvider = Provider<void>((ref) {
+  Timer? fallbackTimer;
+
+  void refresh() {
+    ref.read(permissionRevisionProvider.notifier).refresh();
+  }
+
+  void scheduleFallbackRefresh() {
+    fallbackTimer?.cancel();
+    fallbackTimer = Timer(const Duration(seconds: 30), refresh);
+  }
+
+  final observer = _PermissionLifecycleObserver(
+    onResume: scheduleFallbackRefresh,
+  );
+  WidgetsBinding.instance.addObserver(observer);
+  scheduleFallbackRefresh();
+
+  ref.onDispose(() {
+    fallbackTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(observer);
+  });
 });

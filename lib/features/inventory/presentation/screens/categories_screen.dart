@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
+import '../../../../core/authorization/branch_permission_shadow_provider.dart';
 import '../../../../shared/widgets/loading_overlay.dart';
 import '../providers/inventory_provider.dart';
 
@@ -13,17 +14,26 @@ class CategoriesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final categoriesState = ref.watch(categoriesProvider);
     final isMutating = ref.watch(categoryControllerProvider).isLoading;
+    final canManage =
+        ref
+            .watch(branchAwarePermissionProvider('inventory.category.manage'))
+            .value ==
+        true;
 
     return LoadingOverlay(
       isLoading: isMutating,
       child: Scaffold(
         backgroundColor: AppColors.background,
         appBar: AppBar(title: const Text(AppStrings.categoriesTitle)),
-        floatingActionButton: FloatingActionButton(
-          onPressed: isMutating ? null : () => _showAddDialog(context, ref),
-          backgroundColor: AppColors.primary,
-          child: const Icon(Icons.add_rounded, color: Colors.white),
-        ),
+        floatingActionButton:
+            canManage
+                ? FloatingActionButton(
+                  onPressed:
+                      isMutating ? null : () => _showAddDialog(context, ref),
+                  backgroundColor: AppColors.primary,
+                  child: const Icon(Icons.add_rounded, color: Colors.white),
+                )
+                : null,
         body: categoriesState.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(child: Text(e.toString())),
@@ -70,54 +80,59 @@ class CategoriesScreen extends ConsumerWidget {
                         ),
                       ),
 
-                      SizedBox(
-                        width: 60,
-                        child: TextFormField(
-                          key: ValueKey(
-                            'category-threshold-${cat.id}-${cat.defaultReorderThreshold}',
-                          ),
-                          initialValue: cat.defaultReorderThreshold.toString(),
-                          keyboardType: TextInputType.number,
-                          textAlign: TextAlign.center,
-                          decoration: const InputDecoration(
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 8,
+                      if (canManage)
+                        SizedBox(
+                          width: 60,
+                          child: TextFormField(
+                            key: ValueKey(
+                              'category-threshold-${cat.id}-${cat.defaultReorderThreshold}',
                             ),
-                            helperText: 'Default',
+                            initialValue:
+                                cat.defaultReorderThreshold.toString(),
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            decoration: const InputDecoration(
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 8,
+                              ),
+                              helperText: 'Default',
+                            ),
+                            onChanged: (val) async {
+                              final parsed = int.tryParse(val);
+                              if (parsed != null && parsed >= 1) {
+                                await ref
+                                    .read(inventoryRepositoryProvider)
+                                    .updateCategoryThreshold(
+                                      categoryId: cat.id,
+                                      threshold: parsed,
+                                    );
+                                ref.invalidate(categoriesProvider);
+                                ref.invalidate(allProductsProvider);
+                                ref.invalidate(productsProvider);
+                              }
+                            },
                           ),
-                          onChanged: (val) async {
-                            final parsed = int.tryParse(val);
-                            if (parsed != null && parsed >= 1) {
-                              await ref
-                                  .read(inventoryRepositoryProvider)
-                                  .updateCategoryThreshold(
-                                    categoryId: cat.id,
-                                    threshold: parsed,
-                                  );
-                              ref.invalidate(categoriesProvider);
-                              ref.invalidate(allProductsProvider);
-                              ref.invalidate(productsProvider);
-                            }
-                          },
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed:
-                            isMutating
-                                ? null
-                                : () async {
-                                  await ref
-                                      .read(categoryControllerProvider.notifier)
-                                      .deleteCategory(cat.id);
-                                },
-                        icon: const Icon(
-                          Icons.delete_outline_rounded,
-                          color: AppColors.error,
-                          size: 18,
+                      if (canManage) const SizedBox(width: 8),
+                      if (canManage)
+                        IconButton(
+                          onPressed:
+                              isMutating
+                                  ? null
+                                  : () async {
+                                    await ref
+                                        .read(
+                                          categoryControllerProvider.notifier,
+                                        )
+                                        .deleteCategory(cat.id);
+                                  },
+                          icon: const Icon(
+                            Icons.delete_outline_rounded,
+                            color: AppColors.error,
+                            size: 18,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 );

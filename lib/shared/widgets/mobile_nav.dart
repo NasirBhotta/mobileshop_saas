@@ -43,6 +43,11 @@ class MobileNav extends ConsumerWidget {
     );
     final dashboardLockedByPermission =
         dashboardAccess.hasValue && dashboardAccess.value != true;
+    final inventoryAccess = ref.watch(
+      branchAwarePermissionProvider('inventory.product.view'),
+    );
+    final inventoryLockedByPermission =
+        inventoryAccess.hasValue && inventoryAccess.value != true;
     final items = <
       ({int originalIndex, String? path, Widget destination, bool enabled})
     >[
@@ -62,11 +67,12 @@ class MobileNav extends ConsumerWidget {
       (
         originalIndex: 1,
         path: '/inventory',
-        enabled: enabled['inventory.access']!,
+        enabled: enabled['inventory.access']! && !inventoryLockedByPermission,
         destination: NavigationDestination(
           icon: _LockedNavIcon(
             icon: Icons.inventory_2_outlined,
-            locked: !enabled['inventory.access']!,
+            locked:
+                !enabled['inventory.access']! || inventoryLockedByPermission,
           ),
           selectedIcon: const Icon(Icons.inventory_2_rounded),
           label: AppStrings.navInventory,

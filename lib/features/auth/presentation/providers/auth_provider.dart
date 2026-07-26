@@ -106,6 +106,7 @@ final authListenerProvider = StreamProvider<void>((ref) async* {
 
 void _invalidateAuthScopedProviders(Ref ref) {
   ref.read(permissionRevisionProvider.notifier).refresh();
+  ref.invalidate(permissionRealtimeRefreshProvider);
   ref.read(entitlementEvaluatorProvider).invalidateAll();
   // Recreate authenticated Realtime channels after session restoration,
   // sign-in, sign-out, or a user switch. On a cold start these providers can

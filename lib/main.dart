@@ -53,6 +53,7 @@ class MobileShopApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(authListenerProvider);
     ref.watch(permissionRealtimeRefreshProvider);
+    ref.watch(permissionSafetyRefreshProvider);
     ref.watch(tenantAccessRealtimeProvider);
     ref.watch(tenantAccessSafetyRefreshProvider);
     ref.watch(mobileServiceAutoSyncProvider);
