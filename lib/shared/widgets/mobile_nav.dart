@@ -37,69 +37,76 @@ class MobileNav extends ConsumerWidget {
     final mobileServicePermissionAllowed =
         mobileServiceViewAccess.value?.isAllowed == true ||
         mobileServiceCreateAccess.value?.isAllowed == true;
-    final items =
-        <({int originalIndex, String? path, Widget destination, bool enabled})>[
-          (
-            originalIndex: 0,
-            path: '/dashboard',
-            enabled: enabled['dashboard.access']!,
-            destination: NavigationDestination(
-              icon: _LockedNavIcon(
-                icon: Icons.grid_view_rounded,
-                locked: !enabled['dashboard.access']!,
-              ),
-              label: AppStrings.navDashboard,
-            ),
+    final dashboardAccess = ref.watch(
+      permissionAccessProvider('dashboard.overview.view'),
+    );
+    final dashboardLockedByPermission =
+        dashboardAccess.hasValue && dashboardAccess.value?.isAllowed != true;
+    final items = <
+      ({int originalIndex, String? path, Widget destination, bool enabled})
+    >[
+      (
+        originalIndex: 0,
+        path: '/dashboard',
+        enabled: enabled['dashboard.access']! && !dashboardLockedByPermission,
+        destination: NavigationDestination(
+          icon: _LockedNavIcon(
+            icon: Icons.grid_view_rounded,
+            locked:
+                !enabled['dashboard.access']! || dashboardLockedByPermission,
           ),
-          (
-            originalIndex: 1,
-            path: '/inventory',
-            enabled: enabled['inventory.access']!,
-            destination: NavigationDestination(
-              icon: _LockedNavIcon(
-                icon: Icons.inventory_2_outlined,
-                locked: !enabled['inventory.access']!,
-              ),
-              selectedIcon: const Icon(Icons.inventory_2_rounded),
-              label: AppStrings.navInventory,
-            ),
+          label: AppStrings.navDashboard,
+        ),
+      ),
+      (
+        originalIndex: 1,
+        path: '/inventory',
+        enabled: enabled['inventory.access']!,
+        destination: NavigationDestination(
+          icon: _LockedNavIcon(
+            icon: Icons.inventory_2_outlined,
+            locked: !enabled['inventory.access']!,
           ),
-          (
-            originalIndex: 2,
-            path: '/pos',
-            enabled: enabled['pos.access']!,
-            destination: NavigationDestination(
-              icon: _LockedNavIcon(
-                icon: Icons.point_of_sale_outlined,
-                locked: !enabled['pos.access']!,
-              ),
-              selectedIcon: const Icon(Icons.point_of_sale_rounded),
-              label: AppStrings.navPos,
-            ),
+          selectedIcon: const Icon(Icons.inventory_2_rounded),
+          label: AppStrings.navInventory,
+        ),
+      ),
+      (
+        originalIndex: 2,
+        path: '/pos',
+        enabled: enabled['pos.access']!,
+        destination: NavigationDestination(
+          icon: _LockedNavIcon(
+            icon: Icons.point_of_sale_outlined,
+            locked: !enabled['pos.access']!,
           ),
-          (
-            originalIndex: 3,
-            path: '/repairs',
-            enabled: enabled['repairs.access']!,
-            destination: NavigationDestination(
-              icon: _LockedNavIcon(
-                icon: Icons.build_outlined,
-                locked: !enabled['repairs.access']!,
-              ),
-              selectedIcon: const Icon(Icons.build_rounded),
-              label: AppStrings.navRepairs,
-            ),
+          selectedIcon: const Icon(Icons.point_of_sale_rounded),
+          label: AppStrings.navPos,
+        ),
+      ),
+      (
+        originalIndex: 3,
+        path: '/repairs',
+        enabled: enabled['repairs.access']!,
+        destination: NavigationDestination(
+          icon: _LockedNavIcon(
+            icon: Icons.build_outlined,
+            locked: !enabled['repairs.access']!,
           ),
-          (
-            originalIndex: 4,
-            path: null,
-            enabled: true,
-            destination: const NavigationDestination(
-              icon: Icon(Icons.more_horiz_rounded),
-              label: AppStrings.navMore,
-            ),
-          ),
-        ];
+          selectedIcon: const Icon(Icons.build_rounded),
+          label: AppStrings.navRepairs,
+        ),
+      ),
+      (
+        originalIndex: 4,
+        path: null,
+        enabled: true,
+        destination: const NavigationDestination(
+          icon: Icon(Icons.more_horiz_rounded),
+          label: AppStrings.navMore,
+        ),
+      ),
+    ];
     final selected = items.indexWhere(
       (item) => item.originalIndex == currentIndex,
     );

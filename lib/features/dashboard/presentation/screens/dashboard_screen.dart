@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../../core/authorization/permission_locked_screen.dart';
+import '../../../../core/authorization/permission_provider.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
@@ -19,9 +21,25 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Responsive.isDesktop(context)
-        ? const _DesktopDashboard()
-        : const _MobileDashboard();
+    final access = ref.watch(
+      permissionAccessProvider('dashboard.overview.view'),
+    );
+
+    return access.when(
+      loading:
+          () => const Scaffold(
+            backgroundColor: AppColors.background,
+            body: Center(child: CircularProgressIndicator()),
+          ),
+      error: (_, _) => const PermissionLockedScreen(moduleName: 'Dashboard'),
+      data:
+          (result) =>
+              result.isAllowed
+                  ? Responsive.isDesktop(context)
+                      ? const _DesktopDashboard()
+                      : const _MobileDashboard()
+                  : const PermissionLockedScreen(moduleName: 'Dashboard'),
+    );
   }
 }
 

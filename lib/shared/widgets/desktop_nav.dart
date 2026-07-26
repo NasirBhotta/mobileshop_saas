@@ -117,6 +117,11 @@ class DesktopNav extends ConsumerWidget {
     final mobileServicePermissionAllowed =
         mobileServiceViewAccess.value?.isAllowed == true ||
         mobileServiceCreateAccess.value?.isAllowed == true;
+    final dashboardAccess = ref.watch(
+      permissionAccessProvider('dashboard.overview.view'),
+    );
+    final dashboardLockedByPermission =
+        dashboardAccess.hasValue && dashboardAccess.value?.isAllowed != true;
     for (var index = 0; index < _items.length; index++) {
       final item = _items[index];
       final access = ref.watch(
@@ -133,7 +138,9 @@ class DesktopNav extends ConsumerWidget {
         label: item.label,
         path: item.path,
         feature: item.feature,
-        enabled: access.value != false,
+        enabled:
+            access.value != false &&
+            !(item.path == '/dashboard' && dashboardLockedByPermission),
       ));
     }
 
