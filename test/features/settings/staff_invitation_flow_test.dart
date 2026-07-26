@@ -45,6 +45,8 @@ void main() {
     expect(source, contains('service.auth.admin.deleteUser(invitedUserId)'));
     expect(source, contains("from 'jsr:@supabase/supabase-js@2'"));
     expect(source, contains("event: 'staff_invitation_failed'"));
+    expect(source, contains("'set_staff_invitation_branch_roles'"));
+    expect(source, contains('p_branch_roles: branchRoles'));
     expect(source, contains("['message', 'error_description', 'details', 'error']"));
     },
   );
@@ -63,6 +65,26 @@ void main() {
     expect(repository, isNot(contains('service_role')));
     expect(repository, contains('details[\'error\']'));
     expect(ui, contains("label: const Text('Invite User')"));
+    expect(repository, contains("'branchRoles': branchRoles"));
+    expect(ui, contains("'Branch access'"));
+    expect(ui, contains("'Kam az kam aik branch ka role select karein.'"));
+  });
+
+  test('accepted invitation installs tenant-safe branch roles', () {
+    final sql = File(
+      'supabase/migrations/20260726000600_branch_scoped_staff_invitations.sql',
+    ).readAsStringSync();
+
+    expect(sql, contains('public.staff_invitation_branch_roles'));
+    expect(sql, contains('public.require_tenant_owner()'));
+    expect(sql, contains('At least one branch role is required.'));
+    expect(sql, contains('invitation.invited_by = auth.uid()'));
+    expect(sql, contains('branch.tenant_id = actor_tenant_id'));
+    expect(sql, contains('role.tenant_id = actor_tenant_id'));
+    expect(sql, contains("role.code = 'owner'"));
+    expect(sql, contains('public.install_staff_invitation_branch_roles'));
+    expect(sql, contains('insert into public.user_branch_role_assignments'));
+    expect(sql, contains('new.invited_user_id'));
   });
 
   test('invited session is forced through password setup route', () {

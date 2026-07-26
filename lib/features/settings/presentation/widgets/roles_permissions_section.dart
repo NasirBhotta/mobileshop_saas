@@ -481,6 +481,7 @@ class RolesPermissionsSection extends ConsumerWidget {
         fullName: values.fullName,
         email: values.email,
         roleId: values.roleId,
+        branchRoles: values.branchRoles,
       );
     });
     if (success && context.mounted) {
@@ -792,8 +793,14 @@ class _StaffInvitationValue {
   final String fullName;
   final String email;
   final String roleId;
+  final Map<String, String> branchRoles;
 
-  const _StaffInvitationValue(this.fullName, this.email, this.roleId);
+  const _StaffInvitationValue(
+    this.fullName,
+    this.email,
+    this.roleId,
+    this.branchRoles,
+  );
 }
 
 Future<_StaffInvitationValue?> _staffInvitationDialog(
@@ -805,84 +812,133 @@ Future<_StaffInvitationValue?> _staffInvitationDialog(
   var fullName = '';
   var email = '';
   String roleId = roles.first.id;
+  final branchRoles = <String, String>{};
   final formKey = GlobalKey<FormState>();
 
   return showDialog<_StaffInvitationValue>(
     context: context,
     builder:
-        (dialogContext) => AlertDialog(
-          title: const Text('Invite staff user'),
-          content: SizedBox(
-            width: 480,
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    decoration: const InputDecoration(labelText: 'Full name'),
-                    textCapitalization: TextCapitalization.words,
-                    onChanged: (value) => fullName = value,
-                    validator:
-                        (value) =>
-                            value?.trim().isEmpty ?? true
-                                ? 'Full name required hai'
-                                : null,
+        (dialogContext) => StatefulBuilder(
+          builder:
+              (context, setState) => AlertDialog(
+                title: const Text('Invite staff user'),
+                content: SizedBox(
+                  width: 480,
+                  child: Form(
+                    key: formKey,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextFormField(
+                            decoration: const InputDecoration(
+                              labelText: 'Full name',
+                            ),
+                            textCapitalization: TextCapitalization.words,
+                            onChanged: (value) => fullName = value,
+                            validator:
+                                (value) =>
+                                    value?.trim().isEmpty ?? true
+                                        ? 'Full name required hai'
+                                        : null,
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            autocorrect: false,
+                            onChanged: (value) => email = value,
+                            validator: (value) {
+                              final normalized = value?.trim() ?? '';
+                              return RegExp(
+                                    r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                                  ).hasMatch(normalized)
+                                  ? null
+                                  : 'Valid email required hai';
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Branch access',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          for (final branch in data.branches) ...[
+                            DropdownButtonFormField<String>(
+                              initialValue: '',
+                              decoration: InputDecoration(
+                                labelText: branch.name,
+                              ),
+                              items: [
+                                const DropdownMenuItem(
+                                  value: '',
+                                  child: Text('No access'),
+                                ),
+                                for (final role in roles)
+                                  DropdownMenuItem(
+                                    value: role.id,
+                                    child: Text(role.name),
+                                  ),
+                              ],
+                              onChanged: (value) {
+                                setState(() {
+                                  if (value == null || value.isEmpty) {
+                                    branchRoles.remove(branch.id);
+                                  } else {
+                                    branchRoles[branch.id] = value;
+                                  }
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                          if (branchRoles.isEmpty)
+                            const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Kam az kam aik branch ka role select karein.',
+                                style: TextStyle(
+                                  color: AppColors.error,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    decoration: const InputDecoration(labelText: 'Email'),
-                    keyboardType: TextInputType.emailAddress,
-                    autocorrect: false,
-                    onChanged: (value) => email = value,
-                    validator: (value) {
-                      final normalized = value?.trim() ?? '';
-                      return RegExp(
-                            r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-                          ).hasMatch(normalized)
-                          ? null
-                          : 'Valid email required hai';
-                    },
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
                   ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: roleId,
-                    decoration: const InputDecoration(labelText: 'Role'),
-                    items: [
-                      for (final role in roles)
-                        DropdownMenuItem(
-                          value: role.id,
-                          child: Text(role.name),
-                        ),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) roleId = value;
-                    },
+                  FilledButton(
+                    onPressed:
+                        branchRoles.isEmpty
+                            ? null
+                            : () {
+                              if (!formKey.currentState!.validate()) return;
+                              roleId = branchRoles.values.first;
+                              Navigator.pop(
+                                dialogContext,
+                                _StaffInvitationValue(
+                                  fullName.trim(),
+                                  email.trim().toLowerCase(),
+                                  roleId,
+                                  Map<String, String>.from(branchRoles),
+                                ),
+                              );
+                            },
+                    child: const Text('Send Invite'),
                   ),
                 ],
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (!formKey.currentState!.validate()) return;
-                Navigator.pop(
-                  dialogContext,
-                  _StaffInvitationValue(
-                    fullName.trim(),
-                    email.trim().toLowerCase(),
-                    roleId,
-                  ),
-                );
-              },
-              child: const Text('Send Invite'),
-            ),
-          ],
         ),
   );
 }

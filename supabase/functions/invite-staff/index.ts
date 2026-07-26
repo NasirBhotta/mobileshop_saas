@@ -43,6 +43,11 @@ Deno.serve(async (request) => {
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
     const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : '';
     const roleId = typeof body.roleId === 'string' ? body.roleId : '';
+    const branchRoles = body.branchRoles != null &&
+        typeof body.branchRoles === 'object' &&
+        !Array.isArray(body.branchRoles)
+      ? body.branchRoles
+      : {};
 
     stage = 'request_invitation';
     const { data: requestedId, error: requestError } = await caller.rpc(
@@ -51,6 +56,16 @@ Deno.serve(async (request) => {
     );
     if (requestError) throw requestError;
     invitationId = requestedId as string;
+
+    stage = 'set_branch_roles';
+    const { error: branchRolesError } = await caller.rpc(
+      'set_staff_invitation_branch_roles',
+      {
+        p_invitation_id: invitationId,
+        p_branch_roles: branchRoles,
+      },
+    );
+    if (branchRolesError) throw branchRolesError;
 
     stage = 'invite_auth_user';
     const redirectTo = Deno.env.get('STAFF_INVITE_REDIRECT_URL') ??

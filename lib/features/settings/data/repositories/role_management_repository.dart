@@ -257,6 +257,7 @@ class RoleManagementRepository {
     required String fullName,
     required String email,
     required String roleId,
+    required Map<String, String> branchRoles,
   }) async {
     await _requireAccess();
     try {
@@ -267,6 +268,7 @@ class RoleManagementRepository {
               'fullName': fullName.trim(),
               'email': email.trim().toLowerCase(),
               'roleId': roleId,
+              'branchRoles': branchRoles,
             },
           )
           .timeout(_staffInviteTimeout);
