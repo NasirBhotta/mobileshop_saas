@@ -74,33 +74,65 @@ final authListenerProvider = StreamProvider<void>((ref) async* {
       ref
           .read(setupFlowRepositoryProvider)
           .requestOfflineMutationSync(userId)
-          .catchError((Object error) {
-            debugPrint('Offline setup mutation sync failed: $error');
+          .catchError((Object error, StackTrace stackTrace) {
+            debugPrint(
+              'Offline setup mutation sync failed for $userId: $error',
+            );
+            debugPrintStack(stackTrace: stackTrace);
           }),
     );
   }
 
+  // Existing authenticated user ke liye initial sync.
   if (activeUserId != null) {
     requestSetupSync(activeUserId);
   }
 
-  await for (final authState in repo.authStateChanges) {
-    final nextUserId = authState.session?.user.id;
-    final userChanged = nextUserId != activeUserId;
-    if (authState.event == AuthChangeEvent.signedOut || userChanged) {
-      _invalidateAuthScopedProviders(ref);
-    }
-    activeUserId = nextUserId;
+  try {
+    await for (final authState in repo.authStateChanges) {
+      try {
+        final nextUserId = authState.session?.user.id;
+        final userChanged = nextUserId != activeUserId;
 
-    if (authState.event == AuthChangeEvent.signedIn) {
-      final user = authState.session?.user;
-      if (user == null) continue;
+        if (authState.event == AuthChangeEvent.signedOut || userChanged) {
+          _invalidateAuthScopedProviders(ref);
+        }
 
-      await repo.ensureUserProfile(user: user);
-      requestSetupSync(user.id);
-      ref.invalidate(setupFlowStatusProvider);
-      ref.invalidate(selectedBranchIdProvider);
+        activeUserId = nextUserId;
+
+        if (authState.event != AuthChangeEvent.signedIn) {
+          continue;
+        }
+
+        final user = authState.session?.user;
+        if (user == null) {
+          debugPrint(
+            'Signed-in auth event received without an authenticated user.',
+          );
+          continue;
+        }
+
+        await repo.ensureUserProfile(user: user);
+
+        requestSetupSync(user.id);
+
+        ref.invalidate(setupFlowStatusProvider);
+        ref.invalidate(selectedBranchIdProvider);
+      } on AuthException catch (error, stackTrace) {
+        debugPrint('Auth listener authentication error: ${error.message}');
+        debugPrintStack(stackTrace: stackTrace);
+      } on PostgrestException catch (error, stackTrace) {
+        debugPrint('Auth listener profile/database error: ${error.message}');
+        debugPrintStack(stackTrace: stackTrace);
+      } catch (error, stackTrace) {
+        debugPrint('Auth event handling failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
     }
+  } catch (error, stackTrace) {
+    // authStateChanges stream khud fail ya close ho jaye.
+    debugPrint('Auth state stream failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
   }
 });
 
