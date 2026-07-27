@@ -4,9 +4,12 @@ import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 
 import '../../data/models/repair_status_log_model.dart';
 import '../../data/models/repair_ticket_model.dart';
+import '../../data/models/repair_payment_model.dart';
 import '../../data/repositories/repair_repository.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../../core/entitlements/entitlement_evaluator.dart';
+import '../../../../core/authorization/branch_permission_shadow_provider.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
 
 /// Repository provider.
 ///
@@ -79,6 +82,11 @@ final repairStatusLogsProvider = FutureProvider.autoDispose
       return repository.fetchStatusLogs(ticketId);
     });
 
+final repairPaymentsProvider = FutureProvider.autoDispose
+    .family<List<RepairPaymentModel>, String>((ref, ticketId) {
+      return ref.read(repairRepositoryProvider).fetchRepairPayments(ticketId);
+    });
+
 /// Create/update controller.
 ///
 /// Iska state `AsyncValue<RepairTicketModel?>` rakha hai.
@@ -100,6 +108,57 @@ final repairTicketControllerProvider = StateNotifierProvider<
 >((ref) {
   return RepairTicketController(ref);
 });
+
+final repairPaymentControllerProvider =
+    StateNotifierProvider<RepairPaymentController, AsyncValue<void>>((ref) {
+      return RepairPaymentController(ref);
+    });
+
+class RepairPaymentController extends StateNotifier<AsyncValue<void>> {
+  final Ref _ref;
+
+  RepairPaymentController(this._ref) : super(const AsyncData(null));
+
+  Future<bool> recordPayment({
+    required RepairTicketModel ticket,
+    required double amount,
+    required String method,
+    required String accountId,
+    String? note,
+  }) async {
+    state = const AsyncLoading();
+    try {
+      if (!await hasFeatureWithCompatibility(
+        _ref.read(entitlementEvaluatorProvider),
+        'repairs.tickets',
+      )) {
+        throw const EntitlementDeniedException('repairs.tickets');
+      }
+      final allowed = await _ref.read(
+        branchAwarePermissionProvider('repair.payment.create').future,
+      );
+      if (!allowed) {
+        throw StateError('Permission required: repair.payment.create');
+      }
+      await _ref
+          .read(repairRepositoryProvider)
+          .recordRepairPayment(
+            ticket: ticket,
+            amount: amount,
+            method: method,
+            accountId: accountId,
+            note: note,
+          );
+      state = const AsyncData(null);
+      _ref.invalidate(repairPaymentsProvider(ticket.id));
+      _ref.invalidate(accountsProvider);
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
+}
 
 class RepairTicketController
     extends StateNotifier<AsyncValue<RepairTicketModel?>> {

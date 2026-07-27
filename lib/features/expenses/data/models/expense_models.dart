@@ -251,6 +251,9 @@ class ExpenseModel {
   final double amount;
 
   final ExpensePaymentMode paymentMode;
+  final String? accountId;
+  final String? ledgerTransactionId;
+  final String? reversalLedgerTransactionId;
 
   final String? payee;
   final String? notes;
@@ -288,6 +291,9 @@ class ExpenseModel {
     required this.expenseDate,
     required this.amount,
     this.paymentMode = ExpensePaymentMode.cash,
+    this.accountId,
+    this.ledgerTransactionId,
+    this.reversalLedgerTransactionId,
     this.payee,
     this.notes,
     this.receiptPhotoPath,
@@ -316,6 +322,10 @@ class ExpenseModel {
       expenseDate: _date(map['expense_date']) ?? DateTime.now(),
       amount: (map['amount'] as num?)?.toDouble() ?? 0,
       paymentMode: ExpensePaymentModeX.fromCode(map['payment_mode'] as String?),
+      accountId: map['account_id'] as String?,
+      ledgerTransactionId: map['ledger_transaction_id'] as String?,
+      reversalLedgerTransactionId:
+          map['reversal_ledger_transaction_id'] as String?,
       payee: map['payee'] as String?,
       notes: map['notes'] as String?,
       receiptPhotoPath: map['receipt_photo_path'] as String?,
@@ -345,6 +355,9 @@ class ExpenseModel {
       'expense_date': _dateOnly(expenseDate),
       'amount': amount,
       'payment_mode': paymentMode.code,
+      'account_id': accountId,
+      'ledger_transaction_id': ledgerTransactionId,
+      'reversal_ledger_transaction_id': reversalLedgerTransactionId,
       'payee': payee,
       'notes': notes,
       'receipt_photo_path': receiptPhotoPath,
@@ -380,6 +393,9 @@ class ExpenseModel {
     DateTime? expenseDate,
     double? amount,
     ExpensePaymentMode? paymentMode,
+    String? accountId,
+    String? ledgerTransactionId,
+    String? reversalLedgerTransactionId,
     String? payee,
     String? notes,
     String? receiptPhotoPath,
@@ -399,6 +415,10 @@ class ExpenseModel {
       expenseDate: expenseDate ?? this.expenseDate,
       amount: amount ?? this.amount,
       paymentMode: paymentMode ?? this.paymentMode,
+      accountId: accountId ?? this.accountId,
+      ledgerTransactionId: ledgerTransactionId ?? this.ledgerTransactionId,
+      reversalLedgerTransactionId:
+          reversalLedgerTransactionId ?? this.reversalLedgerTransactionId,
       payee: payee ?? this.payee,
       notes: notes ?? this.notes,
       receiptPhotoPath: receiptPhotoPath ?? this.receiptPhotoPath,

@@ -3,10 +3,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/local/local_database.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/inventory_unit_model.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_status_log_model.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/repair_payment_model.dart';
+import 'package:mobileshop_saas/features/repairs/data/local/repair_payment_local_committer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
@@ -587,6 +590,78 @@ class RepairRepository {
     }
   }
 
+  Future<List<RepairPaymentModel>> fetchRepairPayments(String ticketId) async {
+    await _gate.require('repairs.tickets');
+    try {
+      final data = await _client
+          .from('repair_payments')
+          .select()
+          .eq('ticket_id', ticketId)
+          .order('received_at')
+          .timeout(_networkTimeout);
+      final payments =
+          (data as List).map((row) => RepairPaymentModel.fromMap(row)).toList();
+      for (final payment in payments) {
+        await _saveRepairPaymentCache(payment);
+      }
+      return payments;
+    } catch (_) {
+      return _loadRepairPayments(ticketId);
+    }
+  }
+
+  Future<RepairPaymentModel> recordRepairPayment({
+    required RepairTicketModel ticket,
+    required double amount,
+    required String method,
+    required String accountId,
+    String? note,
+  }) async {
+    await _gate.require('repairs.tickets');
+    final now = DateTime.now();
+    final payment = RepairPaymentModel(
+      id: const Uuid().v4(),
+      tenantId: ticket.tenantId,
+      branchId: ticket.branchId,
+      ticketId: ticket.id,
+      amount: amount,
+      method: method,
+      accountId: accountId,
+      ledgerTransactionId: const Uuid().v4(),
+      note: note?.trim().isEmpty == true ? null : note?.trim(),
+      receivedBy: _currentUser.id,
+      receivedAt: now,
+      createdAt: now,
+    );
+    await RepairPaymentLocalCommitter.commit(payment);
+    try {
+      await _client
+          .rpc(
+            'record_repair_payment_v2',
+            params: {
+              'p_payment_id': payment.id,
+              'p_ticket_id': payment.ticketId,
+              'p_amount': payment.amount,
+              'p_method': payment.method,
+              'p_account_id': payment.accountId,
+              'p_ledger_transaction_id': payment.ledgerTransactionId,
+              'p_note': payment.note,
+              'p_received_at': payment.receivedAt.toIso8601String(),
+            },
+          )
+          .timeout(_networkTimeout);
+    } catch (e) {
+      OfflineErrorClassifier.rethrowIfTerminal(e);
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'record_repair_payment_v2',
+        payload: payment.toMap(),
+      );
+      debugPrint('Repair payment saved offline: $e');
+    }
+    return payment;
+  }
+
   Future<void> _refreshStatusLogsCache(String ticketId) async {
     try {
       final data = await _client
@@ -633,6 +708,9 @@ class RepairRepository {
             break;
           case 'update_repair_ticket_status':
             await _syncUpdateRepairTicketStatus(mutation.payload);
+            break;
+          case 'record_repair_payment_v2':
+            await _syncRepairPayment(mutation.payload);
             break;
           default:
             remaining.add(mutation);
@@ -696,6 +774,41 @@ class RepairRepository {
     await _client
         .from('repair_status_logs')
         .upsert(log.toCacheMap(), onConflict: 'id');
+  }
+
+  Future<void> _syncRepairPayment(Map<String, dynamic> payload) async {
+    final payment = RepairPaymentModel.fromMap(payload);
+    await _client.rpc(
+      'record_repair_payment_v2',
+      params: {
+        'p_payment_id': payment.id,
+        'p_ticket_id': payment.ticketId,
+        'p_amount': payment.amount,
+        'p_method': payment.method,
+        'p_account_id': payment.accountId,
+        'p_ledger_transaction_id': payment.ledgerTransactionId,
+        'p_note': payment.note,
+        'p_received_at': payment.receivedAt.toIso8601String(),
+      },
+    );
+  }
+
+  Future<void> _saveRepairPaymentCache(RepairPaymentModel payment) {
+    final map = payment.toMap();
+    return LocalDatabase.execute('''
+      INSERT OR REPLACE INTO repair_payments(
+        id, tenant_id, branch_id, ticket_id, amount, method, account_id,
+        ledger_transaction_id, note, received_by, received_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ''', map.values.toList());
+  }
+
+  Future<List<RepairPaymentModel>> _loadRepairPayments(String ticketId) async {
+    final rows = await LocalDatabase.select(
+      'SELECT * FROM repair_payments WHERE ticket_id = ? ORDER BY received_at',
+      [ticketId],
+    );
+    return rows.map(RepairPaymentModel.fromMap).toList();
   }
 
   // ════════════════════════════════════════

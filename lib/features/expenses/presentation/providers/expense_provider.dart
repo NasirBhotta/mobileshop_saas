@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
+import 'package:mobileshop_saas/core/authorization/branch_permission_shadow_provider.dart';
 import 'package:mobileshop_saas/features/expenses/data/models/expense_models.dart';
 import 'package:mobileshop_saas/features/expenses/data/repositories/expense_repository.dart';
 
@@ -16,12 +17,24 @@ class ExpenseDateRange {
   }
 }
 
-Future<void> _requireExpense(Ref ref, String feature) async {
+Future<void> _requireExpense(
+  Ref ref,
+  String feature, {
+  String? permissionKey,
+}) async {
   if (!await hasFeatureWithCompatibility(
     ref.read(entitlementEvaluatorProvider),
     feature,
   )) {
     throw EntitlementDeniedException(feature);
+  }
+  if (permissionKey != null) {
+    final allowed = await ref.read(
+      branchAwarePermissionProvider(permissionKey).future,
+    );
+    if (!allowed) {
+      throw StateError('Permission required: $permissionKey');
+    }
   }
 }
 
@@ -159,7 +172,11 @@ class ExpenseCategoryController
     state = const AsyncLoading();
 
     try {
-      await _requireExpense(_ref, 'expenses.core');
+      await _requireExpense(
+        _ref,
+        'expenses.core',
+        permissionKey: 'expense.category.manage',
+      );
       final repository = _ref.read(expenseRepositoryProvider);
 
       final category = await repository.createCategory(
@@ -204,6 +221,7 @@ class ExpenseController extends StateNotifier<AsyncValue<ExpenseModel?>> {
     String? categoryId,
     String? categoryName,
     ExpensePaymentMode paymentMode = ExpensePaymentMode.cash,
+    String? accountId,
     String? payee,
     String? notes,
     String? localReceiptPath,
@@ -212,7 +230,11 @@ class ExpenseController extends StateNotifier<AsyncValue<ExpenseModel?>> {
     state = const AsyncLoading();
 
     try {
-      await _requireExpense(_ref, 'expenses.core');
+      await _requireExpense(
+        _ref,
+        'expenses.core',
+        permissionKey: 'expense.expense.create',
+      );
       if (localReceiptPath?.trim().isNotEmpty == true) {
         await _requireExpense(_ref, 'expenses.receipts');
       }
@@ -225,6 +247,7 @@ class ExpenseController extends StateNotifier<AsyncValue<ExpenseModel?>> {
         categoryId: categoryId,
         categoryName: categoryName,
         paymentMode: paymentMode,
+        accountId: accountId,
         payee: payee,
         notes: notes,
         localReceiptPath: localReceiptPath,
@@ -244,13 +267,18 @@ class ExpenseController extends StateNotifier<AsyncValue<ExpenseModel?>> {
 
   Future<bool> confirmExpense({
     required ExpenseModel expense,
+    required String accountId,
     double? actualAmount,
     String? localReceiptPath,
   }) async {
     state = const AsyncLoading();
 
     try {
-      await _requireExpense(_ref, 'expenses.core');
+      await _requireExpense(
+        _ref,
+        'expenses.core',
+        permissionKey: 'expense.expense.update',
+      );
       if (localReceiptPath?.trim().isNotEmpty == true) {
         await _requireExpense(_ref, 'expenses.receipts');
       }
@@ -258,6 +286,7 @@ class ExpenseController extends StateNotifier<AsyncValue<ExpenseModel?>> {
 
       await repository.confirmExpense(
         expense: expense,
+        accountId: accountId,
         actualAmount: actualAmount,
         localReceiptPath: localReceiptPath,
       );
@@ -284,7 +313,11 @@ class ExpenseController extends StateNotifier<AsyncValue<ExpenseModel?>> {
     state = const AsyncLoading();
 
     try {
-      await _requireExpense(_ref, 'expenses.core');
+      await _requireExpense(
+        _ref,
+        'expenses.core',
+        permissionKey: 'expense.expense.void',
+      );
       final repository = _ref.read(expenseRepositoryProvider);
 
       await repository.voidExpense(expense);

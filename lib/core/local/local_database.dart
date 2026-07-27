@@ -26,12 +26,15 @@ class LocalDatabase {
     'customer_settlements',
     'sale_returns',
     'sale_return_items',
+    'sale_return_refund_legs',
+    'sale_return_credit_adjustments',
     'discount_audit_logs',
     'receipt_delivery_logs',
     'held_carts',
     'inventory_units',
     'repair_tickets',
     'repair_status_logs',
+    'repair_payments',
     'suppliers',
     'supplier_products',
     'purchase_orders',
@@ -66,11 +69,14 @@ class LocalDatabase {
     'supplier_products',
     'suppliers',
     'repair_status_logs',
+    'repair_payments',
     'repair_tickets',
     'inventory_units',
     'receipt_delivery_logs',
     'discount_audit_logs',
     'sale_return_items',
+    'sale_return_refund_legs',
+    'sale_return_credit_adjustments',
     'sale_returns',
     'customer_settlements',
     'sale_payments',
@@ -463,9 +469,31 @@ class LocalDatabase {
       id TEXT PRIMARY KEY,
       sale_id TEXT NOT NULL,
       method TEXT NOT NULL,
-      amount REAL NOT NULL
+      amount REAL NOT NULL,
+      account_id TEXT,
+      ledger_transaction_id TEXT
     )
   ''');
+    await _addColumnIfMissing(
+      table: 'sale_payments',
+      column: 'account_id',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'sale_payments',
+      column: 'ledger_transaction_id',
+      definition: 'TEXT',
+    );
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_sale_payments_account
+      ON sale_payments(account_id)
+      WHERE account_id IS NOT NULL
+    ''');
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sale_payments_ledger_transaction
+      ON sale_payments(ledger_transaction_id)
+      WHERE ledger_transaction_id IS NOT NULL
+    ''');
 
     await _db.customStatement('''
     CREATE TABLE IF NOT EXISTS customer_settlements (
@@ -475,11 +503,28 @@ class LocalDatabase {
       user_id TEXT NOT NULL,
       amount REAL NOT NULL,
       method TEXT NOT NULL,
+      account_id TEXT,
+      ledger_transaction_id TEXT,
       notes TEXT,
       synced INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     )
   ''');
+    await _addColumnIfMissing(
+      table: 'customer_settlements',
+      column: 'account_id',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'customer_settlements',
+      column: 'ledger_transaction_id',
+      definition: 'TEXT',
+    );
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_settlement_ledger
+      ON customer_settlements(ledger_transaction_id)
+      WHERE ledger_transaction_id IS NOT NULL
+    ''');
 
     await _db.customStatement('''
     CREATE TABLE IF NOT EXISTS sale_returns (
@@ -513,6 +558,35 @@ class LocalDatabase {
       resale_price REAL
     )
   ''');
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS sale_return_refund_legs (
+      id TEXT PRIMARY KEY,
+      return_id TEXT NOT NULL,
+      original_payment_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      amount REAL NOT NULL,
+      ledger_transaction_id TEXT NOT NULL
+    )
+  ''');
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_return_refund_payment
+      ON sale_return_refund_legs(return_id, original_payment_id)
+    ''');
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS sale_return_credit_adjustments (
+        id TEXT PRIMARY KEY,
+        return_id TEXT NOT NULL UNIQUE,
+        original_sale_id TEXT NOT NULL,
+        customer_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_return_refund_ledger
+      ON sale_return_refund_legs(ledger_transaction_id)
+    ''');
     await _addColumnIfMissing(
       table: 'sale_return_items',
       column: 'restock_product_id',
@@ -668,6 +742,27 @@ class LocalDatabase {
       )
     ''');
 
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS repair_payments (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        ticket_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        method TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        ledger_transaction_id TEXT NOT NULL,
+        note TEXT,
+        received_by TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_repair_payment_ledger
+      ON repair_payments(ledger_transaction_id)
+    ''');
+
     // ════════════════════════════════════════
     // SUPPLIER TABLES + INDEXES
     // ════════════════════════════════════════
@@ -785,11 +880,28 @@ class LocalDatabase {
         supplier_id TEXT NOT NULL,
         amount REAL NOT NULL,
         method TEXT,
+        account_id TEXT,
+        ledger_transaction_id TEXT,
         note TEXT,
         paid_by TEXT,
         paid_at TEXT,
         created_at TEXT
       )
+    ''');
+    await _addColumnIfMissing(
+      table: 'supplier_payments',
+      column: 'account_id',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'supplier_payments',
+      column: 'ledger_transaction_id',
+      definition: 'TEXT',
+    );
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_payment_ledger
+      ON supplier_payments(ledger_transaction_id)
+      WHERE ledger_transaction_id IS NOT NULL
     ''');
 
     await _db.customStatement('''
@@ -824,11 +936,23 @@ class LocalDatabase {
         description TEXT,
         reference_type TEXT,
         reference_id TEXT,
+        source_event_key TEXT,
+        reversal_of_transaction_id TEXT,
         transaction_at TEXT NOT NULL,
         created_by TEXT,
         created_at TEXT
       )
     ''');
+    await _addColumnIfMissing(
+      table: 'account_transactions',
+      column: 'source_event_key',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'account_transactions',
+      column: 'reversal_of_transaction_id',
+      definition: 'TEXT',
+    );
 
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS mobile_service_providers (
@@ -898,6 +1022,9 @@ class LocalDatabase {
         expense_date TEXT NOT NULL,
         amount REAL NOT NULL DEFAULT 0,
         payment_mode TEXT NOT NULL DEFAULT 'cash',
+        account_id TEXT,
+        ledger_transaction_id TEXT,
+        reversal_ledger_transaction_id TEXT,
         payee TEXT,
         notes TEXT,
         receipt_photo_path TEXT,
@@ -915,6 +1042,21 @@ class LocalDatabase {
         updated_at TEXT
       )
     ''');
+    await _addColumnIfMissing(
+      table: 'expenses',
+      column: 'account_id',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'expenses',
+      column: 'ledger_transaction_id',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'expenses',
+      column: 'reversal_ledger_transaction_id',
+      definition: 'TEXT',
+    );
 
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS recurring_expense_rules (
@@ -1316,6 +1458,16 @@ class LocalDatabase {
     await _db.customStatement('''
       CREATE INDEX IF NOT EXISTS idx_account_transactions_account
       ON account_transactions(account_id, transaction_at);
+    ''');
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_account_transactions_source_event
+      ON account_transactions(tenant_id, branch_id, source_event_key)
+      WHERE source_event_key IS NOT NULL;
+    ''');
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_account_transactions_reversal
+      ON account_transactions(reversal_of_transaction_id)
+      WHERE reversal_of_transaction_id IS NOT NULL;
     ''');
     await _db.customStatement('''
       CREATE INDEX IF NOT EXISTS idx_mobile_service_providers_branch

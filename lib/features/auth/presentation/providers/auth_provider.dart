@@ -74,65 +74,33 @@ final authListenerProvider = StreamProvider<void>((ref) async* {
       ref
           .read(setupFlowRepositoryProvider)
           .requestOfflineMutationSync(userId)
-          .catchError((Object error, StackTrace stackTrace) {
-            debugPrint(
-              'Offline setup mutation sync failed for $userId: $error',
-            );
-            debugPrintStack(stackTrace: stackTrace);
+          .catchError((Object error) {
+            debugPrint('Offline setup mutation sync failed: $error');
           }),
     );
   }
 
-  // Existing authenticated user ke liye initial sync.
   if (activeUserId != null) {
     requestSetupSync(activeUserId);
   }
 
-  try {
-    await for (final authState in repo.authStateChanges) {
-      try {
-        final nextUserId = authState.session?.user.id;
-        final userChanged = nextUserId != activeUserId;
-
-        if (authState.event == AuthChangeEvent.signedOut || userChanged) {
-          _invalidateAuthScopedProviders(ref);
-        }
-
-        activeUserId = nextUserId;
-
-        if (authState.event != AuthChangeEvent.signedIn) {
-          continue;
-        }
-
-        final user = authState.session?.user;
-        if (user == null) {
-          debugPrint(
-            'Signed-in auth event received without an authenticated user.',
-          );
-          continue;
-        }
-
-        await repo.ensureUserProfile(user: user);
-
-        requestSetupSync(user.id);
-
-        ref.invalidate(setupFlowStatusProvider);
-        ref.invalidate(selectedBranchIdProvider);
-      } on AuthException catch (error, stackTrace) {
-        debugPrint('Auth listener authentication error: ${error.message}');
-        debugPrintStack(stackTrace: stackTrace);
-      } on PostgrestException catch (error, stackTrace) {
-        debugPrint('Auth listener profile/database error: ${error.message}');
-        debugPrintStack(stackTrace: stackTrace);
-      } catch (error, stackTrace) {
-        debugPrint('Auth event handling failed: $error');
-        debugPrintStack(stackTrace: stackTrace);
-      }
+  await for (final authState in repo.authStateChanges) {
+    final nextUserId = authState.session?.user.id;
+    final userChanged = nextUserId != activeUserId;
+    if (authState.event == AuthChangeEvent.signedOut || userChanged) {
+      _invalidateAuthScopedProviders(ref);
     }
-  } catch (error, stackTrace) {
-    // authStateChanges stream khud fail ya close ho jaye.
-    debugPrint('Auth state stream failed: $error');
-    debugPrintStack(stackTrace: stackTrace);
+    activeUserId = nextUserId;
+
+    if (authState.event == AuthChangeEvent.signedIn) {
+      final user = authState.session?.user;
+      if (user == null) continue;
+
+      await repo.ensureUserProfile(user: user);
+      requestSetupSync(user.id);
+      ref.invalidate(setupFlowStatusProvider);
+      ref.invalidate(selectedBranchIdProvider);
+    }
   }
 });
 
@@ -140,10 +108,7 @@ void _invalidateAuthScopedProviders(Ref ref) {
   ref.read(permissionRevisionProvider.notifier).refresh();
   ref.invalidate(permissionRealtimeRefreshProvider);
   ref.read(entitlementEvaluatorProvider).invalidateAll();
-  // Recreate authenticated Realtime channels after session restoration,
-  // sign-in, sign-out, or a user switch. On a cold start these providers can
-  // run before Supabase has restored the persisted session and otherwise
-  // remain unsubscribed for the lifetime of the app.
+
   ref.invalidate(tenantAccessRealtimeProvider);
   ref.invalidate(entitlementRealtimeRefreshProvider);
   ref.invalidate(tenantAccessProvider);

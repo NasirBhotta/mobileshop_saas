@@ -7,6 +7,10 @@ import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/core/utils/responsive.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/providers/repair_provider.dart';
+import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
+import 'package:mobileshop_saas/features/accounts/presentation/providers/accounts_provider.dart';
+import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
+import 'package:mobileshop_saas/features/pos/domain/pos_payment_account_policy.dart';
 import '../../data/models/repair_ticket_model.dart';
 
 class RepairsListScreen extends ConsumerWidget {
@@ -234,7 +238,7 @@ typedef _StatusChanged =
       double? totalCost,
     });
 
-class _RepairTicketDetails extends StatefulWidget {
+class _RepairTicketDetails extends ConsumerStatefulWidget {
   final RepairTicketModel ticket;
   final _StatusChanged onStatusChanged;
 
@@ -244,10 +248,11 @@ class _RepairTicketDetails extends StatefulWidget {
   });
 
   @override
-  State<_RepairTicketDetails> createState() => _RepairTicketDetailsState();
+  ConsumerState<_RepairTicketDetails> createState() =>
+      _RepairTicketDetailsState();
 }
 
-class _RepairTicketDetailsState extends State<_RepairTicketDetails> {
+class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
   final _formKey = GlobalKey<FormState>();
   final _noteController = TextEditingController();
   final _totalCostController = TextEditingController();
@@ -283,6 +288,17 @@ class _RepairTicketDetailsState extends State<_RepairTicketDetails> {
     final statuses = _nextStatuses(ticket.status);
     final selectedStatus = _selectedStatus;
     final needsAmount = selectedStatus == RepairTicketStatus.completed;
+    final paymentsAsync = ref.watch(repairPaymentsProvider(ticket.id));
+    final paid =
+        paymentsAsync.value?.fold<double>(
+          0,
+          (sum, payment) => sum + payment.amount,
+        ) ??
+        0;
+    final balance =
+        totalCost == null
+            ? null
+            : (totalCost - paid).clamp(0, double.infinity).toDouble();
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -330,11 +346,32 @@ class _RepairTicketDetailsState extends State<_RepairTicketDetails> {
                     ),
                   if (totalCost != null)
                     _DetailLine(
-                      label: 'Final Amount',
+                      label: 'Repair Charge',
                       value: 'Rs ${totalCost.toStringAsFixed(0)}',
+                    ),
+                  _DetailLine(
+                    label: 'Received',
+                    value: 'Rs ${paid.toStringAsFixed(0)}',
+                  ),
+                  if (balance != null)
+                    _DetailLine(
+                      label: 'Remaining',
+                      value: 'Rs ${balance.toStringAsFixed(0)}',
                     ),
                 ],
               ),
+              if (totalCost != null &&
+                  balance != null &&
+                  balance > 0.009 &&
+                  ticket.status != RepairTicketStatus.cancelled) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed:
+                      _isSaving ? null : () => _showPaymentDialog(balance),
+                  icon: const Icon(Icons.payments_outlined),
+                  label: const Text('Receive Payment'),
+                ),
+              ],
               const SizedBox(height: 12),
               Text(
                 ticket.faultDescription,
@@ -380,7 +417,7 @@ class _RepairTicketDetailsState extends State<_RepairTicketDetails> {
                       decimal: true,
                     ),
                     decoration: const InputDecoration(
-                      labelText: 'Final amount received',
+                      labelText: 'Final repair amount',
                       prefixText: 'Rs ',
                       border: OutlineInputBorder(),
                     ),
@@ -419,6 +456,158 @@ class _RepairTicketDetailsState extends State<_RepairTicketDetails> {
         ),
       ),
     );
+  }
+
+  Future<void> _showPaymentDialog(double remaining) async {
+    final amountController = TextEditingController(
+      text: remaining.toStringAsFixed(0),
+    );
+    final noteController = TextEditingController();
+    var method = PaymentMethod.cash;
+    String? accountId;
+    await showDialog<void>(
+      context: context,
+      builder:
+          (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) {
+              final accounts =
+                  ref.read(accountsProvider).value ?? const <AccountModel>[];
+              final compatible = PosPaymentAccountPolicy.compatibleAccounts(
+                method,
+                accounts,
+              );
+              final effectiveAccountId =
+                  accountId ??
+                  PosPaymentAccountPolicy.suggestedAccount(
+                    method,
+                    compatible,
+                  )?.id;
+              return AlertDialog(
+                title: const Text('Receive Repair Payment'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: amountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Amount',
+                        helperText:
+                            'Remaining Rs ${remaining.toStringAsFixed(0)}',
+                      ),
+                    ),
+                    DropdownButtonFormField<PaymentMethod>(
+                      initialValue: method,
+                      decoration: const InputDecoration(labelText: 'Method'),
+                      items:
+                          PaymentMethod.values
+                              .where((value) => value != PaymentMethod.credit)
+                              .map(
+                                (value) => DropdownMenuItem(
+                                  value: value,
+                                  child: Text(value.label),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() {
+                          method = value;
+                          accountId = null;
+                        });
+                      },
+                    ),
+                    DropdownButtonFormField<String>(
+                      initialValue: effectiveAccountId,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: 'Receiving Account',
+                        helperText:
+                            compatible.isEmpty
+                                ? 'Create a compatible account first.'
+                                : null,
+                      ),
+                      items:
+                          compatible
+                              .map(
+                                (account) => DropdownMenuItem(
+                                  value: account.id,
+                                  child: Text(account.name),
+                                ),
+                              )
+                              .toList(),
+                      onChanged:
+                          compatible.isEmpty
+                              ? null
+                              : (value) =>
+                                  setDialogState(() => accountId = value),
+                    ),
+                    TextField(
+                      controller: noteController,
+                      decoration: const InputDecoration(
+                        labelText: 'Note optional',
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed:
+                        effectiveAccountId == null
+                            ? null
+                            : () async {
+                              final amount =
+                                  double.tryParse(
+                                    amountController.text.trim(),
+                                  ) ??
+                                  0;
+                              final ok = await ref
+                                  .read(
+                                    repairPaymentControllerProvider.notifier,
+                                  )
+                                  .recordPayment(
+                                    ticket: widget.ticket,
+                                    amount: amount,
+                                    method: method.code,
+                                    accountId: effectiveAccountId,
+                                    note: noteController.text,
+                                  );
+                              if (!context.mounted) return;
+                              if (ok) {
+                                Navigator.of(dialogContext).pop();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Payment received'),
+                                  ),
+                                );
+                              } else {
+                                final error =
+                                    ref
+                                        .read(repairPaymentControllerProvider)
+                                        .asError
+                                        ?.error
+                                        .toString() ??
+                                    'Payment receive nahi ho saki';
+                                ScaffoldMessenger.of(
+                                  context,
+                                ).showSnackBar(SnackBar(content: Text(error)));
+                              }
+                            },
+                    child: const Text('Receive'),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
+    amountController.dispose();
+    noteController.dispose();
   }
 
   Future<void> _submit(RepairTicketStatus status) async {

@@ -5,6 +5,7 @@ import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
 import 'package:mobileshop_saas/features/suppliers/data/repositories/procurement_repository.dart';
+import 'package:mobileshop_saas/core/authorization/branch_permission_shadow_provider.dart';
 
 final procurementRepositoryProvider = Provider<ProcurementRepository>((ref) {
   return ProcurementRepository(
@@ -192,6 +193,7 @@ class SupplierPaymentController extends StateNotifier<AsyncValue<void>> {
   Future<bool> recordPayment({
     required SupplierModel supplier,
     required double amount,
+    required String accountId,
     String? method,
     String? note,
   }) async {
@@ -199,11 +201,18 @@ class SupplierPaymentController extends StateNotifier<AsyncValue<void>> {
 
     try {
       await _requireProcurement(_ref, 'procurement.supplier_payments');
+      final allowed = await _ref.read(
+        branchAwarePermissionProvider('supplier.payment.create').future,
+      );
+      if (!allowed) {
+        throw StateError('Permission required: supplier.payment.create');
+      }
       await _ref
           .read(procurementRepositoryProvider)
           .recordSupplierPayment(
             supplier: supplier,
             amount: amount,
+            accountId: accountId,
             method: method,
             note: note,
           );

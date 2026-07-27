@@ -405,6 +405,8 @@ class SupplierPaymentModel {
   final String supplierId;
   final double amount;
   final String? method;
+  final String? accountId;
+  final String? ledgerTransactionId;
   final String? note;
   final String? paidBy;
   final DateTime? paidAt;
@@ -417,6 +419,8 @@ class SupplierPaymentModel {
     required this.supplierId,
     required this.amount,
     this.method,
+    this.accountId,
+    this.ledgerTransactionId,
     this.note,
     this.paidBy,
     this.paidAt,
@@ -431,6 +435,8 @@ class SupplierPaymentModel {
       'supplier_id': supplierId,
       'amount': amount,
       'method': method,
+      'account_id': accountId,
+      'ledger_transaction_id': ledgerTransactionId,
       'note': note,
       'paid_by': paidBy,
       'paid_at': paidAt?.toIso8601String(),

@@ -300,6 +300,8 @@ class AccountTransactionModel {
   final String? description;
   final String? referenceType;
   final String? referenceId;
+  final String? sourceEventKey;
+  final String? reversalOfTransactionId;
   final DateTime transactionAt;
   final String? createdBy;
   final DateTime? createdAt;
@@ -317,6 +319,8 @@ class AccountTransactionModel {
     this.description,
     this.referenceType,
     this.referenceId,
+    this.sourceEventKey,
+    this.reversalOfTransactionId,
     required this.transactionAt,
     this.createdBy,
     this.createdAt,
@@ -340,6 +344,8 @@ class AccountTransactionModel {
       description: map['description'] as String?,
       referenceType: map['reference_type'] as String?,
       referenceId: map['reference_id'] as String?,
+      sourceEventKey: map['source_event_key'] as String?,
+      reversalOfTransactionId: map['reversal_of_transaction_id'] as String?,
       transactionAt: _dateTimeRequired(map['transaction_at']),
       createdBy: map['created_by'] as String?,
       createdAt: _dateTimeOrNull(map['created_at']),
@@ -360,6 +366,8 @@ class AccountTransactionModel {
       'description': description,
       'reference_type': referenceType,
       'reference_id': referenceId,
+      'source_event_key': sourceEventKey,
+      'reversal_of_transaction_id': reversalOfTransactionId,
       'transaction_at': transactionAt.toIso8601String(),
       'created_by': createdBy,
       'created_at': createdAt?.toIso8601String(),
@@ -367,10 +375,50 @@ class AccountTransactionModel {
   }
 }
 
+@immutable
+class AccountLedgerReconciliation {
+  final String accountId;
+  final String accountName;
+  final double openingBalance;
+  final double storedBalance;
+  final double expectedBalance;
+  final int ledgerEntryCount;
+
+  const AccountLedgerReconciliation({
+    required this.accountId,
+    required this.accountName,
+    required this.openingBalance,
+    required this.storedBalance,
+    required this.expectedBalance,
+    required this.ledgerEntryCount,
+  });
+
+  double get difference => storedBalance - expectedBalance;
+
+  bool get isReconciled => difference.abs() <= 0.005;
+
+  factory AccountLedgerReconciliation.fromMap(Map<String, dynamic> map) {
+    return AccountLedgerReconciliation(
+      accountId: map['account_id'] as String,
+      accountName: map['account_name'] as String,
+      openingBalance: _doubleValue(map['opening_balance']),
+      storedBalance: _doubleValue(map['stored_balance']),
+      expectedBalance: _doubleValue(map['expected_balance']),
+      ledgerEntryCount: _intValue(map['ledger_entry_count']),
+    );
+  }
+}
+
 double _doubleValue(dynamic value) {
   if (value == null) return 0;
   if (value is num) return value.toDouble();
   return double.tryParse(value.toString()) ?? 0;
+}
+
+int _intValue(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? 0;
 }
 
 bool _boolValue(dynamic value, {bool fallback = false}) {

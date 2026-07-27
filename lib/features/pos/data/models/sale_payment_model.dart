@@ -69,12 +69,16 @@ class SalePaymentModel {
   final String? saleId;
   final PaymentMethod method;
   final double amount;
+  final String? accountId;
+  final String? ledgerTransactionId;
 
   const SalePaymentModel({
     this.id,
     this.saleId,
     required this.method,
     required this.amount,
+    this.accountId,
+    this.ledgerTransactionId,
   });
 
   factory SalePaymentModel.fromMap(Map<String, dynamic> map) {
@@ -83,17 +87,34 @@ class SalePaymentModel {
       saleId: map['sale_id'] as String?,
       method: PaymentMethodX.fromCode(map['method'] as String),
       amount: (map['amount'] as num).toDouble(),
+      accountId: map['account_id'] as String?,
+      ledgerTransactionId: map['ledger_transaction_id'] as String?,
     );
   }
 
-  Map<String, dynamic> toMap() => {'method': method.code, 'amount': amount};
+  Map<String, dynamic> toMap() => {
+    if (id != null) 'id': id,
+    'method': method.code,
+    'amount': amount,
+    if (accountId != null) 'account_id': accountId,
+    if (ledgerTransactionId != null)
+      'ledger_transaction_id': ledgerTransactionId,
+  };
 
-  SalePaymentModel copyWith({double? amount}) {
+  SalePaymentModel copyWith({
+    String? id,
+    String? saleId,
+    double? amount,
+    String? accountId,
+    String? ledgerTransactionId,
+  }) {
     return SalePaymentModel(
-      id: id,
-      saleId: saleId,
+      id: id ?? this.id,
+      saleId: saleId ?? this.saleId,
       method: method,
       amount: amount ?? this.amount,
+      accountId: accountId ?? this.accountId,
+      ledgerTransactionId: ledgerTransactionId ?? this.ledgerTransactionId,
     );
   }
 }

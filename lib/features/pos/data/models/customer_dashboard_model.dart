@@ -8,6 +8,8 @@ class CustomerSettlementModel {
   final String userId;
   final double amount;
   final String method;
+  final String? accountId;
+  final String? ledgerTransactionId;
   final String? notes;
   final DateTime createdAt;
 
@@ -18,6 +20,8 @@ class CustomerSettlementModel {
     required this.userId,
     required this.amount,
     required this.method,
+    this.accountId,
+    this.ledgerTransactionId,
     this.notes,
     required this.createdAt,
   });
@@ -30,6 +34,8 @@ class CustomerSettlementModel {
       userId: map['user_id'] as String,
       amount: (map['amount'] as num).toDouble(),
       method: map['method'] as String,
+      accountId: map['account_id'] as String?,
+      ledgerTransactionId: map['ledger_transaction_id'] as String?,
       notes: map['notes'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),
     );

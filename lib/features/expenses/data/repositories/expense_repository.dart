@@ -6,6 +6,7 @@ import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/expenses/data/local/expense_local_store.dart';
+import 'package:mobileshop_saas/features/expenses/data/local/expense_local_ledger_committer.dart';
 import 'package:mobileshop_saas/features/expenses/data/models/expense_models.dart';
 import 'package:mobileshop_saas/features/expenses/domain/expense_entitlement_gate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -293,6 +294,7 @@ class ExpenseRepository {
     String? categoryId,
     String? categoryName,
     ExpensePaymentMode paymentMode = ExpensePaymentMode.cash,
+    String? accountId,
     String? payee,
     String? notes,
     String? localReceiptPath,
@@ -309,8 +311,10 @@ class ExpenseRepository {
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final now = DateTime.now();
+    final ledgerTransactionId =
+        status == ExpenseStatus.confirmed ? const Uuid().v4() : null;
 
-    final expense = ExpenseModel(
+    var expense = ExpenseModel(
       id: const Uuid().v4(),
       tenantId: tenantId,
       branchId: branchId,
@@ -320,20 +324,38 @@ class ExpenseRepository {
       expenseDate: expenseDate,
       amount: amount,
       paymentMode: paymentMode,
+      accountId: status == ExpenseStatus.confirmed ? accountId : null,
+      ledgerTransactionId: ledgerTransactionId,
       payee: _clean(payee),
       notes: _clean(notes),
       receiptPhotoPath: null,
       localReceiptPath: _clean(localReceiptPath),
-      status: status,
+      status: status == ExpenseStatus.confirmed ? ExpenseStatus.draft : status,
       source: ExpenseSource.manual,
       createdBy: _currentUser.id,
-      confirmedBy: status == ExpenseStatus.confirmed ? _currentUser.id : null,
-      confirmedAt: status == ExpenseStatus.confirmed ? now : null,
+      confirmedBy: null,
+      confirmedAt: null,
       createdAt: now,
       updatedAt: now,
     );
 
     await ExpenseLocalStore.saveExpense(expense);
+    if (status == ExpenseStatus.confirmed) {
+      if (accountId == null || ledgerTransactionId == null) {
+        throw Exception(
+          'Confirmed expense ke liye paying account select karein.',
+        );
+      }
+      await ExpenseLocalLedgerCommitter.confirm(
+        expenseId: expense.id,
+        accountId: accountId,
+        ledgerTransactionId: ledgerTransactionId,
+        confirmedBy: _currentUser.id,
+        actualAmount: amount,
+        localReceiptPath: localReceiptPath,
+      );
+      expense = await ExpenseLocalStore.loadExpenseById(expense.id) ?? expense;
+    }
 
     try {
       final uploadedReceiptPath = await _uploadReceiptIfNeeded(
@@ -345,22 +367,45 @@ class ExpenseRepository {
         updatedAt: DateTime.now(),
       );
 
-      final data = await _client
-          .from('expenses')
-          .upsert(remoteExpense.toRemoteInsertMap(), onConflict: 'id')
-          .select()
-          .single()
-          .timeout(_networkTimeout);
+      final data =
+          status == ExpenseStatus.confirmed
+              ? await _client
+                  .rpc(
+                    'commit_confirmed_expense',
+                    params: {'p_expense': remoteExpense.toRemoteInsertMap()},
+                  )
+                  .timeout(_networkTimeout)
+              : await _client
+                  .from('expenses')
+                  .upsert(remoteExpense.toRemoteInsertMap(), onConflict: 'id')
+                  .select()
+                  .single()
+                  .timeout(_networkTimeout);
 
-      final saved = ExpenseModel.fromMap(data);
+      final saved =
+          status == ExpenseStatus.confirmed
+              ? remoteExpense
+              : ExpenseModel.fromMap(data as Map<String, dynamic>);
       await ExpenseLocalStore.saveExpense(saved);
       return saved;
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
-        type: 'upsert_expense',
-        payload: expense.toMap(),
+        type:
+            status == ExpenseStatus.confirmed
+                ? 'confirm_expense'
+                : 'upsert_expense',
+        payload:
+            status == ExpenseStatus.confirmed
+                ? {
+                  'expense_id': expense.id,
+                  'account_id': expense.accountId,
+                  'ledger_transaction_id': expense.ledgerTransactionId,
+                  'actual_amount': expense.amount,
+                  'local_receipt_path': expense.localReceiptPath,
+                }
+                : expense.toMap(),
       );
 
       debugPrint('Expense saved offline: $e');
@@ -576,6 +621,7 @@ class ExpenseRepository {
 
   Future<void> confirmExpense({
     required ExpenseModel expense,
+    required String accountId,
     double? actualAmount,
     String? localReceiptPath,
   }) async {
@@ -587,8 +633,12 @@ class ExpenseRepository {
       throw Exception('Expense amount cannot be negative.');
     }
 
-    await ExpenseLocalStore.confirmExpenseLocally(
+    final ledgerTransactionId =
+        expense.ledgerTransactionId ?? const Uuid().v4();
+    await ExpenseLocalLedgerCommitter.confirm(
       expenseId: expense.id,
+      accountId: accountId,
+      ledgerTransactionId: ledgerTransactionId,
       confirmedBy: _currentUser.id,
       actualAmount: actualAmount,
       localReceiptPath: localReceiptPath,
@@ -604,15 +654,12 @@ class ExpenseRepository {
         expense: updatedLocal,
       );
 
+      final remotePayload =
+          updatedLocal
+              .copyWith(receiptPhotoPath: uploadedReceiptPath)
+              .toRemoteInsertMap();
       await _client
-          .rpc(
-            'confirm_expense',
-            params: {
-              'p_expense_id': expense.id,
-              'p_actual_amount': actualAmount,
-              'p_receipt_photo_path': uploadedReceiptPath,
-            },
-          )
+          .rpc('commit_confirmed_expense', params: {'p_expense': remotePayload})
           .timeout(_networkTimeout);
 
       final refreshed = await fetchExpenseById(expense.id);
@@ -626,6 +673,8 @@ class ExpenseRepository {
         type: 'confirm_expense',
         payload: {
           'expense_id': expense.id,
+          'account_id': accountId,
+          'ledger_transaction_id': ledgerTransactionId,
           'actual_amount': actualAmount,
           'local_receipt_path': localReceiptPath,
         },
@@ -637,14 +686,23 @@ class ExpenseRepository {
 
   Future<void> voidExpense(ExpenseModel expense) async {
     await _gate.require('expenses.core');
-    await ExpenseLocalStore.voidExpenseLocally(
+    final reversalLedgerId =
+        expense.reversalLedgerTransactionId ?? const Uuid().v4();
+    await ExpenseLocalLedgerCommitter.voidExpense(
       expenseId: expense.id,
       voidedBy: _currentUser.id,
+      reversalLedgerTransactionId: reversalLedgerId,
     );
 
     try {
       await _client
-          .rpc('void_expense', params: {'p_expense_id': expense.id})
+          .rpc(
+            'void_expense_with_reversal',
+            params: {
+              'p_expense_id': expense.id,
+              'p_reversal_ledger_id': reversalLedgerId,
+            },
+          )
           .timeout(_networkTimeout);
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
@@ -654,6 +712,7 @@ class ExpenseRepository {
           type: 'void_expense',
           payload: {
             'expense_id': expense.id,
+            'reversal_ledger_transaction_id': reversalLedgerId,
             'recurring_rule_id': expense.recurringRuleId,
             'recurring_due_date':
                 expense.recurringDueDate == null
@@ -1135,13 +1194,19 @@ class ExpenseRepository {
       );
     }
 
+    if (local == null) throw Exception('Local expense not found.');
+    final remotePayload =
+        local
+            .copyWith(
+              accountId: payload['account_id'] as String?,
+              ledgerTransactionId: payload['ledger_transaction_id'] as String?,
+              amount: actualAmount,
+              receiptPhotoPath: uploadedReceiptPath,
+            )
+            .toRemoteInsertMap();
     await _client.rpc(
-      'confirm_expense',
-      params: {
-        'p_expense_id': expenseId,
-        'p_actual_amount': actualAmount,
-        'p_receipt_photo_path': uploadedReceiptPath,
-      },
+      'commit_confirmed_expense',
+      params: {'p_expense': remotePayload},
     );
 
     final refreshed = await fetchExpenseById(expenseId);
@@ -1178,7 +1243,13 @@ class ExpenseRepository {
       expenseId = remote['id'] as String;
     }
 
-    await _client.rpc('void_expense', params: {'p_expense_id': expenseId});
+    await _client.rpc(
+      'void_expense_with_reversal',
+      params: {
+        'p_expense_id': expenseId,
+        'p_reversal_ledger_id': payload['reversal_ledger_transaction_id'],
+      },
+    );
   }
 
   Future<ExpenseModel?> _loadRemoteExpense(String expenseId) async {

@@ -18,7 +18,12 @@ import '../models/held_cart_model.dart';
 import '../models/sale_model.dart';
 import '../models/sale_payment_model.dart';
 import '../models/sale_return_model.dart';
-import 'customer_settlement_sync.dart';
+import '../local/pos_local_ledger_committer.dart';
+import '../local/pos_local_refund_committer.dart';
+import '../local/pos_local_settlement_committer.dart';
+import '../../domain/pos_payment_account_policy.dart';
+import '../../domain/pos_refund_allocation.dart';
+import '../../../accounts/data/local/accounts_local_store.dart';
 import 'sale_return_parent_recovery.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
@@ -69,7 +74,7 @@ class PosRepository {
 
   Future<bool> _commitSaleRemote(Map<String, dynamic> saleData) async {
     final result = await _client
-        .rpc('commit_pos_sale', params: {'p_sale': saleData})
+        .rpc('commit_pos_sale_v2', params: {'p_sale': saleData})
         .timeout(_saleCommitTimeout);
     return result == true;
   }
@@ -365,6 +370,7 @@ class PosRepository {
     if (payments.any((payment) => payment.method == PaymentMethod.credit)) {
       await _requireFeature('pos.credit_sales');
     }
+    await _validatePaymentAccounts(payments);
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final user = _currentUser;
@@ -475,6 +481,19 @@ class PosRepository {
     }
 
     final saleId = const Uuid().v4();
+    final identifiedPayments =
+        payments
+            .map(
+              (payment) => payment.copyWith(
+                id: payment.id ?? const Uuid().v4(),
+                saleId: saleId,
+                ledgerTransactionId:
+                    PosPaymentAccountPolicy.requiresAccount(payment.method)
+                        ? payment.ledgerTransactionId ?? const Uuid().v4()
+                        : null,
+              ),
+            )
+            .toList();
     final sale = SaleModel(
       id: saleId,
       branchId: branchId,
@@ -488,7 +507,7 @@ class PosRepository {
       total: total,
       notes: notes,
       items: costedItems,
-      payments: payments,
+      payments: identifiedPayments,
       createdAt: DateTime.now(),
     );
 
@@ -498,7 +517,7 @@ class PosRepository {
       remoteSaleAndStockCommitted = true;
 
       // Save locally as already synced (SQLite synced = 1)
-      await OfflineStore.saveSale(sale);
+      await _saveSaleLocally(sale);
       await LocalStore.markSaleSynced(saleId);
       if (creditAmount > 0 && effectiveCustomerId != null) {
         await _adjustCustomerOutstanding(
@@ -522,7 +541,7 @@ class PosRepository {
       debugPrint('Offline checkout: Saving locally. Error: $e');
 
       // Save locally (synced = 0 by default in SQLite / LocalStore)
-      await OfflineStore.saveSale(sale);
+      await _saveSaleLocally(sale);
       if (remoteSaleAndStockCommitted) {
         await LocalStore.markSaleSynced(saleId);
       }
@@ -563,6 +582,35 @@ class PosRepository {
     }
 
     return sale;
+  }
+
+  Future<void> _saveSaleLocally(SaleModel sale) async {
+    await PosLocalLedgerCommitter.commit(sale);
+    await OfflineStore.saveSale(sale);
+  }
+
+  Future<void> _validatePaymentAccounts(List<SalePaymentModel> payments) async {
+    for (final payment in payments) {
+      if (!PosPaymentAccountPolicy.requiresAccount(payment.method)) {
+        if (payment.accountId != null) {
+          throw Exception('Khata payment cash account se link nahi ho sakti.');
+        }
+        continue;
+      }
+      final accountId = payment.accountId;
+      if (accountId == null) {
+        throw Exception(
+          '${payment.method.label} receiving account select karein.',
+        );
+      }
+      final account = await AccountsLocalStore.loadAccountById(accountId);
+      if (account == null ||
+          !PosPaymentAccountPolicy.isCompatible(payment.method, account)) {
+        throw Exception(
+          '${payment.method.label} ke liye compatible active account select karein.',
+        );
+      }
+    }
   }
 
   Future<List<CartItemModel>> _withUnitCostsAtSale({
@@ -1100,7 +1148,7 @@ class PosRepository {
         overrideReason == null || overrideReason.trim().isEmpty
             ? null
             : overrideReason.trim();
-    final saleReturn = SaleReturnModel(
+    var saleReturn = SaleReturnModel(
       id: const Uuid().v4(),
       originalSaleId: sale.id!,
       branchId: sale.branchId,
@@ -1114,8 +1162,17 @@ class PosRepository {
       createdAt: DateTime.now(),
       items: refundItems,
     );
+    if (status == SaleReturnStatus.approved &&
+        refundMethod == RefundMethod.cash &&
+        normalizedRefundAmount > 0) {
+      saleReturn = await _withRefundAllocation(saleReturn);
+    }
 
-    await _saveReturnLocally(saleReturn, synced: false);
+    await _saveReturnLocally(
+      saleReturn,
+      synced: false,
+      postRefund: status == SaleReturnStatus.approved,
+    );
     if (status == SaleReturnStatus.approved) {
       await _restockReturnItems(saleReturn);
     }
@@ -1266,14 +1323,19 @@ class PosRepository {
       message: 'Manager ya Owner approval required hai',
     );
 
-    final approved = _returnWithRestockIds(
+    var approved = _returnWithRestockIds(
       pendingReturn.copyWith(
         status: SaleReturnStatus.approved,
         approvedBy: _currentUser.id,
       ),
     );
+    if (approved.refundMethod == RefundMethod.cash &&
+        approved.refundAmount > 0 &&
+        approved.refundLegs.isEmpty) {
+      approved = await _withRefundAllocation(approved);
+    }
     final wasAlreadyApproved = await _isReturnAlreadyApproved(approved.id);
-    await _saveReturnLocally(approved, synced: false);
+    await _saveReturnLocally(approved, synced: false, postRefund: true);
     if (!wasAlreadyApproved) {
       await _restockReturnItems(approved);
     }
@@ -1364,6 +1426,7 @@ class PosRepository {
       approvedBy: saleReturn.approvedBy,
       createdAt: saleReturn.createdAt,
       items: items,
+      refundLegs: saleReturn.refundLegs,
     );
   }
 
@@ -1404,6 +1467,19 @@ class PosRepository {
   };
 
   Future<void> _saveReturnLocally(
+    SaleReturnModel saleReturn, {
+    required bool synced,
+    bool postRefund = false,
+  }) async {
+    await LocalDatabase.runInTransaction(() async {
+      await _saveReturnLocallyRows(saleReturn, synced: synced);
+      if (postRefund) {
+        await PosLocalRefundCommitter.commitWithinTransaction(saleReturn);
+      }
+    });
+  }
+
+  Future<void> _saveReturnLocallyRows(
     SaleReturnModel saleReturn, {
     required bool synced,
   }) async {
@@ -1461,6 +1537,52 @@ class PosRepository {
         ],
       );
     }
+  }
+
+  Future<SaleReturnModel> _withRefundAllocation(
+    SaleReturnModel saleReturn,
+  ) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT payment.id, payment.account_id, payment.amount,
+             COALESCE(SUM(refund.amount), 0) AS already_refunded
+      FROM sale_payments payment
+      LEFT JOIN sale_return_refund_legs refund
+        ON refund.original_payment_id = payment.id
+       AND refund.return_id <> ?
+      WHERE payment.sale_id = ?
+        AND payment.method <> 'credit'
+        AND payment.account_id IS NOT NULL
+      GROUP BY payment.id, payment.account_id, payment.amount
+      ORDER BY payment.id
+      ''',
+      [saleReturn.id, saleReturn.originalSaleId],
+    );
+    final allocations = PosRefundAllocator.allocate(
+      refundAmount: saleReturn.refundAmount,
+      payments: rows.map(
+        (row) => RefundablePaymentLeg(
+          paymentId: row['id'] as String,
+          accountId: row['account_id'] as String,
+          paidAmount: (row['amount'] as num).toDouble(),
+          alreadyRefunded: (row['already_refunded'] as num).toDouble(),
+        ),
+      ),
+    );
+    return saleReturn.copyWith(
+      refundLegs:
+          allocations
+              .map(
+                (allocation) => SaleReturnRefundLegModel(
+                  id: const Uuid().v4(),
+                  originalPaymentId: allocation.paymentId,
+                  accountId: allocation.accountId,
+                  amount: allocation.amount,
+                  ledgerTransactionId: const Uuid().v4(),
+                ),
+              )
+              .toList(),
+    );
   }
 
   Future<void> _markReturnSynced(String returnId) async {
@@ -1594,6 +1716,28 @@ class PosRepository {
             }, onConflict: 'branch_id,product_id')
             .timeout(Network.networkTimeout);
       }
+    }
+
+    if (saleReturn.status == SaleReturnStatus.approved &&
+        saleReturn.refundMethod == RefundMethod.cash &&
+        saleReturn.refundAmount > 0) {
+      await _client
+          .rpc(
+            'post_pos_return_refund',
+            params: {
+              'p_return_id': saleReturn.id,
+              'p_refund_legs':
+                  saleReturn.refundLegs.map((leg) => leg.toMap()).toList(),
+            },
+          )
+          .timeout(Network.networkTimeout);
+    }
+    if (saleReturn.status == SaleReturnStatus.approved &&
+        saleReturn.refundMethod == RefundMethod.credit &&
+        saleReturn.refundAmount > 0) {
+      await _client
+          .rpc('post_pos_credit_return', params: {'p_return_id': saleReturn.id})
+          .timeout(Network.networkTimeout);
     }
   }
 
@@ -2055,8 +2199,13 @@ class PosRepository {
     required String customerId,
     required double amount,
     required String method,
+    required String accountId,
     String? notes,
   }) async {
+    await _permissions.require(
+      'customer.credit.settle',
+      message: 'Customer settlement permission required hai.',
+    );
     if (amount <= 0) throw Exception('Settlement amount valid nahi hai.');
     final customer = await _loadCustomerById(customerId);
     if (customer == null) throw Exception('Customer profile nahi mila.');
@@ -2078,6 +2227,15 @@ class PosRepository {
     if (amount > outstanding + 0.01) {
       throw Exception('Settlement current dues se zyada nahi ho sakti.');
     }
+    final account = await AccountsLocalStore.loadAccountById(accountId);
+    final paymentMethod = PaymentMethodX.fromCode(method);
+    if (account == null ||
+        account.branchId != branchId ||
+        !PosPaymentAccountPolicy.isCompatible(paymentMethod, account)) {
+      throw Exception(
+        'Settlement ke liye compatible receiving account select karein.',
+      );
+    }
 
     final settlement = CustomerSettlementModel(
       id: const Uuid().v4(),
@@ -2086,19 +2244,15 @@ class PosRepository {
       userId: _currentUser.id,
       amount: amount,
       method: method,
+      accountId: accountId,
+      ledgerTransactionId: const Uuid().v4(),
       notes: notes,
       createdAt: DateTime.now(),
     );
 
-    await OfflineStore.updateCustomerCredit(
-      customerId: customerId,
-      creditLimit: customer.creditLimit,
-      outstandingBalance: outstanding,
-    );
-    await OfflineStore.saveCustomerSettlement(settlement);
-    await OfflineStore.adjustCustomerOutstanding(
-      customerId: customerId,
-      delta: -amount,
+    await PosLocalSettlementCommitter.commit(
+      settlement,
+      authoritativeOutstanding: outstanding,
     );
 
     final payload = {
@@ -2108,26 +2262,16 @@ class PosRepository {
       'user_id': _currentUser.id,
       'amount': amount,
       'method': method,
+      'account_id': settlement.accountId,
+      'ledger_transaction_id': settlement.ledgerTransactionId,
       'notes': notes,
       'created_at': settlement.createdAt.toIso8601String(),
     };
 
     try {
       await _client
-          .from('customer_settlements')
-          .insert(payload)
+          .rpc('commit_customer_settlement', params: {'p_settlement': payload})
           .timeout(_offlineWriteTimeout);
-      final updated = await OfflineStore.loadCustomerById(customerId);
-      try {
-        await _client
-            .from('customers')
-            .update({'outstanding_balance': updated?.outstandingBalance ?? 0})
-            .eq('id', customerId)
-            .eq('branch_id', branchId)
-            .timeout(_offlineWriteTimeout);
-      } catch (e) {
-        if (!_isMissingCustomerCreditSchema(e)) rethrow;
-      }
       await LocalStore.markCustomerSettlementSynced(settlement.id);
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
@@ -2357,40 +2501,13 @@ class PosRepository {
               break;
 
             case 'customer_settlement':
-              final customerId = mutation.payload['customer_id'] as String;
-              final settlementSync = CustomerSettlementSyncService(
-                findRemoteById: (settlementId) async {
-                  return _client
-                      .from('customer_settlements')
-                      .select(
-                        'id, customer_id, branch_id, user_id, amount, method, notes, created_at',
-                      )
-                      .eq('id', settlementId)
-                      .maybeSingle();
-                },
-                insertRemote: (payload) async {
-                  await _client.from('customer_settlements').insert(payload);
-                },
-                afterRemoteInsert: () async {
-                  final customer = await OfflineStore.loadCustomerById(
-                    customerId,
-                  );
-                  if (customer == null) return;
-                  try {
-                    await _client
-                        .from('customers')
-                        .update({
-                          'outstanding_balance': customer.outstandingBalance,
-                        })
-                        .eq('id', customerId)
-                        .eq('branch_id', customer.branchId);
-                  } catch (e) {
-                    if (!_isMissingCustomerCreditSchema(e)) rethrow;
-                  }
-                },
-                markLocalSynced: LocalStore.markCustomerSettlementSynced,
+              await _client.rpc(
+                'commit_customer_settlement',
+                params: {'p_settlement': mutation.payload},
               );
-              await settlementSync.sync(mutation.payload);
+              await LocalStore.markCustomerSettlementSynced(
+                mutation.payload['id'] as String,
+              );
               break;
 
             case 'sale_return':
@@ -2592,9 +2709,12 @@ class PosRepository {
           payments
               .map(
                 (payment) => {
+                  'id': payment['id'],
                   'sale_id': saleId,
                   'method': payment['method'],
                   'amount': payment['amount'],
+                  'account_id': payment['account_id'],
+                  'ledger_transaction_id': payment['ledger_transaction_id'],
                 },
               )
               .toList(),

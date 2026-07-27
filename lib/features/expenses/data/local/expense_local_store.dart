@@ -132,6 +132,9 @@ class ExpenseLocalStore {
         expense_date,
         amount,
         payment_mode,
+        account_id,
+        ledger_transaction_id,
+        reversal_ledger_transaction_id,
         payee,
         notes,
         receipt_photo_path,
@@ -148,7 +151,7 @@ class ExpenseLocalStore {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         expense.id,
@@ -160,6 +163,9 @@ class ExpenseLocalStore {
         _dateOnly(expense.expenseDate),
         expense.amount,
         expense.paymentMode.code,
+        expense.accountId,
+        expense.ledgerTransactionId,
+        expense.reversalLedgerTransactionId,
         expense.payee,
         expense.notes,
         expense.receiptPhotoPath,

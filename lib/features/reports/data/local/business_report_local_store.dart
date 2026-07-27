@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:mobileshop_saas/core/local/local_database.dart';
+import 'package:mobileshop_saas/core/accounting/ledger_cash_summary.dart';
 
 import '../models/business_report_models.dart';
 import 'sales_report_local_store.dart';
@@ -917,120 +918,26 @@ class BusinessReportLocalStore {
     required DateTime dateFrom,
     required DateTime dateTo,
   }) async {
-    final from = _dateOnly(dateFrom);
-    final to = _dateOnly(dateTo);
-    final saleBranchSql = branchId == null ? '' : 'AND s.branch_id = ?';
-    final directBranchSql = branchId == null ? '' : 'AND branch_id = ?';
-    final saleArgs = <Object?>[
-      tenantId,
-      if (branchId != null) branchId,
-      from,
-      to,
-    ];
-    final directArgs = <Object?>[
-      tenantId,
-      if (branchId != null) branchId,
-      from,
-      to,
-    ];
-
-    final saleRows = await LocalDatabase.select('''
-      SELECT sp.method AS label, COALESCE(SUM(sp.amount), 0) AS amount
-      FROM sale_payments sp
-      JOIN sales s ON s.id = sp.sale_id
-      JOIN branches tenant_branch
-        ON tenant_branch.id = s.branch_id
-       AND tenant_branch.tenant_id = ?
-      WHERE s.status = 'completed'
-        AND sp.method != 'credit'
-        $saleBranchSql
-        AND substr(s.created_at, 1, 10) BETWEEN ? AND ?
-      GROUP BY sp.method
-      ''', saleArgs);
-    final settlementRows = await LocalDatabase.select('''
-      SELECT method AS label, COALESCE(SUM(amount), 0) AS amount
-      FROM customer_settlements
-      WHERE branch_id IN (
-        SELECT id FROM branches WHERE tenant_id = ?
-      )
-        ${branchId == null ? '' : 'AND branch_id = ?'}
-        AND substr(created_at, 1, 10) BETWEEN ? AND ?
-      GROUP BY method
-      ''', directArgs);
-    final repairRevenue = await _repairRevenue(
+    final cash = await LedgerCashSummary.load(
       tenantId: tenantId,
       branchId: branchId,
       dateFrom: dateFrom,
       dateTo: dateTo,
     );
-    final refundRows = await LocalDatabase.select('''
-      SELECT COALESCE(SUM(refund_amount), 0) AS amount
-      FROM sale_returns
-      WHERE branch_id IN (
-        SELECT id FROM branches WHERE tenant_id = ?
-      )
-        ${branchId == null ? '' : 'AND branch_id = ?'}
-        AND status = 'approved'
-        AND refund_method = 'cash'
-        AND substr(created_at, 1, 10) BETWEEN ? AND ?
-      ''', directArgs);
-    final expenseRows = await LocalDatabase.select('''
-      SELECT payment_mode AS label, COALESCE(SUM(amount), 0) AS amount
-      FROM expenses
-      WHERE tenant_id = ?
-        $directBranchSql
-        AND expense_date BETWEEN ? AND ?
-        AND status = 'confirmed'
-      GROUP BY payment_mode
-      ''', directArgs);
-
-    final salesBreakdown = <Map<String, dynamic>>[
-      ...saleRows,
-      ...settlementRows.map(
-        (row) => {
-          'payment_mode': 'settlement_${row['label']}',
-          'amount': _num(row['amount']),
-        },
-      ),
-      if (repairRevenue > 0)
-        {'payment_mode': 'repair_revenue', 'amount': repairRevenue},
-    ];
-    final expenseBreakdown = <Map<String, dynamic>>[
-      ...expenseRows,
-      if (_num(refundRows.first['amount']) > 0)
-        {
-          'payment_mode': 'refund_cash',
-          'amount': _num(refundRows.first['amount']),
-        },
-    ];
-    final cashIn = salesBreakdown.fold<double>(
-      0,
-      (sum, row) => sum + _num(row['amount']),
-    );
-    final cashOut = expenseBreakdown.fold<double>(
-      0,
-      (sum, row) => sum + _num(row['amount']),
-    );
 
     return _CashFlowTotals(
-      cashIn: cashIn,
-      cashOut: cashOut,
+      cashIn: cash.cashIn,
+      cashOut: cash.cashOut,
       salesBreakdown:
-          salesBreakdown
+          cash.inflowBreakdown.entries
               .map(
-                (row) => {
-                  'payment_mode': row['payment_mode'] ?? row['label'],
-                  'amount': _num(row['amount']),
-                },
+                (entry) => {'payment_mode': entry.key, 'amount': entry.value},
               )
               .toList(),
       expenseBreakdown:
-          expenseBreakdown
+          cash.outflowBreakdown.entries
               .map(
-                (row) => {
-                  'payment_mode': row['payment_mode'] ?? row['label'],
-                  'amount': _num(row['amount']),
-                },
+                (entry) => {'payment_mode': entry.key, 'amount': entry.value},
               )
               .toList(),
     );

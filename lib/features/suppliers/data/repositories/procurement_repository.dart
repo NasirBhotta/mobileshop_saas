@@ -6,6 +6,7 @@ import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_sour
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/suppliers/data/local/procurement_local_store.dart';
+import 'package:mobileshop_saas/features/suppliers/data/local/supplier_payment_local_committer.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
 import 'package:mobileshop_saas/features/suppliers/domain/procurement_entitlement_gate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -489,6 +490,7 @@ class ProcurementRepository {
   Future<void> recordSupplierPayment({
     required SupplierModel supplier,
     required double amount,
+    required String accountId,
     String? method,
     String? note,
   }) async {
@@ -506,18 +508,20 @@ class ProcurementRepository {
       supplierId: supplier.id,
       amount: amount,
       method: _clean(method),
+      accountId: accountId,
+      ledgerTransactionId: const Uuid().v4(),
       note: _clean(note),
       paidBy: _currentUser.id,
       paidAt: now,
       createdAt: now,
     );
 
-    await ProcurementLocalStore.saveSupplierPayment(payment);
+    await SupplierPaymentLocalCommitter.commit(payment);
 
     try {
       await _client
           .rpc(
-            'record_supplier_payment',
+            'record_supplier_payment_v2',
             params: {
               'p_payment_id': payment.id,
               'p_tenant_id': tenantId,
@@ -526,6 +530,8 @@ class ProcurementRepository {
               'p_amount': amount,
               'p_method': _clean(method),
               'p_note': _clean(note),
+              'p_account_id': payment.accountId,
+              'p_ledger_transaction_id': payment.ledgerTransactionId,
             },
           )
           .timeout(_networkTimeout);
@@ -629,7 +635,7 @@ class ProcurementRepository {
 
           case 'record_supplier_payment':
             await _client.rpc(
-              'record_supplier_payment',
+              'record_supplier_payment_v2',
               params: {
                 'p_payment_id': mutation.payload['id'],
                 'p_tenant_id': mutation.payload['tenant_id'],
@@ -638,6 +644,9 @@ class ProcurementRepository {
                 'p_amount': mutation.payload['amount'],
                 'p_method': mutation.payload['method'],
                 'p_note': mutation.payload['note'],
+                'p_account_id': mutation.payload['account_id'],
+                'p_ledger_transaction_id':
+                    mutation.payload['ledger_transaction_id'],
               },
             );
             break;

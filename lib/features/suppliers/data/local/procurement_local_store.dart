@@ -345,9 +345,10 @@ class ProcurementLocalStore {
       '''
       INSERT OR REPLACE INTO supplier_payments(
         id, tenant_id, branch_id, supplier_id, amount,
-        method, note, paid_by, paid_at, created_at
+        method, account_id, ledger_transaction_id, note, paid_by, paid_at,
+        created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         payment.id,
@@ -356,6 +357,8 @@ class ProcurementLocalStore {
         payment.supplierId,
         payment.amount,
         payment.method,
+        payment.accountId,
+        payment.ledgerTransactionId,
         payment.note,
         payment.paidBy,
         payment.paidAt?.toIso8601String(),

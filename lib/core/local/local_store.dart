@@ -591,14 +591,16 @@ class LocalStore {
       await LocalDatabase.execute(
         '''
       INSERT OR REPLACE INTO sale_payments(
-        id, sale_id, method, amount
-      ) VALUES(?,?,?,?)
+        id, sale_id, method, amount, account_id, ledger_transaction_id
+      ) VALUES(?,?,?,?,?,?)
     ''',
         [
-          '${sale.id}_${payment.method.name}', // here we can have error
+          payment.id ?? '${sale.id}_${payment.method.name}',
           sale.id,
           payment.method.name,
           payment.amount,
+          payment.accountId,
+          payment.ledgerTransactionId,
         ],
       );
     }
@@ -670,8 +672,13 @@ class LocalStore {
               paymentRows
                   .map(
                     (r) => SalePaymentModel(
+                      id: r['id'] as String?,
+                      saleId: r['sale_id'] as String?,
                       method: PaymentMethodX.fromCode(r['method'] as String),
                       amount: (r['amount'] as num).toDouble(),
+                      accountId: r['account_id'] as String?,
+                      ledgerTransactionId:
+                          r['ledger_transaction_id'] as String?,
                     ),
                   )
                   .toList(),
@@ -1029,9 +1036,9 @@ class LocalStore {
     await LocalDatabase.execute(
       '''
       INSERT OR REPLACE INTO customer_settlements(
-        id, customer_id, branch_id, user_id, amount, method, notes, synced,
-        created_at
-      ) VALUES(?,?,?,?,?,?,?,?,?)
+        id, customer_id, branch_id, user_id, amount, method, account_id,
+        ledger_transaction_id, notes, synced, created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
       ''',
       [
         settlement.id,
@@ -1040,6 +1047,8 @@ class LocalStore {
         settlement.userId,
         settlement.amount,
         settlement.method,
+        settlement.accountId,
+        settlement.ledgerTransactionId,
         settlement.notes,
         synced ? 1 : 0,
         settlement.createdAt.toIso8601String(),

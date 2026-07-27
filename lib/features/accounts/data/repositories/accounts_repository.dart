@@ -10,22 +10,40 @@ import 'package:mobileshop_saas/features/accounts/domain/account_entitlement_gat
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+typedef AccountPermissionGuard = Future<void> Function(String permissionKey);
+
+class AccountPermissionDeniedException implements Exception {
+  final String permissionKey;
+
+  const AccountPermissionDeniedException(this.permissionKey);
+
+  @override
+  String toString() => 'Account permission is required: $permissionKey';
+}
+
 class AccountsRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
 
   final SupabaseClient _client;
   final AccountEntitlementGate _entitlements;
+  final AccountPermissionGuard? _permissionGuard;
 
   AccountsRepository({
     SupabaseClient? client,
     EntitlementEvaluator? entitlementEvaluator,
+    AccountPermissionGuard? permissionGuard,
   }) : _client = client ?? Supabase.instance.client,
+       _permissionGuard = permissionGuard,
        _entitlements = AccountEntitlementGate(
          entitlementEvaluator ??
              EntitlementEvaluator(
                dataSource: SupabaseEntitlementDataSource(client: client),
              ),
        );
+
+  Future<void> _requirePermission(String permissionKey) async {
+    await _permissionGuard?.call(permissionKey);
+  }
 
   User get _currentUser {
     final user = _client.auth.currentUser;
@@ -87,6 +105,7 @@ class AccountsRepository {
 
   Future<List<AccountModel>> fetchAccounts() async {
     await _entitlements.require('accounts.core');
+    await _requirePermission('account.account.view');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -111,6 +130,7 @@ class AccountsRepository {
     int limit = 80,
   }) async {
     await _entitlements.require('accounts.core');
+    await _requirePermission('account.transaction.view');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
 
@@ -134,6 +154,47 @@ class AccountsRepository {
     }
   }
 
+  Future<List<AccountLedgerReconciliation>> reconcileLedger() async {
+    await _entitlements.require('accounts.core');
+    await _requirePermission('account.account.view');
+    await _requirePermission('account.transaction.view');
+    final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
+
+    try {
+      final response = await _client
+          .rpc(
+            'account_ledger_reconciliation',
+            params: {'p_tenant_id': tenantId, 'p_branch_id': branchId},
+          )
+          .timeout(_networkTimeout);
+      return (response as List)
+          .map(
+            (row) => AccountLedgerReconciliation.fromMap(
+              Map<String, dynamic>.from(row as Map),
+            ),
+          )
+          .toList();
+    } catch (_) {
+      return AccountsLocalStore.reconcileBranch(branchId);
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchLedgerIntegritySummary() async {
+    await _entitlements.require('accounts.core');
+    await _requirePermission('account.account.view');
+    await _requirePermission('account.transaction.view');
+    final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
+    final response = await _client
+        .rpc(
+          'account_ledger_integrity_summary',
+          params: {'p_tenant_id': tenantId, 'p_branch_id': branchId},
+        )
+        .timeout(_networkTimeout);
+    return Map<String, dynamic>.from(response as Map);
+  }
+
   Future<AccountModel> createAccount({
     required String name,
     required AccountType type,
@@ -141,6 +202,7 @@ class AccountsRepository {
     String? note,
   }) async {
     await _entitlements.require('accounts.core');
+    await _requirePermission('account.account.create');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     final now = DateTime.now();
@@ -186,9 +248,12 @@ class AccountsRepository {
     String? description,
     String? referenceType,
     String? referenceId,
+    String? sourceEventKey,
+    String? reversalOfTransactionId,
     DateTime? transactionAt,
   }) async {
     await _entitlements.require('accounts.core');
+    await _requirePermission('account.transaction.create');
     if (amount <= 0) throw Exception('Amount must be greater than zero.');
 
     final account = await AccountsLocalStore.loadAccountById(accountId);
@@ -206,6 +271,8 @@ class AccountsRepository {
       description: _clean(description),
       referenceType: referenceType,
       referenceId: referenceId,
+      sourceEventKey: sourceEventKey,
+      reversalOfTransactionId: reversalOfTransactionId,
       transactionAt: transactionAt ?? now,
       createdBy: _currentUser.id,
       createdAt: now,
@@ -234,6 +301,7 @@ class AccountsRepository {
     String? description,
   }) async {
     await _entitlements.require('accounts.transfers');
+    await _requirePermission('account.transaction.create');
     if (amount <= 0) throw Exception('Amount must be greater than zero.');
     if (fromAccountId == toAccountId) {
       throw Exception('Select two different accounts.');
@@ -458,7 +526,7 @@ class AccountsRepository {
     AccountTransactionModel transaction,
   ) async {
     await _client.rpc(
-      'record_account_transaction',
+      'record_account_transaction_v2',
       params: {
         'p_transaction_id': transaction.id,
         'p_tenant_id': transaction.tenantId,
@@ -470,6 +538,8 @@ class AccountsRepository {
         'p_description': transaction.description,
         'p_reference_type': transaction.referenceType,
         'p_reference_id': transaction.referenceId,
+        'p_source_event_key': transaction.sourceEventKey,
+        'p_reversal_of_transaction_id': transaction.reversalOfTransactionId,
         'p_transaction_at': transaction.transactionAt.toIso8601String(),
       },
     );

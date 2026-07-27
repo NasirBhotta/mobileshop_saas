@@ -20,6 +20,7 @@ import '../../../repairs/data/models/repair_ticket_model.dart';
 import '../../../../core/extensions/repair_ticket_ext.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../reports/data/local/business_report_local_store.dart';
+import '../../../../core/accounting/ledger_cash_summary.dart';
 
 final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final tenantAccess = await ref.watch(tenantAccessProvider.future);
@@ -74,39 +75,8 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
       }).toList();
   final todaySalesTotal = todaySales.fold<double>(
     0,
-    (sum, sale) => sum + sale.nonCreditAmount,
+    (sum, sale) => sum + sale.total,
   );
-  final todaySettlementsTotal = settlements.fold<double>(0, (sum, settlement) {
-    final createdAt = settlement.createdAt;
-    final isToday =
-        createdAt.year == today.year &&
-        createdAt.month == today.month &&
-        createdAt.day == today.day;
-    return isToday ? sum + settlement.amount : sum;
-  });
-  final todayRefundTotal = returns.fold<double>(0, (sum, saleReturn) {
-    final createdAt = saleReturn.createdAt;
-    final isToday =
-        createdAt.year == today.year &&
-        createdAt.month == today.month &&
-        createdAt.day == today.day;
-    return isToday && saleReturn.refundMethod == RefundMethod.cash
-        ? sum + saleReturn.refundAmount
-        : sum;
-  });
-  final todayRepairTotal = repairTickets.fold<double>(0, (sum, ticket) {
-    final revenueAt = ticket.deliveredAt ?? ticket.completedAt;
-    final isToday =
-        revenueAt != null &&
-        revenueAt.year == today.year &&
-        revenueAt.month == today.month &&
-        revenueAt.day == today.day;
-    final isRevenueStatus =
-        ticket.status == RepairTicketStatus.completed ||
-        ticket.status == RepairTicketStatus.delivered;
-
-    return isToday && isRevenueStatus ? sum + (ticket.totalCost ?? 0) : sum;
-  });
   final totalRepairRevenue = repairTickets.fold<double>(0, (sum, ticket) {
     final isRevenueStatus =
         ticket.status == RepairTicketStatus.completed ||
@@ -140,6 +110,13 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
       totalRepairRevenue -
       returnTotal;
   final tenantId = await _loadDashboardTenantId(branchId);
+  final dayStart = DateTime(today.year, today.month, today.day);
+  final ledgerCash = await LedgerCashSummary.load(
+    tenantId: tenantId,
+    branchId: branchId,
+    dateFrom: dayStart,
+    dateTo: dayStart,
+  );
   final totalProfit = await BusinessReportLocalStore.loadGrossProfit(
     tenantId: tenantId,
     branchId: branchId,
@@ -154,40 +131,8 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
     0,
     (sum, sale) => sum + sale.creditAmount,
   );
-  final computedOutstandingByCustomer = <String, double>{};
-  for (final sale in completedSales) {
-    final customerId = sale.customerId;
-    if (customerId == null) continue;
-    final creditAmount = sale.creditAmount;
-    if (creditAmount <= 0) continue;
-    computedOutstandingByCustomer.update(
-      customerId,
-      (amount) => amount + creditAmount,
-      ifAbsent: () => creditAmount,
-    );
-  }
-  for (final settlement in settlements) {
-    computedOutstandingByCustomer.update(
-      settlement.customerId,
-      (amount) => amount - settlement.amount,
-      ifAbsent: () => -settlement.amount,
-    );
-  }
   final creditCustomers =
       customers
-          .map((customer) {
-            final customerId = customer.id;
-            if (customerId == null) return customer;
-            final computed =
-                (computedOutstandingByCustomer[customerId] ?? 0)
-                    .clamp(0, double.infinity)
-                    .toDouble();
-            final effectiveOutstanding =
-                computed > customer.outstandingBalance
-                    ? computed
-                    : customer.outstandingBalance;
-            return customer.copyWith(outstandingBalance: effectiveOutstanding);
-          })
           .where((customer) => customer.outstandingBalance > 0.01)
           .map(DashboardCreditCustomer.fromCustomer)
           .toList()
@@ -202,14 +147,14 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
     totalStock: inventorySummary.totalStock,
     lowStock: inventorySummary.lowStock,
     activeRepairCount: activeRepairCount,
-    todaySalesTotal:
-        todaySalesTotal +
-        todaySettlementsTotal +
-        todayRepairTotal -
-        todayRefundTotal +
-        mobileServiceSummary.todayCashReceived,
+    todaySalesTotal: todaySalesTotal,
     totalSalesTotal: totalSalesTotal + mobileServiceSummary.totalCashReceived,
     totalProfit: totalProfit + mobileServiceSummary.todayProfit,
+    cashInShop: ledgerCash.cashInShop,
+    totalAvailableMoney: ledgerCash.totalAvailableMoney,
+    cashInToday: ledgerCash.cashIn,
+    cashOutToday: ledgerCash.cashOut,
+    netCashFlowToday: ledgerCash.netCashFlow,
     mobileServicesEnabled: mobileServicesEnabled,
     mobileServiceTodayCashPaid: mobileServiceSummary.todayCashPaid,
     mobileServiceTodayNetCash:
@@ -372,6 +317,11 @@ class DashboardStats {
   final double todaySalesTotal;
   final double totalSalesTotal;
   final double totalProfit;
+  final double cashInShop;
+  final double totalAvailableMoney;
+  final double cashInToday;
+  final double cashOutToday;
+  final double netCashFlowToday;
   final bool mobileServicesEnabled;
   final double mobileServiceTodayCashPaid;
   final double mobileServiceTodayNetCash;
@@ -391,6 +341,11 @@ class DashboardStats {
     required this.todaySalesTotal,
     required this.totalSalesTotal,
     required this.totalProfit,
+    required this.cashInShop,
+    required this.totalAvailableMoney,
+    required this.cashInToday,
+    required this.cashOutToday,
+    required this.netCashFlowToday,
     this.mobileServicesEnabled = false,
     this.mobileServiceTodayCashPaid = 0,
     this.mobileServiceTodayNetCash = 0,

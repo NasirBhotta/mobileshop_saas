@@ -6,6 +6,10 @@ import 'package:mobileshop_saas/features/suppliers/presentation/providers/procur
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/procurement_models.dart';
+import '../../../accounts/data/models/account_models.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
+import '../../../pos/data/models/sale_payment_model.dart';
+import '../../../pos/domain/pos_payment_account_policy.dart';
 
 class SuppliersScreen extends ConsumerWidget {
   const SuppliersScreen({super.key});
@@ -411,71 +415,140 @@ class _SupplierCard extends ConsumerWidget {
     SupplierModel supplier,
   ) async {
     final amountController = TextEditingController();
-    final methodController = TextEditingController(text: 'Cash');
     final noteController = TextEditingController();
+    var method = PaymentMethod.cash;
+    String? accountId;
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Record Supplier Payment'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amountController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final accounts =
+                ref.read(accountsProvider).value ?? const <AccountModel>[];
+            final compatible = PosPaymentAccountPolicy.compatibleAccounts(
+              method,
+              accounts,
+            );
+            final effectiveAccountId =
+                accountId ??
+                PosPaymentAccountPolicy.suggestedAccount(
+                  method,
+                  compatible,
+                )?.id;
+            return AlertDialog(
+              title: const Text('Record Supplier Payment'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: amountController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(labelText: 'Amount'),
+                  ),
+                  DropdownButtonFormField<PaymentMethod>(
+                    initialValue: method,
+                    decoration: const InputDecoration(labelText: 'Method'),
+                    items:
+                        PaymentMethod.values
+                            .where((value) => value != PaymentMethod.credit)
+                            .map(
+                              (value) => DropdownMenuItem(
+                                value: value,
+                                child: Text(value.label),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setDialogState(() {
+                        method = value;
+                        accountId = null;
+                      });
+                    },
+                  ),
+                  DropdownButtonFormField<String>(
+                    initialValue: effectiveAccountId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'Paying Account',
+                      helperText:
+                          compatible.isEmpty
+                              ? 'Create a compatible account first.'
+                              : null,
+                    ),
+                    items:
+                        compatible
+                            .map(
+                              (account) => DropdownMenuItem(
+                                value: account.id,
+                                child: Text(account.name),
+                              ),
+                            )
+                            .toList(),
+                    onChanged:
+                        compatible.isEmpty
+                            ? null
+                            : (value) =>
+                                setDialogState(() => accountId = value),
+                  ),
+                  TextField(
+                    controller: noteController,
+                    decoration: const InputDecoration(
+                      labelText: 'Note optional',
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
                 ),
-                decoration: const InputDecoration(labelText: 'Amount'),
-              ),
-              TextField(
-                controller: methodController,
-                decoration: const InputDecoration(labelText: 'Method'),
-              ),
-              TextField(
-                controller: noteController,
-                decoration: const InputDecoration(labelText: 'Note optional'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final amount =
-                    double.tryParse(amountController.text.trim()) ?? 0;
+                FilledButton(
+                  onPressed:
+                      effectiveAccountId == null
+                          ? null
+                          : () async {
+                            final amount =
+                                double.tryParse(amountController.text.trim()) ??
+                                0;
 
-                final ok = await ref
-                    .read(supplierPaymentControllerProvider.notifier)
-                    .recordPayment(
-                      supplier: supplier,
-                      amount: amount,
-                      method: methodController.text,
-                      note: noteController.text,
-                    );
+                            final ok = await ref
+                                .read(
+                                  supplierPaymentControllerProvider.notifier,
+                                )
+                                .recordPayment(
+                                  supplier: supplier,
+                                  amount: amount,
+                                  method: method.code,
+                                  accountId: effectiveAccountId,
+                                  note: noteController.text,
+                                );
 
-                if (!context.mounted) return;
+                            if (!context.mounted) return;
 
-                if (ok) {
-                  Navigator.of(dialogContext).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Payment recorded')),
-                  );
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
+                            if (ok) {
+                              Navigator.of(dialogContext).pop();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Payment recorded'),
+                                ),
+                              );
+                            }
+                          },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
 
     amountController.dispose();
-    methodController.dispose();
     noteController.dispose();
   }
 }

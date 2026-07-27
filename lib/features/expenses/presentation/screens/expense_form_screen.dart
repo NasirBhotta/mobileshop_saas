@@ -6,6 +6,9 @@ import 'package:mobileshop_saas/features/expenses/presentation/widgets/expense_c
 
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/expense_models.dart';
+import '../../domain/expense_account_policy.dart';
+import '../../../accounts/data/models/account_models.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
 
 class ExpenseFormScreen extends ConsumerStatefulWidget {
   const ExpenseFormScreen({super.key});
@@ -30,6 +33,7 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
 
   ExpensePaymentMode _paymentMode = ExpensePaymentMode.cash;
   ExpenseStatus _status = ExpenseStatus.confirmed;
+  String? _accountId;
 
   static const _noCategoryValue = '__no_category__';
 
@@ -51,6 +55,15 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
     final receiptsEnabled =
         ref.watch(featureEntitlementProvider('expenses.receipts')).value !=
         false;
+    final accounts =
+        ref.watch(accountsProvider).value ?? const <AccountModel>[];
+    final compatibleAccounts = ExpenseAccountPolicy.compatible(
+      _paymentMode,
+      accounts,
+    );
+    final effectiveAccountId =
+        _accountId ??
+        ExpenseAccountPolicy.suggested(_paymentMode, compatibleAccounts)?.id;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Add Expense')),
@@ -96,8 +109,40 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                                   ? null
                                   : (value) {
                                     if (value == null) return;
-                                    setState(() => _paymentMode = value);
+                                    setState(() {
+                                      _paymentMode = value;
+                                      _accountId = null;
+                                    });
                                   },
+                        ),
+                        DropdownButtonFormField<String>(
+                          initialValue: effectiveAccountId,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: 'Paying Account',
+                            border: const OutlineInputBorder(),
+                            helperText:
+                                compatibleAccounts.isEmpty
+                                    ? 'Create a compatible account first.'
+                                    : null,
+                          ),
+                          items:
+                              compatibleAccounts
+                                  .map(
+                                    (account) => DropdownMenuItem(
+                                      value: account.id,
+                                      child: Text(
+                                        '${account.name} • Rs ${account.currentBalance.toStringAsFixed(0)}',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged:
+                              saving || compatibleAccounts.isEmpty
+                                  ? null
+                                  : (value) =>
+                                      setState(() => _accountId = value),
                         ),
                       ],
                     ),
@@ -277,6 +322,14 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
       _message('Enter valid amount');
       return;
     }
+    final accounts = ref.read(accountsProvider).value ?? const <AccountModel>[];
+    final accountId =
+        _accountId ??
+        ExpenseAccountPolicy.suggested(_paymentMode, accounts)?.id;
+    if (_status == ExpenseStatus.confirmed && accountId == null) {
+      _message('Confirmed expense ke liye paying account select karein');
+      return;
+    }
 
     final expense = await ref
         .read(expenseControllerProvider.notifier)
@@ -287,6 +340,7 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
           categoryId: _categoryId,
           categoryName: _categoryName,
           paymentMode: _paymentMode,
+          accountId: accountId,
           payee: _payeeController.text,
           notes: _notesController.text,
           localReceiptPath: _receiptPathController.text,

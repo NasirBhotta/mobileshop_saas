@@ -268,7 +268,9 @@ class BusinessReportRepository {
 
     final data = await _client
         .rpc(
-          functionName,
+          reportType == BusinessReportType.cashFlow
+              ? 'get_ledger_cash_flow_report'
+              : functionName,
           params: {
             'p_tenant_id': tenantId,
             'p_branch_id': branchId,
@@ -279,6 +281,20 @@ class BusinessReportRepository {
         .timeout(_networkTimeout);
 
     final map = Map<String, dynamic>.from(data as Map);
+    if (reportType == BusinessReportType.dashboard) {
+      final ledgerCash = await _client
+          .rpc(
+            'get_ledger_cash_flow_report',
+            params: {
+              'p_tenant_id': tenantId,
+              'p_branch_id': branchId,
+              'p_date_from': _dateOnly(dateFrom),
+              'p_date_to': _dateOnly(dateTo),
+            },
+          )
+          .timeout(_networkTimeout);
+      map['cash_flow'] = Map<String, dynamic>.from(ledgerCash as Map);
+    }
 
     await BusinessReportLocalStore.saveReportCache(
       reportType: reportType,

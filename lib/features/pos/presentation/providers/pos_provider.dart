@@ -241,7 +241,7 @@ class CartNotifier extends StateNotifier<CartState> {
   // ── Payment Operations ───────────────────────────
 
   // Payment add karo ya update karo
-  void setPayment(PaymentMethod method, double amount) {
+  void setPayment(PaymentMethod method, double amount, {String? accountId}) {
     if (amount <= 0) {
       // Remove karo agar 0
       state = state.copyWith(
@@ -255,14 +255,21 @@ class CartNotifier extends StateNotifier<CartState> {
     if (existing != -1) {
       // Update karo
       final updated = List<SalePaymentModel>.from(state.payments);
-      updated[existing] = updated[existing].copyWith(amount: amount);
+      updated[existing] = updated[existing].copyWith(
+        amount: amount,
+        accountId: accountId,
+      );
       state = state.copyWith(payments: updated);
     } else {
       // Add karo
       state = state.copyWith(
         payments: [
           ...state.payments,
-          SalePaymentModel(method: method, amount: amount),
+          SalePaymentModel(
+            method: method,
+            amount: amount,
+            accountId: accountId,
+          ),
         ],
       );
     }
@@ -638,6 +645,7 @@ class CustomerSettlementController extends StateNotifier<AsyncValue<void>> {
     required String customerId,
     required double amount,
     required String method,
+    required String accountId,
     String? notes,
   }) async {
     if (state.isLoading) return false;
@@ -647,6 +655,7 @@ class CustomerSettlementController extends StateNotifier<AsyncValue<void>> {
         customerId: customerId,
         amount: amount,
         method: method,
+        accountId: accountId,
         notes: notes,
       );
       _ref.invalidate(customersProvider);

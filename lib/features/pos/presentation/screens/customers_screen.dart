@@ -5,6 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../data/models/customer_model.dart';
+import '../../data/models/sale_payment_model.dart';
+import '../../domain/pos_payment_account_policy.dart';
+import '../../../accounts/data/models/account_models.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
 import '../providers/pos_provider.dart';
 
 class CustomersScreen extends ConsumerWidget {
@@ -669,6 +673,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
   final _amount = TextEditingController();
   final _notes = TextEditingController();
   String _method = 'cash';
+  String? _accountId;
 
   @override
   void initState() {
@@ -686,6 +691,19 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(customerSettlementControllerProvider);
+    final accounts =
+        ref.watch(accountsProvider).value ?? const <AccountModel>[];
+    final paymentMethod = PaymentMethodX.fromCode(_method);
+    final compatibleAccounts = PosPaymentAccountPolicy.compatibleAccounts(
+      paymentMethod,
+      accounts,
+    );
+    final effectiveAccountId =
+        _accountId ??
+        PosPaymentAccountPolicy.suggestedAccount(
+          paymentMethod,
+          compatibleAccounts,
+        )?.id;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         16,
@@ -718,8 +736,40 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
               DropdownMenuItem(value: 'jazzcash', child: Text('JazzCash')),
               DropdownMenuItem(value: 'card', child: Text('Card')),
             ],
-            onChanged: (value) => setState(() => _method = value ?? 'cash'),
+            onChanged:
+                (value) => setState(() {
+                  _method = value ?? 'cash';
+                  _accountId = null;
+                }),
             decoration: const InputDecoration(labelText: 'Method'),
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            initialValue: effectiveAccountId,
+            isExpanded: true,
+            items:
+                compatibleAccounts
+                    .map(
+                      (account) => DropdownMenuItem(
+                        value: account.id,
+                        child: Text(
+                          '${account.name} • Rs ${account.currentBalance.toStringAsFixed(0)}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+            onChanged:
+                compatibleAccounts.isEmpty
+                    ? null
+                    : (value) => setState(() => _accountId = value),
+            decoration: InputDecoration(
+              labelText: 'Receiving account',
+              helperText:
+                  compatibleAccounts.isEmpty
+                      ? 'Accounts screen mein compatible account banayein.'
+                      : null,
+            ),
           ),
           const SizedBox(height: 10),
           TextField(
@@ -730,7 +780,10 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
           SizedBox(
             width: double.infinity,
             child: FilledButton(
-              onPressed: state.isLoading ? null : _submit,
+              onPressed:
+                  state.isLoading || effectiveAccountId == null
+                      ? null
+                      : () => _submit(effectiveAccountId),
               child: const Text('Record Settlement'),
             ),
           ),
@@ -739,7 +792,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
     );
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit(String accountId) async {
     final amount = double.tryParse(_amount.text.trim()) ?? 0;
     final ok = await ref
         .read(customerSettlementControllerProvider.notifier)
@@ -747,6 +800,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
           customerId: widget.customerId,
           amount: amount,
           method: _method,
+          accountId: accountId,
           notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
         );
     if (!mounted) return;

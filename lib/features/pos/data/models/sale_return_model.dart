@@ -1,5 +1,39 @@
 import 'cart_item_model.dart';
 
+class SaleReturnRefundLegModel {
+  final String id;
+  final String originalPaymentId;
+  final String accountId;
+  final double amount;
+  final String ledgerTransactionId;
+
+  const SaleReturnRefundLegModel({
+    required this.id,
+    required this.originalPaymentId,
+    required this.accountId,
+    required this.amount,
+    required this.ledgerTransactionId,
+  });
+
+  factory SaleReturnRefundLegModel.fromMap(Map<String, dynamic> map) {
+    return SaleReturnRefundLegModel(
+      id: map['id'] as String,
+      originalPaymentId: map['original_payment_id'] as String,
+      accountId: map['account_id'] as String,
+      amount: (map['amount'] as num).toDouble(),
+      ledgerTransactionId: map['ledger_transaction_id'] as String,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'original_payment_id': originalPaymentId,
+    'account_id': accountId,
+    'amount': amount,
+    'ledger_transaction_id': ledgerTransactionId,
+  };
+}
+
 enum SaleReturnStatus { approved, pendingApproval }
 
 extension SaleReturnStatusX on SaleReturnStatus {
@@ -136,6 +170,7 @@ class SaleReturnModel {
   final String? approvedBy;
   final DateTime createdAt;
   final List<SaleReturnItemModel> items;
+  final List<SaleReturnRefundLegModel> refundLegs;
 
   const SaleReturnModel({
     required this.id,
@@ -150,10 +185,13 @@ class SaleReturnModel {
     this.approvedBy,
     required this.createdAt,
     required this.items,
+    this.refundLegs = const [],
   });
 
   factory SaleReturnModel.fromMap(Map<String, dynamic> map) {
     final items = map['items'] ?? map['sale_return_items'] ?? const [];
+    final refundLegs =
+        map['refund_legs'] ?? map['sale_return_refund_legs'] ?? const [];
     return SaleReturnModel(
       id: map['id'] as String,
       originalSaleId: map['original_sale_id'] as String,
@@ -176,6 +214,14 @@ class SaleReturnModel {
                 ),
               )
               .toList(),
+      refundLegs:
+          (refundLegs as List)
+              .map(
+                (leg) => SaleReturnRefundLegModel.fromMap(
+                  Map<String, dynamic>.from(leg as Map),
+                ),
+              )
+              .toList(),
     );
   }
 
@@ -192,6 +238,7 @@ class SaleReturnModel {
     'approved_by': approvedBy,
     'created_at': createdAt.toIso8601String(),
     'items': items.map((item) => item.toMap()).toList(),
+    'refund_legs': refundLegs.map((leg) => leg.toMap()).toList(),
   };
 
   SaleReturnModel copyWith({
@@ -199,6 +246,7 @@ class SaleReturnModel {
     String? approvalRequiredReason,
     String? overrideReason,
     String? approvedBy,
+    List<SaleReturnRefundLegModel>? refundLegs,
   }) {
     return SaleReturnModel(
       id: id,
@@ -214,6 +262,7 @@ class SaleReturnModel {
       approvedBy: approvedBy ?? this.approvedBy,
       createdAt: createdAt,
       items: items,
+      refundLegs: refundLegs ?? this.refundLegs,
     );
   }
 }

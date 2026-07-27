@@ -6,6 +6,8 @@ import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
+import '../../domain/pos_payment_account_policy.dart';
 import '../providers/pos_provider.dart';
 import 'cart_item_tile.dart';
 import 'customer_attach_sheet.dart';
@@ -156,9 +158,13 @@ class CartPanel extends ConsumerWidget {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed:
-                        isLoading || !cart.isPaymentComplete
+                        isLoading
                             ? null
-                            : () => _handleCheckout(context, ref),
+                            : cart.payments.isEmpty
+                            ? () => _handleCashCheckout(context, ref)
+                            : cart.isPaymentComplete
+                            ? () => _handleCheckout(context, ref)
+                            : () => showPaymentSheet(context, ref),
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
                           cart.isPaymentComplete
@@ -177,7 +183,9 @@ class CartPanel extends ConsumerWidget {
                               ),
                             )
                             : Text(
-                              cart.isPaymentComplete
+                              cart.payments.isEmpty
+                                  ? 'Cash Sale — ₨${cart.total.toStringAsFixed(0)}'
+                                  : cart.isPaymentComplete
                                   ? AppStrings.checkoutButton
                                   : AppStrings.paymentIncomplete,
                               style: const TextStyle(
@@ -222,6 +230,34 @@ class CartPanel extends ConsumerWidget {
           backgroundColor: AppColors.error,
         ),
       );
+    }
+  }
+
+  Future<void> _handleCashCheckout(BuildContext context, WidgetRef ref) async {
+    try {
+      final accounts = await ref.read(accountsProvider.future);
+      if (!context.mounted) return;
+
+      final cashAccount = PosPaymentAccountPolicy.suggestedAccount(
+        PaymentMethod.cash,
+        accounts,
+      );
+      if (cashAccount == null) {
+        showPaymentSheet(context, ref);
+        return;
+      }
+
+      final cart = ref.read(cartProvider);
+      ref
+          .read(cartProvider.notifier)
+          .setPayment(
+            PaymentMethod.cash,
+            cart.total,
+            accountId: cashAccount.id,
+          );
+      await _handleCheckout(context, ref);
+    } catch (_) {
+      if (context.mounted) showPaymentSheet(context, ref);
     }
   }
 
@@ -288,6 +324,21 @@ class _PaymentSummary extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (cart.payments.isEmpty) {
+      return SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: () => showPaymentSheet(context, ref),
+          icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
+          label: const Text('Other Payment / Khata'),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            foregroundColor: AppColors.primary,
+          ),
+        ),
+      );
+    }
+
     return Column(
       children: [
         // Payment method buttons

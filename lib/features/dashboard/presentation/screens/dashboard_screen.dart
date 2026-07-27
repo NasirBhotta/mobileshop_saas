@@ -287,7 +287,7 @@ class _TodaySnapshot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cash = _moneyOrLoading(stats?.todaySalesTotal, isLoading);
+    final cash = _moneyOrLoading(stats?.cashInShop, isLoading);
     final profit = _moneyOrLoading(stats?.totalProfit, isLoading);
     final outstanding = _moneyOrLoading(stats?.totalOutstanding, isLoading);
     final activeRepairs =
@@ -442,7 +442,7 @@ class _SnapshotMainValue extends StatelessWidget {
             const SizedBox(width: 10),
             const Expanded(
               child: Text(
-                'Today cash received',
+                'Cash in Shop',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -607,10 +607,35 @@ class _StatsGrid extends StatelessWidget {
           isCompact: compact,
         ),
         StatCard(
-          title: AppStrings.dashboardOverallSales,
-          value: _moneyOrLoading(stats?.totalSalesTotal, isLoading),
-          icon: Icons.payments_rounded,
+          title: 'Total Available Money',
+          subtitle: 'All active accounts',
+          value: _moneyOrLoading(stats?.totalAvailableMoney, isLoading),
+          icon: Icons.account_balance_wallet_outlined,
           color: AppColors.primary,
+          isCompact: compact,
+        ),
+        StatCard(
+          title: 'Cash In Today',
+          subtitle: 'External receipts',
+          value: _moneyOrLoading(stats?.cashInToday, isLoading),
+          icon: Icons.south_west_rounded,
+          color: AppColors.success,
+          isCompact: compact,
+        ),
+        StatCard(
+          title: 'Cash Out Today',
+          subtitle: 'External payments',
+          value: _moneyOrLoading(stats?.cashOutToday, isLoading),
+          icon: Icons.north_east_rounded,
+          color: AppColors.error,
+          isCompact: compact,
+        ),
+        StatCard(
+          title: 'Net Cash Flow Today',
+          subtitle: 'Cash in − cash out',
+          value: _moneyOrLoading(stats?.netCashFlowToday, isLoading),
+          icon: Icons.swap_vert_rounded,
+          color: AppColors.info,
           isCompact: compact,
         ),
         StatCard(

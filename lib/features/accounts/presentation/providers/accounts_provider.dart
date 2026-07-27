@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:mobileshop_saas/core/authorization/branch_permission_shadow_provider.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
@@ -8,16 +9,32 @@ import 'package:mobileshop_saas/features/accounts/data/repositories/accounts_rep
 final accountsRepositoryProvider = Provider<AccountsRepository>((ref) {
   return AccountsRepository(
     entitlementEvaluator: ref.watch(entitlementEvaluatorProvider),
+    permissionGuard: (permissionKey) async {
+      final allowed = await ref.read(
+        branchAwarePermissionProvider(permissionKey).future,
+      );
+      if (!allowed) {
+        throw AccountPermissionDeniedException(permissionKey);
+      }
+    },
   );
 });
 
-Future<void> _requireAccount(Ref ref, String feature) async {
+Future<void> _requireAccount(
+  Ref ref,
+  String feature, {
+  required String permissionKey,
+}) async {
   if (!await hasFeatureWithCompatibility(
     ref.read(entitlementEvaluatorProvider),
     feature,
   )) {
     throw EntitlementDeniedException(feature);
   }
+  final allowed = await ref.read(
+    branchAwarePermissionProvider(permissionKey).future,
+  );
+  if (!allowed) throw AccountPermissionDeniedException(permissionKey);
 }
 
 final accountsProvider = FutureProvider.autoDispose<List<AccountModel>>((ref) {
@@ -48,7 +65,11 @@ class AccountController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
-      await _requireAccount(_ref, 'accounts.core');
+      await _requireAccount(
+        _ref,
+        'accounts.core',
+        permissionKey: 'account.account.create',
+      );
       await _ref
           .read(accountsRepositoryProvider)
           .createAccount(
@@ -76,7 +97,11 @@ class AccountController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
-      await _requireAccount(_ref, 'accounts.core');
+      await _requireAccount(
+        _ref,
+        'accounts.core',
+        permissionKey: 'account.transaction.create',
+      );
       await _ref
           .read(accountsRepositoryProvider)
           .recordTransaction(
@@ -104,7 +129,11 @@ class AccountController extends StateNotifier<AsyncValue<void>> {
     state = const AsyncLoading();
 
     try {
-      await _requireAccount(_ref, 'accounts.transfers');
+      await _requireAccount(
+        _ref,
+        'accounts.transfers',
+        permissionKey: 'account.transaction.create',
+      );
       await _ref
           .read(accountsRepositoryProvider)
           .transfer(

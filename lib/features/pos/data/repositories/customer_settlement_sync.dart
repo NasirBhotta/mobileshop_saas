@@ -75,6 +75,8 @@ class CustomerSettlementSyncService {
       'branch_id',
       'user_id',
       'method',
+      'account_id',
+      'ledger_transaction_id',
       'notes',
     ];
     for (final field in stringFields) {

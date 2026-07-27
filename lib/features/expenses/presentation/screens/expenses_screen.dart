@@ -5,6 +5,9 @@ import 'package:mobileshop_saas/features/expenses/presentation/providers/expense
 
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/expense_models.dart';
+import '../../domain/expense_account_policy.dart';
+import '../../../accounts/data/models/account_models.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
 
 class ExpensesScreen extends ConsumerWidget {
   const ExpensesScreen({super.key});
@@ -557,60 +560,117 @@ class _ExpenseCard extends ConsumerWidget {
     final amountController = TextEditingController(
       text: expense.amount.toStringAsFixed(0),
     );
+    final accounts = ref.read(accountsProvider).value ?? const <AccountModel>[];
+    final compatibleAccounts = ExpenseAccountPolicy.compatible(
+      expense.paymentMode,
+      accounts,
+    );
+    String? accountId =
+        expense.accountId ??
+        ExpenseAccountPolicy.suggested(
+          expense.paymentMode,
+          compatibleAccounts,
+        )?.id;
 
     showDialog(
       context: context,
       builder: (_) {
-        return AlertDialog(
-          title: const Text('Confirm Expense'),
-          content: TextField(
-            controller: amountController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Actual Amount',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                amountController.dispose();
-                Navigator.pop(context);
-              },
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final amount = double.tryParse(amountController.text.trim());
-
-                if (amount == null || amount < 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Enter valid amount')),
-                  );
-                  return;
-                }
-
-                final ok = await ref
-                    .read(expenseControllerProvider.notifier)
-                    .confirmExpense(expense: expense, actualAmount: amount);
-
-                amountController.dispose();
-
-                if (!context.mounted) return;
-
-                Navigator.pop(context);
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      ok ? 'Expense confirmed' : 'Expense not confirmed',
+        return StatefulBuilder(
+          builder:
+              (context, setDialogState) => AlertDialog(
+                title: const Text('Confirm Expense'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: amountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Actual Amount',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: accountId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Paying Account',
+                        border: OutlineInputBorder(),
+                      ),
+                      items:
+                          compatibleAccounts
+                              .map(
+                                (account) => DropdownMenuItem(
+                                  value: account.id,
+                                  child: Text(account.name),
+                                ),
+                              )
+                              .toList(),
+                      onChanged:
+                          compatibleAccounts.isEmpty
+                              ? null
+                              : (value) =>
+                                  setDialogState(() => accountId = value),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      amountController.dispose();
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Cancel'),
                   ),
-                );
-              },
-              child: const Text('Confirm'),
-            ),
-          ],
+                  FilledButton(
+                    onPressed:
+                        accountId == null
+                            ? null
+                            : () async {
+                              final amount = double.tryParse(
+                                amountController.text.trim(),
+                              );
+
+                              if (amount == null || amount < 0) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Enter valid amount'),
+                                  ),
+                                );
+                                return;
+                              }
+
+                              final ok = await ref
+                                  .read(expenseControllerProvider.notifier)
+                                  .confirmExpense(
+                                    expense: expense,
+                                    accountId: accountId!,
+                                    actualAmount: amount,
+                                  );
+
+                              amountController.dispose();
+
+                              if (!context.mounted) return;
+
+                              Navigator.pop(context);
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    ok
+                                        ? 'Expense confirmed'
+                                        : 'Expense not confirmed',
+                                  ),
+                                ),
+                              );
+                            },
+                    child: const Text('Confirm'),
+                  ),
+                ],
+              ),
         );
       },
     );
