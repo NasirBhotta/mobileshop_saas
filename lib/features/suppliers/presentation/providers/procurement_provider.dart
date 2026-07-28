@@ -26,6 +26,13 @@ final suppliersProvider = FutureProvider.autoDispose<List<SupplierModel>>((
   return ref.read(procurementRepositoryProvider).fetchSuppliers();
 });
 
+final supplierOverviewProvider = FutureProvider.autoDispose
+    .family<SupplierOverviewModel, SupplierModel>((ref, supplier) {
+      return ref
+          .read(procurementRepositoryProvider)
+          .fetchSupplierOverview(supplier);
+    });
+
 final selectedPOStatusProvider = StateProvider<PurchaseOrderStatus?>((ref) {
   return null;
 });

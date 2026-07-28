@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/providers/procurement_provider.dart';
 import '../../data/models/procurement_models.dart';
+import '../../domain/supplier_accounting_contract.dart';
 
 class ReceiveGoodsScreen extends ConsumerStatefulWidget {
   final PurchaseOrderModel po;
@@ -18,6 +21,7 @@ class _ReceiveGoodsScreenState extends ConsumerState<ReceiveGoodsScreen> {
   final Map<String, TextEditingController> _qty = {};
   final Map<String, TextEditingController> _cost = {};
   final Map<String, bool> _updateCost = {};
+  final Map<String, String?> _resolvedProduct = {};
 
   @override
   void initState() {
@@ -50,6 +54,8 @@ class _ReceiveGoodsScreenState extends ConsumerState<ReceiveGoodsScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(receiveGoodsControllerProvider);
     final saving = state.isLoading;
+    final products =
+        ref.watch(productsProvider).value ?? const <ProductModel>[];
 
     return Scaffold(
       appBar: AppBar(
@@ -82,6 +88,11 @@ class _ReceiveGoodsScreenState extends ConsumerState<ReceiveGoodsScreen> {
                     qtyController: _qty[item.id]!,
                     costController: _cost[item.id]!,
                     updateCost: _updateCost[item.id] ?? false,
+                    products: products,
+                    resolvedProductId: _resolvedProduct[item.id],
+                    onResolvedProductChanged:
+                        (value) =>
+                            setState(() => _resolvedProduct[item.id] = value),
                     onUpdateCostChanged: (v) {
                       setState(() => _updateCost[item.id] = v);
                     },
@@ -132,6 +143,7 @@ class _ReceiveGoodsScreenState extends ConsumerState<ReceiveGoodsScreen> {
           receivedQuantity: q,
           actualUnitCost: c,
           updateProductCost: _updateCost[item.id] ?? false,
+          resolvedProductId: _resolvedProduct[item.id],
         ),
       );
     }
@@ -167,6 +179,9 @@ class _ReceiveItemCard extends StatelessWidget {
   final TextEditingController qtyController;
   final TextEditingController costController;
   final bool updateCost;
+  final List<ProductModel> products;
+  final String? resolvedProductId;
+  final ValueChanged<String?> onResolvedProductChanged;
   final ValueChanged<bool> onUpdateCostChanged;
 
   const _ReceiveItemCard({
@@ -174,6 +189,9 @@ class _ReceiveItemCard extends StatelessWidget {
     required this.qtyController,
     required this.costController,
     required this.updateCost,
+    required this.products,
+    required this.resolvedProductId,
+    required this.onResolvedProductChanged,
     required this.onUpdateCostChanged,
   });
 
@@ -199,6 +217,42 @@ class _ReceiveItemCard extends StatelessWidget {
             Text(
               'Ordered: ${item.orderedQuantity} | Received: ${item.receivedQuantity} | Remaining: $remaining',
             ),
+            const SizedBox(height: 4),
+            Text(
+              item.productResolution.label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            if (item.productResolution ==
+                PurchaseProductResolution.resolveOnReceipt) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: resolvedProductId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Add received stock to',
+                  border: OutlineInputBorder(),
+                ),
+                items:
+                    products
+                        .map(
+                          (product) => DropdownMenuItem(
+                            value: product.id,
+                            child: Text(
+                              '${product.name} (${product.sku ?? 'No SKU'})',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                onChanged: remaining > 0 ? onResolvedProductChanged : null,
+              ),
+            ],
+            if (item.productResolution == PurchaseProductResolution.directUse)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'This increases supplier payable without adding inventory.',
+                ),
+              ),
             const SizedBox(height: 12),
             LayoutBuilder(
               builder: (_, constraints) {
@@ -241,18 +295,21 @@ class _ReceiveItemCard extends StatelessWidget {
                 );
               },
             ),
-            CheckboxListTile(
-              value: updateCost,
-              onChanged:
-                  remaining > 0 ? (v) => onUpdateCostChanged(v ?? false) : null,
-              contentPadding: EdgeInsets.zero,
-              title: const Text(
-                'Update product cost price with this actual cost',
+            if (item.productResolution != PurchaseProductResolution.directUse)
+              CheckboxListTile(
+                value: updateCost,
+                onChanged:
+                    remaining > 0
+                        ? (v) => onUpdateCostChanged(v ?? false)
+                        : null,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'Update product cost price with this actual cost',
+                ),
+                subtitle: const Text(
+                  'Cost price will not change unless this is checked.',
+                ),
               ),
-              subtitle: const Text(
-                'Cost price will not change unless this is checked.',
-              ),
-            ),
           ],
         ),
       ),

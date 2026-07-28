@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:mobileshop_saas/features/suppliers/domain/supplier_accounting_contract.dart';
+
 class SupplierModel {
   final String id;
   final String tenantId;
@@ -143,7 +147,10 @@ class PurchaseOrderItemModel {
   final String id;
   final String tenantId;
   final String purchaseOrderId;
-  final String productId;
+  final String? productId;
+  final PurchaseProductResolution productResolution;
+  final Map<String, dynamic>? productDraft;
+  final String? resolvedProductId;
   final String productName;
   final String? productSku;
   final int orderedQuantity;
@@ -158,6 +165,9 @@ class PurchaseOrderItemModel {
     required this.tenantId,
     required this.purchaseOrderId,
     required this.productId,
+    this.productResolution = PurchaseProductResolution.existingProduct,
+    this.productDraft,
+    this.resolvedProductId,
     required this.productName,
     this.productSku,
     required this.orderedQuantity,
@@ -175,7 +185,12 @@ class PurchaseOrderItemModel {
       id: map['id'] as String,
       tenantId: map['tenant_id'] as String,
       purchaseOrderId: map['purchase_order_id'] as String,
-      productId: map['product_id'] as String,
+      productId: map['product_id'] as String?,
+      productResolution: PurchaseProductResolutionX.fromCode(
+        map['product_resolution'] as String?,
+      ),
+      productDraft: _jsonMap(map['product_draft'] ?? map['product_draft_json']),
+      resolvedProductId: map['resolved_product_id'] as String?,
       productName: map['product_name'] as String,
       productSku: map['product_sku'] as String?,
       orderedQuantity: (map['ordered_quantity'] as num).toInt(),
@@ -193,6 +208,9 @@ class PurchaseOrderItemModel {
       'tenant_id': tenantId,
       'purchase_order_id': purchaseOrderId,
       'product_id': productId,
+      'product_resolution': productResolution.code,
+      'product_draft': productDraft,
+      'resolved_product_id': resolvedProductId,
       'product_name': productName,
       'product_sku': productSku,
       'ordered_quantity': orderedQuantity,
@@ -208,6 +226,9 @@ class PurchaseOrderItemModel {
     return {
       'id': id,
       'product_id': productId,
+      'product_resolution': productResolution.code,
+      'product_draft': productDraft,
+      'resolved_product_id': resolvedProductId,
       'product_name': productName,
       'product_sku': productSku,
       'ordered_quantity': orderedQuantity,
@@ -218,6 +239,15 @@ class PurchaseOrderItemModel {
   static DateTime? _date(dynamic value) {
     if (value == null) return null;
     return DateTime.tryParse(value.toString());
+  }
+
+  static Map<String, dynamic>? _jsonMap(dynamic value) {
+    if (value is Map) return Map<String, dynamic>.from(value);
+    if (value is String && value.isNotEmpty) {
+      final decoded = jsonDecode(value);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    }
+    return null;
   }
 }
 
@@ -339,12 +369,16 @@ class GoodsReceiptItemInput {
   final int receivedQuantity;
   final double actualUnitCost;
   final bool updateProductCost;
+  final String? resolvedProductId;
+  final Map<String, dynamic>? productDraft;
 
   const GoodsReceiptItemInput({
     required this.purchaseOrderItemId,
     required this.receivedQuantity,
     required this.actualUnitCost,
     this.updateProductCost = false,
+    this.resolvedProductId,
+    this.productDraft,
   });
 
   Map<String, dynamic> toRpcMap() {
@@ -353,6 +387,8 @@ class GoodsReceiptItemInput {
       'received_quantity': receivedQuantity,
       'actual_unit_cost': actualUnitCost,
       'update_product_cost': updateProductCost,
+      'resolved_product_id': resolvedProductId,
+      'product_draft': productDraft,
     };
   }
 }
@@ -442,5 +478,151 @@ class SupplierPaymentModel {
       'paid_at': paidAt?.toIso8601String(),
       'created_at': createdAt?.toIso8601String(),
     };
+  }
+}
+
+enum SupplierLedgerDirection { increase, decrease }
+
+class SupplierLedgerEntryModel {
+  final String id;
+  final String tenantId;
+  final String branchId;
+  final String supplierId;
+  final String entryType;
+  final SupplierLedgerDirection direction;
+  final double amount;
+  final String sourceEventKey;
+  final String referenceType;
+  final String referenceId;
+  final String? description;
+  final DateTime occurredAt;
+  final String? createdBy;
+  final DateTime createdAt;
+
+  const SupplierLedgerEntryModel({
+    required this.id,
+    required this.tenantId,
+    required this.branchId,
+    required this.supplierId,
+    required this.entryType,
+    required this.direction,
+    required this.amount,
+    required this.sourceEventKey,
+    required this.referenceType,
+    required this.referenceId,
+    this.description,
+    required this.occurredAt,
+    this.createdBy,
+    required this.createdAt,
+  });
+
+  double get signedAmount =>
+      direction == SupplierLedgerDirection.increase ? amount : -amount;
+
+  factory SupplierLedgerEntryModel.fromMap(Map<String, dynamic> map) {
+    return SupplierLedgerEntryModel(
+      id: map['id'] as String,
+      tenantId: map['tenant_id'] as String,
+      branchId: map['branch_id'] as String,
+      supplierId: map['supplier_id'] as String,
+      entryType: map['entry_type'] as String,
+      direction:
+          map['direction'] == 'decrease'
+              ? SupplierLedgerDirection.decrease
+              : SupplierLedgerDirection.increase,
+      amount: (map['amount'] as num).toDouble(),
+      sourceEventKey: map['source_event_key'] as String,
+      referenceType: map['reference_type'] as String,
+      referenceId: map['reference_id'] as String,
+      description: map['description'] as String?,
+      occurredAt: DateTime.parse(map['occurred_at'].toString()),
+      createdBy: map['created_by'] as String?,
+      createdAt: DateTime.parse(map['created_at'].toString()),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'tenant_id': tenantId,
+      'branch_id': branchId,
+      'supplier_id': supplierId,
+      'entry_type': entryType,
+      'direction':
+          direction == SupplierLedgerDirection.increase
+              ? 'increase'
+              : 'decrease',
+      'amount': amount,
+      'source_event_key': sourceEventKey,
+      'reference_type': referenceType,
+      'reference_id': referenceId,
+      'description': description,
+      'occurred_at': occurredAt.toIso8601String(),
+      'created_by': createdBy,
+      'created_at': createdAt.toIso8601String(),
+    };
+  }
+}
+
+class SupplierOverviewModel {
+  final SupplierModel supplier;
+  final List<PurchaseOrderModel> purchaseOrders;
+  final List<SupplierLedgerEntryModel> ledgerEntries;
+
+  const SupplierOverviewModel({
+    required this.supplier,
+    required this.purchaseOrders,
+    required this.ledgerEntries,
+  });
+
+  Iterable<PurchaseOrderModel> get activeOrders =>
+      purchaseOrders.where((po) => po.status != PurchaseOrderStatus.cancelled);
+
+  double get totalOrdered =>
+      activeOrders.fold(0, (total, po) => total + po.totalExpectedCost);
+
+  double get totalReceived =>
+      activeOrders.fold(0, (total, po) => total + po.totalReceivedCost);
+
+  double get pendingOrderValue => activeOrders.fold(
+    0,
+    (total, po) =>
+        total +
+        (po.totalExpectedCost - po.totalReceivedCost).clamp(0, double.infinity),
+  );
+
+  int get openOrderCount =>
+      activeOrders
+          .where((po) => po.status != PurchaseOrderStatus.received)
+          .length;
+
+  double get totalPaid => ledgerEntries
+      .where(
+        (entry) =>
+            entry.direction == SupplierLedgerDirection.decrease &&
+            entry.entryType == 'supplier_payment',
+      )
+      .fold(0, (total, entry) => total + entry.amount);
+
+  double get statementBalance =>
+      ledgerEntries.fold(0, (total, entry) => total + entry.signedAmount);
+
+  bool get hasStatementMismatch =>
+      (statementBalance - supplier.outstandingBalance).abs() > 0.01;
+
+  DateTime? get firstActivityAt {
+    final dates = <DateTime>[
+      ...purchaseOrders.map((po) => po.createdAt).whereType<DateTime>(),
+      ...ledgerEntries.map((entry) => entry.occurredAt),
+    ]..sort();
+    return dates.isEmpty ? null : dates.first;
+  }
+
+  DateTime? get lastActivityAt {
+    final dates = <DateTime>[
+      ...purchaseOrders.map((po) => po.createdAt).whereType<DateTime>(),
+      ...ledgerEntries.map((entry) => entry.occurredAt),
+    ]..sort();
+    return dates.isEmpty ? null : dates.last;
   }
 }

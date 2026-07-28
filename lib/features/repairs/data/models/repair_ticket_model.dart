@@ -42,6 +42,8 @@ class RepairTicketModel {
   final DateTime? deliveredAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final DateTime? archivedAt;
+  final String? archivedBy;
 
   const RepairTicketModel({
     required this.id,
@@ -74,6 +76,8 @@ class RepairTicketModel {
     this.deliveredAt,
     this.createdAt,
     this.updatedAt,
+    this.archivedAt,
+    this.archivedBy,
   });
 
   factory RepairTicketModel.fromMap(Map<String, dynamic> map) {
@@ -108,6 +112,8 @@ class RepairTicketModel {
       deliveredAt: _date(map['delivered_at']),
       createdAt: _date(map['created_at']),
       updatedAt: _date(map['updated_at']),
+      archivedAt: _date(map['archived_at']),
+      archivedBy: map['archived_by'] as String?,
     );
   }
 
@@ -143,6 +149,8 @@ class RepairTicketModel {
       'delivered_at': deliveredAt?.toIso8601String(),
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
+      'archived_at': archivedAt?.toIso8601String(),
+      'archived_by': archivedBy,
     };
   }
 
@@ -179,6 +187,8 @@ class RepairTicketModel {
     DateTime? deliveredAt,
     DateTime? createdAt,
     DateTime? updatedAt,
+    DateTime? archivedAt,
+    String? archivedBy,
   }) {
     return RepairTicketModel(
       id: id ?? this.id,
@@ -212,6 +222,8 @@ class RepairTicketModel {
       deliveredAt: deliveredAt ?? this.deliveredAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      archivedAt: archivedAt ?? this.archivedAt,
+      archivedBy: archivedBy ?? this.archivedBy,
     );
   }
 

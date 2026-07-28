@@ -163,13 +163,13 @@ class BusinessReportLocalStore {
       dateTo: dateTo,
       netReturns: true,
     );
-    final repairs = await _repairRevenue(
+    final repairs = await _repairFinancialTotals(
       tenantId: tenantId,
       branchId: branchId,
       dateFrom: dateFrom,
       dateTo: dateTo,
     );
-    return sales.summary.grossProfit + repairs;
+    return sales.summary.grossProfit + repairs.grossProfit;
   }
 
   static Future<void> saveSchedule(BusinessReportScheduleModel schedule) async {
@@ -411,7 +411,7 @@ class BusinessReportLocalStore {
       exportAllowed: exportAllowed,
       netReturns: true,
     );
-    final repairs = await _repairRevenue(
+    final repairs = await _repairFinancialTotals(
       tenantId: tenantId,
       branchId: branchId,
       dateFrom: dateFrom,
@@ -430,8 +430,8 @@ class BusinessReportLocalStore {
       dateTo: dateTo,
     );
 
-    final revenue = sales.summary.revenue + repairs;
-    final cogs = sales.summary.cogs;
+    final revenue = sales.summary.revenue + repairs.revenue;
+    final cogs = sales.summary.cogs + repairs.directCost;
     final grossProfit = revenue - cogs;
     final netProfit = grossProfit - expenses.confirmed;
 
@@ -458,12 +458,14 @@ class BusinessReportLocalStore {
             final date = _dateOnly(item.date);
             final dayExpenses = expenses.byDate[date] ?? 0;
             final dayRepairRevenue = expenses.repairRevenueByDate[date] ?? 0;
+            final dayRepairCost = expenses.repairCostByDate[date] ?? 0;
             final revenue = item.revenue + dayRepairRevenue;
-            final grossProfit = revenue - item.cogs;
+            final cogs = item.cogs + dayRepairCost;
+            final grossProfit = revenue - cogs;
             return {
               'date': date,
               'revenue': revenue,
-              'cogs': item.cogs,
+              'cogs': cogs,
               'gross_profit': grossProfit,
               'expenses': dayExpenses,
               'net_profit': grossProfit - dayExpenses,
@@ -647,10 +649,13 @@ class BusinessReportLocalStore {
         AND substr(COALESCE(delivered_at, completed_at), 1, 10) BETWEEN ? AND ?
       GROUP BY status, technician_id
       ''', args);
-    final repairRevenue = revenueRows.fold<double>(
-      0,
-      (sum, row) => sum + _num(row['revenue']),
+    final repairFinancials = await _repairFinancialTotals(
+      tenantId: tenantId,
+      branchId: branchId,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
     );
+    final repairRevenue = repairFinancials.revenue;
     final completedRepairs = revenueRows.fold<int>(
       0,
       (sum, row) => sum + _int(row['repairs']),
@@ -789,7 +794,7 @@ class BusinessReportLocalStore {
     };
   }
 
-  static Future<double> _repairRevenue({
+  static Future<_RepairFinancialTotals> _repairFinancialTotals({
     required String tenantId,
     required String? branchId,
     required DateTime dateFrom,
@@ -798,12 +803,17 @@ class BusinessReportLocalStore {
     final branchSql = branchId == null ? '' : 'AND branch_id = ?';
     final rows = await LocalDatabase.select(
       '''
-      SELECT COALESCE(SUM(total_cost), 0) AS total
-      FROM repair_tickets
+      SELECT
+        COALESCE(SUM(revenue_amount), 0) AS revenue,
+        COALESCE(SUM(
+          inventory_cost + direct_parts_cost +
+          commission_cost + other_direct_cost
+        ), 0) AS direct_cost,
+        COALESCE(SUM(gross_profit), 0) AS gross_profit
+      FROM repair_financial_events
       WHERE tenant_id = ?
         $branchSql
-        AND status IN ('completed', 'delivered')
-        AND substr(COALESCE(delivered_at, completed_at), 1, 10) BETWEEN ? AND ?
+        AND substr(occurred_at, 1, 10) BETWEEN ? AND ?
       ''',
       [
         tenantId,
@@ -812,7 +822,11 @@ class BusinessReportLocalStore {
         _dateOnly(dateTo),
       ],
     );
-    return _num(rows.first['total']);
+    return _RepairFinancialTotals(
+      revenue: _num(rows.first['revenue']),
+      directCost: _num(rows.first['direct_cost']),
+      grossProfit: _num(rows.first['gross_profit']),
+    );
   }
 
   static Future<_ExpenseTotals> _expenseTotals({
@@ -847,15 +861,17 @@ class BusinessReportLocalStore {
       GROUP BY expense_date
       ''', args);
     final repairRows = await LocalDatabase.select('''
-      SELECT
-        substr(COALESCE(delivered_at, completed_at), 1, 10) AS date,
-        COALESCE(SUM(total_cost), 0) AS total
-      FROM repair_tickets
+      SELECT substr(occurred_at, 1, 10) AS date,
+        COALESCE(SUM(revenue_amount), 0) AS total,
+        COALESCE(SUM(
+          inventory_cost + direct_parts_cost +
+          commission_cost + other_direct_cost
+        ), 0) AS direct_cost
+      FROM repair_financial_events
       WHERE tenant_id = ?
         $branchSql
-        AND status IN ('completed', 'delivered')
-        AND substr(COALESCE(delivered_at, completed_at), 1, 10) BETWEEN ? AND ?
-      GROUP BY substr(COALESCE(delivered_at, completed_at), 1, 10)
+        AND substr(occurred_at, 1, 10) BETWEEN ? AND ?
+      GROUP BY substr(occurred_at, 1, 10)
       ''', args);
 
     var confirmed = 0.0;
@@ -878,6 +894,10 @@ class BusinessReportLocalStore {
       repairRevenueByDate: {
         for (final row in repairRows)
           row['date'].toString(): _num(row['total']),
+      },
+      repairCostByDate: {
+        for (final row in repairRows)
+          row['date'].toString(): _num(row['direct_cost']),
       },
     );
   }
@@ -1062,12 +1082,14 @@ class _ExpenseTotals {
   final double draft;
   final Map<String, double> byDate;
   final Map<String, double> repairRevenueByDate;
+  final Map<String, double> repairCostByDate;
 
   const _ExpenseTotals({
     required this.confirmed,
     required this.draft,
     required this.byDate,
     required this.repairRevenueByDate,
+    required this.repairCostByDate,
   });
 }
 
@@ -1082,5 +1104,17 @@ class _CashFlowTotals {
     required this.cashOut,
     required this.salesBreakdown,
     required this.expenseBreakdown,
+  });
+}
+
+class _RepairFinancialTotals {
+  final double revenue;
+  final double directCost;
+  final double grossProfit;
+
+  const _RepairFinancialTotals({
+    required this.revenue,
+    required this.directCost,
+    required this.grossProfit,
   });
 }

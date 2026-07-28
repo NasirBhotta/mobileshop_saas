@@ -93,6 +93,30 @@ class SupplierPaymentLocalCommitter {
       final now = DateTime.now().toIso8601String();
       await LocalDatabase.execute(
         '''
+        INSERT INTO supplier_ledger_entries(
+          id, tenant_id, branch_id, supplier_id, entry_type, direction,
+          amount, source_event_key, reference_type, reference_id, description,
+          occurred_at, created_by, created_at
+        ) VALUES (?, ?, ?, ?, 'supplier_payment', 'decrease', ?, ?, ?, ?, ?,
+                  ?, ?, ?)
+        ''',
+        [
+          'supplier-ledger-payment-${payment.id}',
+          payment.tenantId,
+          payment.branchId,
+          payment.supplierId,
+          payment.amount,
+          'supplier:payment:${payment.id}',
+          'supplier_payment',
+          payment.id,
+          'Supplier payment',
+          payment.paidAt?.toIso8601String() ?? now,
+          payment.paidBy,
+          now,
+        ],
+      );
+      await LocalDatabase.execute(
+        '''
         INSERT INTO account_transactions(
           id, tenant_id, branch_id, account_id, transaction_type, direction,
           amount, description, reference_type, reference_id, source_event_key,

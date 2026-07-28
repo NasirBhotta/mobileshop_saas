@@ -9,6 +9,7 @@ import 'package:mobileshop_saas/features/suppliers/data/local/procurement_local_
 import 'package:mobileshop_saas/features/suppliers/data/local/supplier_payment_local_committer.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
 import 'package:mobileshop_saas/features/suppliers/domain/procurement_entitlement_gate.dart';
+import 'package:mobileshop_saas/features/suppliers/domain/supplier_accounting_contract.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -165,6 +166,47 @@ class ProcurementRepository {
     }
   }
 
+  Future<SupplierOverviewModel> fetchSupplierOverview(
+    SupplierModel supplier,
+  ) async {
+    await _entitlements.require('procurement.suppliers');
+    final branchId = await _branchId(supplier.tenantId);
+
+    try {
+      await _fetchRemotePurchaseOrders(
+        supplier.tenantId,
+        branchId,
+      ).timeout(_networkTimeout);
+      final rows = await _client
+          .from('supplier_ledger_entries')
+          .select()
+          .eq('tenant_id', supplier.tenantId)
+          .eq('branch_id', branchId)
+          .eq('supplier_id', supplier.id)
+          .order('occurred_at', ascending: false)
+          .timeout(_networkTimeout);
+      for (final row in rows as List) {
+        await ProcurementLocalStore.saveSupplierLedgerEntry(
+          SupplierLedgerEntryModel.fromMap(row),
+        );
+      }
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      debugPrint('Supplier overview using offline data: $error');
+    }
+
+    final orders = await ProcurementLocalStore.loadPurchaseOrders(branchId);
+    final ledger = await ProcurementLocalStore.loadSupplierLedger(supplier.id);
+    final currentSupplier =
+        await ProcurementLocalStore.loadSupplierById(supplier.id) ?? supplier;
+    return SupplierOverviewModel(
+      supplier: currentSupplier,
+      purchaseOrders:
+          orders.where((order) => order.supplierId == supplier.id).toList(),
+      ledgerEntries: ledger,
+    );
+  }
+
   Future<void> _refreshSuppliers(String tenantId) async {
     try {
       await _fetchRemoteSuppliers(tenantId).timeout(_networkTimeout);
@@ -222,6 +264,14 @@ class ProcurementRepository {
                 tenantId: tenantId,
                 purchaseOrderId: poId,
                 productId: item.productId,
+                productResolution: item.productResolution,
+                productDraft: item.productDraft,
+                resolvedProductId:
+                    item.resolvedProductId ??
+                    (item.productResolution ==
+                            PurchaseProductResolution.createOnReceipt
+                        ? const Uuid().v4()
+                        : null),
                 productName: item.productName,
                 productSku: item.productSku,
                 orderedQuantity: item.orderedQuantity,
@@ -600,6 +650,9 @@ class ProcurementRepository {
                       return {
                         'id': e['id'],
                         'product_id': e['product_id'],
+                        'product_resolution': e['product_resolution'],
+                        'product_draft': e['product_draft'],
+                        'resolved_product_id': e['resolved_product_id'],
                         'product_name': e['product_name'],
                         'product_sku': e['product_sku'],
                         'ordered_quantity': e['ordered_quantity'],

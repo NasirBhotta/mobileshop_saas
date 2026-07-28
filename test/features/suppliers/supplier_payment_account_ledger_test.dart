@@ -51,6 +51,7 @@ void main() {
 
   setUp(() async {
     await LocalDatabase.execute('DELETE FROM supplier_payments');
+    await LocalDatabase.execute('DELETE FROM supplier_ledger_entries');
     await LocalDatabase.execute(
       "DELETE FROM account_transactions WHERE reference_type = 'supplier_payment'",
     );

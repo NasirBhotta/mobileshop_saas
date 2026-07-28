@@ -35,6 +35,8 @@ class LocalDatabase {
     'repair_tickets',
     'repair_status_logs',
     'repair_payments',
+    'repair_parts',
+    'repair_financial_events',
     'suppliers',
     'supplier_products',
     'purchase_orders',
@@ -42,6 +44,7 @@ class LocalDatabase {
     'goods_receipts',
     'goods_receipt_items',
     'supplier_payments',
+    'supplier_ledger_entries',
     'accounts',
     'account_transactions',
     'mobile_service_providers',
@@ -64,12 +67,15 @@ class LocalDatabase {
     'goods_receipt_items',
     'goods_receipts',
     'supplier_payments',
+    'supplier_ledger_entries',
     'purchase_order_items',
     'purchase_orders',
     'supplier_products',
     'suppliers',
     'repair_status_logs',
     'repair_payments',
+    'repair_financial_events',
+    'repair_parts',
     'repair_tickets',
     'inventory_units',
     'receipt_delivery_logs',
@@ -307,7 +313,7 @@ class LocalDatabase {
       CREATE TABLE IF NOT EXISTS inventory (
         id TEXT PRIMARY KEY,
         branch_id TEXT NOT NULL,
-        product_id TEXT NOT NULL,
+        product_id TEXT,
         quantity INTEGER NOT NULL DEFAULT 0,
         reorder_threshold INTEGER NOT NULL DEFAULT 5,
         updated_at TEXT,
@@ -441,7 +447,9 @@ class LocalDatabase {
       CREATE TABLE IF NOT EXISTS sale_items (
         id TEXT PRIMARY KEY,
         sale_id TEXT NOT NULL,
-        product_id TEXT NOT NULL,
+        product_id TEXT,
+        item_resolution TEXT NOT NULL DEFAULT 'existing_product',
+        item_name TEXT,
         product_name TEXT NOT NULL,
         product_sku TEXT,
         quantity INTEGER NOT NULL,
@@ -715,7 +723,82 @@ class LocalDatabase {
         delivered_at TEXT,
         created_at TEXT,
         updated_at TEXT,
+        customer_charge REAL,
+        service_charge REAL NOT NULL DEFAULT 0,
+        discount_amount REAL NOT NULL DEFAULT 0,
+        per_job_commission REAL NOT NULL DEFAULT 0,
+        other_direct_cost REAL NOT NULL DEFAULT 0,
+        finalized_at TEXT,
+        reversed_at TEXT,
+        archived_at TEXT,
+        archived_by TEXT,
         UNIQUE(branch_id, ticket_no)
+      )
+    ''');
+    for (final column in const <(String, String)>[
+      ('customer_charge', 'REAL'),
+      ('service_charge', 'REAL NOT NULL DEFAULT 0'),
+      ('discount_amount', 'REAL NOT NULL DEFAULT 0'),
+      ('per_job_commission', 'REAL NOT NULL DEFAULT 0'),
+      ('other_direct_cost', 'REAL NOT NULL DEFAULT 0'),
+      ('finalized_at', 'TEXT'),
+      ('reversed_at', 'TEXT'),
+      ('archived_at', 'TEXT'),
+      ('archived_by', 'TEXT'),
+    ]) {
+      await _addColumnIfMissing(
+        table: 'repair_tickets',
+        column: column.$1,
+        definition: column.$2,
+      );
+    }
+
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS repair_parts (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        ticket_id TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        product_id TEXT,
+        supplier_id TEXT,
+        settlement_type TEXT NOT NULL DEFAULT 'already_recorded',
+        name TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_cost_snapshot REAL NOT NULL,
+        unit_sale_price REAL NOT NULL,
+        state TEXT NOT NULL DEFAULT 'planned',
+        consumed_at TEXT,
+        reversed_at TEXT,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await _addColumnIfMissing(
+      table: 'repair_parts',
+      column: 'settlement_type',
+      definition: "TEXT NOT NULL DEFAULT 'already_recorded'",
+    );
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS repair_financial_events (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        ticket_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        source_event_key TEXT NOT NULL,
+        revenue_amount REAL NOT NULL,
+        inventory_cost REAL NOT NULL,
+        direct_parts_cost REAL NOT NULL,
+        commission_cost REAL NOT NULL,
+        other_direct_cost REAL NOT NULL,
+        gross_profit REAL NOT NULL,
+        reversal_of_event_id TEXT,
+        occurred_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(tenant_id, branch_id, source_event_key)
       )
     ''');
 
@@ -828,7 +911,10 @@ class LocalDatabase {
         id TEXT PRIMARY KEY,
         tenant_id TEXT NOT NULL,
         purchase_order_id TEXT NOT NULL,
-        product_id TEXT NOT NULL,
+        product_id TEXT,
+        product_resolution TEXT NOT NULL DEFAULT 'existing_product',
+        product_draft_json TEXT,
+        resolved_product_id TEXT,
         product_name TEXT NOT NULL,
         product_sku TEXT,
         ordered_quantity INTEGER NOT NULL,
@@ -839,6 +925,21 @@ class LocalDatabase {
         created_at TEXT
       )
     ''');
+    await _addColumnIfMissing(
+      table: 'purchase_order_items',
+      column: 'product_resolution',
+      definition: "TEXT NOT NULL DEFAULT 'existing_product'",
+    );
+    await _addColumnIfMissing(
+      table: 'purchase_order_items',
+      column: 'product_draft_json',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'purchase_order_items',
+      column: 'resolved_product_id',
+      definition: 'TEXT',
+    );
 
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS goods_receipts (
@@ -863,7 +964,9 @@ class LocalDatabase {
         goods_receipt_id TEXT NOT NULL,
         purchase_order_id TEXT NOT NULL,
         purchase_order_item_id TEXT NOT NULL,
-        product_id TEXT NOT NULL,
+        product_id TEXT,
+        item_resolution TEXT NOT NULL DEFAULT 'existing_product',
+        item_name TEXT,
         received_quantity INTEGER NOT NULL,
         actual_unit_cost REAL NOT NULL DEFAULT 0,
         update_product_cost INTEGER NOT NULL DEFAULT 0,
@@ -871,6 +974,17 @@ class LocalDatabase {
         created_at TEXT
       )
     ''');
+    await _addColumnIfMissing(
+      table: 'goods_receipt_items',
+      column: 'item_resolution',
+      definition: "TEXT NOT NULL DEFAULT 'existing_product'",
+    );
+    await _addColumnIfMissing(
+      table: 'goods_receipt_items',
+      column: 'item_name',
+      definition: 'TEXT',
+    );
+    await _makeProcurementProductLinksNullable();
 
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS supplier_payments (
@@ -887,6 +1001,28 @@ class LocalDatabase {
         paid_at TEXT,
         created_at TEXT
       )
+    ''');
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS supplier_ledger_entries (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        supplier_id TEXT NOT NULL,
+        entry_type TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        amount REAL NOT NULL,
+        source_event_key TEXT NOT NULL,
+        reference_type TEXT NOT NULL,
+        reference_id TEXT NOT NULL,
+        description TEXT,
+        occurred_at TEXT NOT NULL,
+        created_by TEXT,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await _db.customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_ledger_source
+      ON supplier_ledger_entries(tenant_id, branch_id, source_event_key)
     ''');
     await _addColumnIfMissing(
       table: 'supplier_payments',
@@ -1483,6 +1619,79 @@ class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_mobile_service_transactions_branch
       ON mobile_service_transactions(branch_id, transaction_at DESC);
     ''');
+  }
+
+  static Future<void> _makeProcurementProductLinksNullable() async {
+    final poInfo =
+        await _db.customSelect('PRAGMA table_info(purchase_order_items)').get();
+    final receiptInfo =
+        await _db.customSelect('PRAGMA table_info(goods_receipt_items)').get();
+    final poProduct = poInfo.where((row) => row.data['name'] == 'product_id');
+    final receiptProduct = receiptInfo.where(
+      (row) => row.data['name'] == 'product_id',
+    );
+    if (poProduct.isNotEmpty && poProduct.single.data['notnull'] == 1) {
+      await _db.transaction(() async {
+        await _db.customStatement(
+          'ALTER TABLE purchase_order_items RENAME TO purchase_order_items_old',
+        );
+        await _db.customStatement('''
+          CREATE TABLE purchase_order_items (
+            id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL,
+            purchase_order_id TEXT NOT NULL, product_id TEXT,
+            product_resolution TEXT NOT NULL DEFAULT 'existing_product',
+            product_draft_json TEXT, resolved_product_id TEXT,
+            product_name TEXT NOT NULL, product_sku TEXT,
+            ordered_quantity INTEGER NOT NULL,
+            received_quantity INTEGER NOT NULL DEFAULT 0,
+            negotiated_unit_cost REAL NOT NULL DEFAULT 0,
+            actual_unit_cost REAL, line_total REAL NOT NULL DEFAULT 0,
+            created_at TEXT
+          )
+        ''');
+        await _db.customStatement('''
+          INSERT INTO purchase_order_items
+          SELECT id, tenant_id, purchase_order_id, product_id,
+            product_resolution, product_draft_json, resolved_product_id,
+            product_name, product_sku, ordered_quantity, received_quantity,
+            negotiated_unit_cost, actual_unit_cost, line_total, created_at
+          FROM purchase_order_items_old
+        ''');
+        await _db.customStatement('DROP TABLE purchase_order_items_old');
+      });
+    }
+    if (receiptProduct.isNotEmpty &&
+        receiptProduct.single.data['notnull'] == 1) {
+      await _db.transaction(() async {
+        await _db.customStatement(
+          'ALTER TABLE goods_receipt_items RENAME TO goods_receipt_items_old',
+        );
+        await _db.customStatement('''
+          CREATE TABLE goods_receipt_items (
+            id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL,
+            goods_receipt_id TEXT NOT NULL, purchase_order_id TEXT NOT NULL,
+            purchase_order_item_id TEXT NOT NULL, product_id TEXT,
+            item_resolution TEXT NOT NULL DEFAULT 'existing_product',
+            item_name TEXT, received_quantity INTEGER NOT NULL,
+            actual_unit_cost REAL NOT NULL DEFAULT 0,
+            update_product_cost INTEGER NOT NULL DEFAULT 0,
+            line_total REAL NOT NULL DEFAULT 0, created_at TEXT
+          )
+        ''');
+        await _db.customStatement('''
+          INSERT INTO goods_receipt_items(
+            id, tenant_id, goods_receipt_id, purchase_order_id,
+            purchase_order_item_id, product_id, received_quantity,
+            actual_unit_cost, update_product_cost, line_total, created_at
+          )
+          SELECT id, tenant_id, goods_receipt_id, purchase_order_id,
+            purchase_order_item_id, product_id, received_quantity,
+            actual_unit_cost, update_product_cost, line_total, created_at
+          FROM goods_receipt_items_old
+        ''');
+        await _db.customStatement('DROP TABLE goods_receipt_items_old');
+      });
+    }
   }
 
   static Future<void> _addColumnIfMissing({

@@ -1151,9 +1151,11 @@ class LocalStore {
         completed_at,
         delivered_at,
         created_at,
-        updated_at
+        updated_at,
+        archived_at,
+        archived_by
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         ticket.id,
@@ -1186,6 +1188,8 @@ class LocalStore {
         ticket.deliveredAt?.toIso8601String(),
         ticket.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
         ticket.updatedAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+        ticket.archivedAt?.toIso8601String(),
+        ticket.archivedBy,
       ],
     );
   }
@@ -1211,6 +1215,7 @@ class LocalStore {
         SELECT *
         FROM repair_tickets
         WHERE branch_id = ?
+          AND archived_at IS NULL
         ORDER BY created_at DESC
         LIMIT ?
         ''',
@@ -1226,6 +1231,7 @@ class LocalStore {
       FROM repair_tickets
       WHERE branch_id = ?
         AND status = ?
+        AND archived_at IS NULL
       ORDER BY created_at DESC
       LIMIT ?
       ''',

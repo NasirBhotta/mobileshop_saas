@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:mobileshop_saas/core/local/local_database.dart';
 
 import '../models/procurement_models.dart';
+import '../../domain/supplier_accounting_contract.dart';
 
 class ProcurementLocalStore {
   static Future<void> saveSupplier(SupplierModel supplier) async {
@@ -117,10 +120,11 @@ class ProcurementLocalStore {
       '''
       INSERT OR REPLACE INTO purchase_order_items(
         id, tenant_id, purchase_order_id, product_id, product_name,
+        product_resolution, product_draft_json, resolved_product_id,
         product_sku, ordered_quantity, received_quantity,
         negotiated_unit_cost, actual_unit_cost, line_total, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         item.id,
@@ -128,6 +132,9 @@ class ProcurementLocalStore {
         item.purchaseOrderId,
         item.productId,
         item.productName,
+        item.productResolution.code,
+        item.productDraft == null ? null : jsonEncode(item.productDraft),
+        item.resolvedProductId,
         item.productSku,
         item.orderedQuantity,
         item.receivedQuantity,
@@ -217,6 +224,39 @@ class ProcurementLocalStore {
     String? note,
     required List<GoodsReceiptItemInput> inputs,
   }) async {
+    await LocalDatabase.runInTransaction(
+      () => _applyReceiptWithinTransaction(
+        po: po,
+        receiptId: receiptId,
+        receiptNo: receiptNo,
+        userId: userId,
+        note: note,
+        inputs: inputs,
+      ),
+    );
+  }
+
+  static Future<void> _applyReceiptWithinTransaction({
+    required PurchaseOrderModel po,
+    required String receiptId,
+    required String receiptNo,
+    required String userId,
+    String? note,
+    required List<GoodsReceiptItemInput> inputs,
+  }) async {
+    final existing = await LocalDatabase.select(
+      'SELECT * FROM goods_receipts WHERE id = ? LIMIT 1',
+      [receiptId],
+    );
+    if (existing.isNotEmpty) {
+      final row = existing.single;
+      if (row['purchase_order_id'] != po.id ||
+          row['supplier_id'] != po.supplierId ||
+          row['receipt_no'] != receiptNo) {
+        throw StateError('Goods receipt identity conflicts.');
+      }
+      return;
+    }
     double total = 0;
     final updatedItems = <PurchaseOrderItemModel>[];
 
@@ -235,6 +275,46 @@ class ProcurementLocalStore {
 
       final lineTotal = input.receivedQuantity * input.actualUnitCost;
       total += lineTotal;
+      final inventoryProductId = switch (item.productResolution) {
+        PurchaseProductResolution.existingProduct => item.productId,
+        PurchaseProductResolution.createOnReceipt => item.resolvedProductId,
+        PurchaseProductResolution.resolveOnReceipt => input.resolvedProductId,
+        PurchaseProductResolution.directUse => null,
+      };
+      if (!SupplierAccountingContract.mayCompleteReceipt(
+        resolution: item.productResolution,
+        hasResolvedProduct: inventoryProductId != null,
+      )) {
+        throw StateError(
+          'Choose or create an inventory product for ${item.productName}.',
+        );
+      }
+
+      if (item.productResolution == PurchaseProductResolution.createOnReceipt) {
+        final draft = item.productDraft;
+        if (draft == null || inventoryProductId == null) {
+          throw StateError('New product details are missing.');
+        }
+        await LocalDatabase.execute(
+          '''
+          INSERT OR IGNORE INTO products(
+            id, tenant_id, branch_id, name, sku, sale_price, cost_price,
+            imei_tracked, is_active, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)
+          ''',
+          [
+            inventoryProductId,
+            po.tenantId,
+            po.branchId,
+            draft['name'] ?? item.productName,
+            draft['sku'],
+            (draft['sale_price'] as num?)?.toDouble() ?? 0,
+            input.actualUnitCost,
+            DateTime.now().toIso8601String(),
+            DateTime.now().toIso8601String(),
+          ],
+        );
+      }
 
       final newReceived = item.receivedQuantity + input.receivedQuantity;
 
@@ -243,6 +323,9 @@ class ProcurementLocalStore {
         tenantId: item.tenantId,
         purchaseOrderId: item.purchaseOrderId,
         productId: item.productId,
+        productResolution: item.productResolution,
+        productDraft: item.productDraft,
+        resolvedProductId: inventoryProductId ?? item.resolvedProductId,
         productName: item.productName,
         productSku: item.productSku,
         orderedQuantity: item.orderedQuantity,
@@ -255,11 +338,39 @@ class ProcurementLocalStore {
 
       updatedItems.add(updatedItem);
       await savePurchaseOrderItem(updatedItem);
-
-      final productRows = await LocalDatabase.select(
-        'SELECT cost_price FROM products WHERE id = ? LIMIT 1',
-        [item.productId],
+      await LocalDatabase.execute(
+        '''
+        INSERT INTO goods_receipt_items(
+          id, tenant_id, goods_receipt_id, purchase_order_id,
+          purchase_order_item_id, product_id, item_resolution, item_name,
+          received_quantity, actual_unit_cost, update_product_cost,
+          line_total, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''',
+        [
+          '${receiptId}_${item.id}',
+          po.tenantId,
+          receiptId,
+          po.id,
+          item.id,
+          inventoryProductId,
+          item.productResolution.code,
+          item.productName,
+          input.receivedQuantity,
+          input.actualUnitCost,
+          input.updateProductCost ? 1 : 0,
+          lineTotal,
+          DateTime.now().toIso8601String(),
+        ],
       );
+
+      final productRows =
+          inventoryProductId == null
+              ? const <Map<String, dynamic>>[]
+              : await LocalDatabase.select(
+                'SELECT cost_price FROM products WHERE id = ? LIMIT 1',
+                [inventoryProductId],
+              );
       final currentCost =
           productRows.isEmpty
               ? null
@@ -271,7 +382,10 @@ class ProcurementLocalStore {
       // A different-cost product variant is created atomically by the server.
       // While offline, do not corrupt the original product's stock or price;
       // the queued receipt will populate the correct variant after sync.
-      if (sameCost) {
+      if (inventoryProductId != null &&
+          (sameCost ||
+              item.productResolution ==
+                  PurchaseProductResolution.createOnReceipt)) {
         await LocalDatabase.execute(
           '''
           INSERT INTO inventory(branch_id, product_id, quantity, updated_at)
@@ -283,7 +397,7 @@ class ProcurementLocalStore {
           ''',
           [
             po.branchId,
-            item.productId,
+            inventoryProductId,
             input.receivedQuantity,
             DateTime.now().toIso8601String(),
           ],
@@ -317,7 +431,7 @@ class ProcurementLocalStore {
 
     await LocalDatabase.execute(
       '''
-      INSERT OR REPLACE INTO goods_receipts(
+      INSERT INTO goods_receipts(
         id, tenant_id, branch_id, purchase_order_id, supplier_id,
         receipt_no, note, total_received_value, received_by, received_at
       )
@@ -337,6 +451,30 @@ class ProcurementLocalStore {
       ],
     );
 
+    final now = DateTime.now().toIso8601String();
+    await LocalDatabase.execute(
+      '''
+      INSERT INTO supplier_ledger_entries(
+        id, tenant_id, branch_id, supplier_id, entry_type, direction,
+        amount, source_event_key, reference_type, reference_id, description,
+        occurred_at, created_by, created_at
+      ) VALUES (?, ?, ?, ?, 'goods_receipt', 'increase', ?, ?, ?, ?, ?, ?, ?, ?)
+      ''',
+      [
+        'supplier-ledger-receipt-$receiptId',
+        po.tenantId,
+        po.branchId,
+        po.supplierId,
+        total,
+        'supplier:receipt:$receiptId',
+        'goods_receipt',
+        receiptId,
+        'Goods received ${po.poNo}',
+        now,
+        userId,
+        now,
+      ],
+    );
     await updateSupplierBalance(supplierId: po.supplierId, delta: total);
   }
 
@@ -370,6 +508,76 @@ class ProcurementLocalStore {
       supplierId: payment.supplierId,
       delta: -payment.amount,
     );
+  }
+
+  static Future<List<SupplierLedgerEntryModel>> loadSupplierLedger(
+    String supplierId, {
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT *
+      FROM supplier_ledger_entries
+      WHERE supplier_id = ?
+        AND (? IS NULL OR occurred_at >= ?)
+        AND (? IS NULL OR occurred_at < ?)
+      ORDER BY occurred_at DESC, created_at DESC, id DESC
+      ''',
+      [
+        supplierId,
+        from?.toIso8601String(),
+        from?.toIso8601String(),
+        to?.toIso8601String(),
+        to?.add(const Duration(days: 1)).toIso8601String(),
+      ],
+    );
+    return rows.map(SupplierLedgerEntryModel.fromMap).toList();
+  }
+
+  static Future<void> saveSupplierLedgerEntry(
+    SupplierLedgerEntryModel entry,
+  ) async {
+    final map = entry.toMap();
+    await LocalDatabase.execute(
+      '''
+      INSERT OR REPLACE INTO supplier_ledger_entries(
+        id, tenant_id, branch_id, supplier_id, entry_type, direction,
+        amount, source_event_key, reference_type, reference_id, description,
+        occurred_at, created_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ''',
+      [
+        map['id'],
+        map['tenant_id'],
+        map['branch_id'],
+        map['supplier_id'],
+        map['entry_type'],
+        map['direction'],
+        map['amount'],
+        map['source_event_key'],
+        map['reference_type'],
+        map['reference_id'],
+        map['description'],
+        map['occurred_at'],
+        map['created_by'],
+        map['created_at'],
+      ],
+    );
+  }
+
+  static Future<double> calculateSupplierPayable(String supplierId) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT COALESCE(SUM(
+        CASE WHEN direction = 'increase' THEN amount ELSE -amount END
+      ), 0) AS payable
+      FROM supplier_ledger_entries
+      WHERE supplier_id = ?
+      ''',
+      [supplierId],
+    );
+    return (rows.single['payable'] as num).toDouble();
   }
 }
 

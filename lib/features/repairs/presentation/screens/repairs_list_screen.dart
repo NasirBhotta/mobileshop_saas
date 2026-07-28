@@ -12,6 +12,7 @@ import 'package:mobileshop_saas/features/accounts/presentation/providers/account
 import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
 import 'package:mobileshop_saas/features/pos/domain/pos_payment_account_policy.dart';
 import '../../data/models/repair_ticket_model.dart';
+import '../widgets/repair_completion_dialog.dart';
 
 class RepairsListScreen extends ConsumerWidget {
   const RepairsListScreen({super.key});
@@ -169,14 +170,16 @@ class RepairsListScreen extends ConsumerWidget {
     final details = _RepairTicketDetails(
       ticket: ticket,
       onStatusChanged: ({required status, note, totalCost}) async {
-        final updatedTicket = await ref
-            .read(repairTicketControllerProvider.notifier)
-            .updateStatus(
-              ticket: ticket,
-              status: status,
-              note: note,
-              totalCost: totalCost,
-            );
+        final controller = ref.read(repairTicketControllerProvider.notifier);
+        final updatedTicket =
+            status == RepairTicketStatus.cancelled
+                ? await controller.cancelRepair(ticket)
+                : await controller.updateStatus(
+                  ticket: ticket,
+                  status: status,
+                  note: note,
+                  totalCost: totalCost,
+                );
 
         if (updatedTicket == null) {
           final state = ref.read(repairTicketControllerProvider);
@@ -255,7 +258,6 @@ class _RepairTicketDetails extends ConsumerStatefulWidget {
 class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
   final _formKey = GlobalKey<FormState>();
   final _noteController = TextEditingController();
-  final _totalCostController = TextEditingController();
 
   RepairTicketStatus? _selectedStatus;
   bool _isSaving = false;
@@ -265,17 +267,11 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
     super.initState();
     final statuses = _nextStatuses(widget.ticket.status);
     _selectedStatus = statuses.isEmpty ? null : statuses.first;
-
-    final amount = widget.ticket.totalCost ?? widget.ticket.estimatedCost;
-    if (amount != null) {
-      _totalCostController.text = amount.toStringAsFixed(0);
-    }
   }
 
   @override
   void dispose() {
     _noteController.dispose();
-    _totalCostController.dispose();
     super.dispose();
   }
 
@@ -287,16 +283,14 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
     final totalCost = ticket.totalCost;
     final statuses = _nextStatuses(ticket.status);
     final selectedStatus = _selectedStatus;
-    final needsAmount = selectedStatus == RepairTicketStatus.completed;
     final paymentsAsync = ref.watch(repairPaymentsProvider(ticket.id));
-    final paid =
-        paymentsAsync.value?.fold<double>(
-          0,
-          (sum, payment) => sum + payment.amount,
-        ) ??
-        0;
+    final payments = paymentsAsync.value;
+    final paid = payments?.fold<double>(
+      0,
+      (sum, payment) => sum + payment.amount,
+    );
     final balance =
-        totalCost == null
+        totalCost == null || paid == null
             ? null
             : (totalCost - paid).clamp(0, double.infinity).toDouble();
 
@@ -341,17 +335,22 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                     _DetailLine(label: 'IMEI', value: imei),
                   if (estimatedCost != null)
                     _DetailLine(
-                      label: 'Estimate',
+                      label: 'Service Estimate',
                       value: 'Rs ${estimatedCost.toStringAsFixed(0)}',
                     ),
                   if (totalCost != null)
                     _DetailLine(
-                      label: 'Repair Charge',
+                      label: 'Final Bill',
                       value: 'Rs ${totalCost.toStringAsFixed(0)}',
                     ),
                   _DetailLine(
                     label: 'Received',
-                    value: 'Rs ${paid.toStringAsFixed(0)}',
+                    value:
+                        paid == null
+                            ? paymentsAsync.hasError
+                                ? 'Unable to load'
+                                : 'Loading...'
+                            : 'Rs ${paid.toStringAsFixed(0)}',
                   ),
                   if (balance != null)
                     _DetailLine(
@@ -378,6 +377,12 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 20),
+              OutlinedButton.icon(
+                onPressed: _isSaving ? null : _archive,
+                icon: const Icon(Icons.archive_outlined),
+                label: const Text('Archive Ticket'),
+              ),
+              const SizedBox(height: 12),
               if (statuses.isEmpty)
                 Text(
                   'Is ticket ka status ab change nahi ho sakta.',
@@ -408,22 +413,6 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                             });
                           },
                 ),
-                if (needsAmount) ...[
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _totalCostController,
-                    enabled: !_isSaving,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Final repair amount',
-                      prefixText: 'Rs ',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: _amountValidator,
-                  ),
-                ],
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _noteController,
@@ -459,22 +448,35 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
   }
 
   Future<void> _showPaymentDialog(double remaining) async {
+    List<AccountModel> availableAccounts;
+    try {
+      availableAccounts = await ref.read(accountsProvider.future);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Receiving accounts load nahi ho sake: $error')),
+      );
+      return;
+    }
+    if (!mounted) return;
+
     final amountController = TextEditingController(
       text: remaining.toStringAsFixed(0),
     );
     final noteController = TextEditingController();
     var method = PaymentMethod.cash;
     String? accountId;
+    var isReceiving = false;
+    String? paymentError;
     await showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder:
           (dialogContext) => StatefulBuilder(
             builder: (context, setDialogState) {
-              final accounts =
-                  ref.read(accountsProvider).value ?? const <AccountModel>[];
               final compatible = PosPaymentAccountPolicy.compatibleAccounts(
                 method,
-                accounts,
+                availableAccounts,
               );
               final effectiveAccountId =
                   accountId ??
@@ -489,6 +491,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                   children: [
                     TextField(
                       controller: amountController,
+                      enabled: !isReceiving,
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
@@ -511,13 +514,16 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                 ),
                               )
                               .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          method = value;
-                          accountId = null;
-                        });
-                      },
+                      onChanged:
+                          isReceiving
+                              ? null
+                              : (value) {
+                                if (value == null) return;
+                                setDialogState(() {
+                                  method = value;
+                                  accountId = null;
+                                });
+                              },
                     ),
                     DropdownButtonFormField<String>(
                       initialValue: effectiveAccountId,
@@ -539,27 +545,40 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                               )
                               .toList(),
                       onChanged:
-                          compatible.isEmpty
+                          isReceiving || compatible.isEmpty
                               ? null
                               : (value) =>
                                   setDialogState(() => accountId = value),
                     ),
                     TextField(
                       controller: noteController,
+                      enabled: !isReceiving,
                       decoration: const InputDecoration(
                         labelText: 'Note optional',
                       ),
                     ),
+                    if (paymentError != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        paymentError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    onPressed:
+                        isReceiving
+                            ? null
+                            : () => Navigator.of(dialogContext).pop(),
                     child: const Text('Cancel'),
                   ),
                   FilledButton(
                     onPressed:
-                        effectiveAccountId == null
+                        isReceiving || effectiveAccountId == null
                             ? null
                             : () async {
                               final amount =
@@ -567,6 +586,18 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                     amountController.text.trim(),
                                   ) ??
                                   0;
+                              if (amount <= 0 || amount > remaining + 0.01) {
+                                setDialogState(() {
+                                  paymentError =
+                                      'Enter an amount between Rs 1 and '
+                                      'Rs ${remaining.toStringAsFixed(0)}.';
+                                });
+                                return;
+                              }
+                              setDialogState(() {
+                                isReceiving = true;
+                                paymentError = null;
+                              });
                               final ok = await ref
                                   .read(
                                     repairPaymentControllerProvider.notifier,
@@ -578,10 +609,10 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                     accountId: effectiveAccountId,
                                     note: noteController.text,
                                   );
-                              if (!context.mounted) return;
+                              if (!dialogContext.mounted || !mounted) return;
                               if (ok) {
                                 Navigator.of(dialogContext).pop();
-                                ScaffoldMessenger.of(context).showSnackBar(
+                                ScaffoldMessenger.of(this.context).showSnackBar(
                                   const SnackBar(
                                     content: Text('Payment received'),
                                   ),
@@ -594,12 +625,29 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                         ?.error
                                         .toString() ??
                                     'Payment receive nahi ho saki';
-                                ScaffoldMessenger.of(
-                                  context,
-                                ).showSnackBar(SnackBar(content: Text(error)));
+                                setDialogState(() {
+                                  isReceiving = false;
+                                  paymentError = error;
+                                });
                               }
                             },
-                    child: const Text('Receive'),
+                    child:
+                        isReceiving
+                            ? const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                                SizedBox(width: 8),
+                                Text('Receiving...'),
+                              ],
+                            )
+                            : const Text('Receive'),
                   ),
                 ],
               );
@@ -611,6 +659,16 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
   }
 
   Future<void> _submit(RepairTicketStatus status) async {
+    if (status == RepairTicketStatus.completed) {
+      final completed = await showRepairCompletionDialog(
+        context,
+        ref,
+        widget.ticket,
+      );
+      if (!mounted || !completed) return;
+      Navigator.of(context).pop();
+      return;
+    }
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) return;
 
@@ -621,10 +679,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
     final updated = await widget.onStatusChanged(
       status: status,
       note: _noteController.text,
-      totalCost:
-          status == RepairTicketStatus.completed
-              ? double.tryParse(_totalCostController.text.trim())
-              : null,
+      totalCost: null,
     );
 
     if (!mounted) return;
@@ -638,15 +693,40 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
     }
   }
 
-  String? _amountValidator(String? value) {
-    final amount = double.tryParse(value?.trim() ?? '');
-    if (amount == null) {
-      return 'Final amount enter karo';
+  Future<void> _archive() async {
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder:
+              (dialogContext) => AlertDialog(
+                title: const Text('Archive ticket?'),
+                content: const Text(
+                  'Ticket list se hide ho ga. Financial history, payments, '
+                  'parts aur reversal records delete nahi honge.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    child: const Text('Back'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    child: const Text('Archive'),
+                  ),
+                ],
+              ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+    setState(() => _isSaving = true);
+    final archived = await ref
+        .read(repairTicketControllerProvider.notifier)
+        .archiveRepair(widget.ticket);
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+    if (archived) {
+      Navigator.of(context).pop();
     }
-    if (amount < 0) {
-      return 'Amount negative nahi ho sakta';
-    }
-    return null;
   }
 
   static List<RepairTicketStatus> _nextStatuses(RepairTicketStatus current) {
@@ -791,7 +871,7 @@ class _RepairTicketCard extends StatelessWidget {
     final estimate =
         estimatedCost == null
             ? null
-            : 'Est. Rs ${estimatedCost.toStringAsFixed(0)}';
+            : 'Service est. Rs ${estimatedCost.toStringAsFixed(0)}';
     return Card(
       elevation: 0,
       clipBehavior: Clip.antiAlias,

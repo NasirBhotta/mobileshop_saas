@@ -28,7 +28,7 @@ void main() {
         File(
           'lib/features/suppliers/data/local/procurement_local_store.dart',
         ).readAsStringSync();
-    expect(localStore, contains('if (sameCost)'));
+    expect(localStore, contains('sameCost ||'));
     expect(localStore, contains('do not corrupt the original product'));
   });
 }

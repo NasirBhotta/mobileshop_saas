@@ -10,6 +10,8 @@ import 'package:mobileshop_saas/features/repairs/data/models/repair_status_log_m
 import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_payment_model.dart';
 import 'package:mobileshop_saas/features/repairs/data/local/repair_payment_local_committer.dart';
+import 'package:mobileshop_saas/features/repairs/data/local/repair_financial_local_committer.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/repair_part_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
@@ -429,7 +431,8 @@ class RepairRepository {
         .from('repair_tickets')
         .select()
         .eq('tenant_id', tenantId)
-        .eq('branch_id', branchId);
+        .eq('branch_id', branchId)
+        .isFilter('archived_at', null);
 
     if (status != null) {
       query = query.eq('status', status.code);
@@ -443,8 +446,69 @@ class RepairRepository {
     for (final ticket in tickets) {
       await OfflineStore.saveRepairTicket(ticket);
     }
+    await _refreshRepairFinancialEventsCache(
+      tenantId: tenantId,
+      branchId: branchId,
+    );
 
     return tickets;
+  }
+
+  Future<void> _refreshRepairFinancialEventsCache({
+    required String tenantId,
+    required String branchId,
+  }) async {
+    try {
+      final rows = await _client
+          .from('repair_financial_events')
+          .select()
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
+          .order('occurred_at');
+      for (final row in rows as List) {
+        final event = Map<String, dynamic>.from(row as Map);
+        await LocalDatabase.execute(
+          '''
+          INSERT INTO repair_financial_events(
+            id, tenant_id, branch_id, ticket_id, event_type,
+            source_event_key, revenue_amount, inventory_cost,
+            direct_parts_cost, commission_cost, other_direct_cost,
+            gross_profit, reversal_of_event_id, occurred_at,
+            created_by, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            revenue_amount = excluded.revenue_amount,
+            inventory_cost = excluded.inventory_cost,
+            direct_parts_cost = excluded.direct_parts_cost,
+            commission_cost = excluded.commission_cost,
+            other_direct_cost = excluded.other_direct_cost,
+            gross_profit = excluded.gross_profit,
+            reversal_of_event_id = excluded.reversal_of_event_id,
+            occurred_at = excluded.occurred_at
+          ''',
+          [
+            event['id'],
+            event['tenant_id'],
+            event['branch_id'],
+            event['ticket_id'],
+            event['event_type'],
+            event['source_event_key'],
+            event['revenue_amount'],
+            event['inventory_cost'],
+            event['direct_parts_cost'],
+            event['commission_cost'],
+            event['other_direct_cost'],
+            event['gross_profit'],
+            event['reversal_of_event_id'],
+            event['occurred_at'],
+            event['created_by'],
+            event['created_at'],
+          ],
+        );
+      }
+    } catch (_) {
+      // Ticket refresh must still work offline or against an older schema.
+    }
   }
 
   Future<void> _refreshRepairTicketsCache({
@@ -516,6 +580,10 @@ class RepairRepository {
     double? totalCost,
   }) async {
     await _gate.require('repairs.tickets');
+    if (status == RepairTicketStatus.completed ||
+        status == RepairTicketStatus.cancelled) {
+      throw StateError('Use the financial completion/cancellation workflow.');
+    }
     if (ticket.status == status) return ticket;
 
     if (!ticket.status.canMoveTo(status)) {
@@ -610,6 +678,202 @@ class RepairRepository {
     }
   }
 
+  Future<List<RepairPartModel>> fetchRepairParts(String ticketId) async {
+    await _gate.require('repairs.tickets');
+    try {
+      final rows = await _client
+          .from('repair_parts')
+          .select()
+          .eq('ticket_id', ticketId)
+          .order('created_at')
+          .timeout(_networkTimeout);
+      final parts =
+          (rows as List).map((row) => RepairPartModel.fromMap(row)).toList();
+      await _replaceLocalRepairParts(ticketId, parts);
+      return parts;
+    } catch (_) {
+      return _loadLocalRepairParts(ticketId);
+    }
+  }
+
+  Future<void> saveRepairParts({
+    required RepairTicketModel ticket,
+    required List<RepairPartModel> parts,
+  }) async {
+    await _gate.require('repairs.tickets');
+    await _replaceLocalRepairParts(
+      ticket.id,
+      parts,
+      createdByOverride: _currentUser.id,
+    );
+    try {
+      await _client
+          .rpc(
+            'save_repair_parts_v2',
+            params: {
+              'p_ticket_id': ticket.id,
+              'p_parts': parts.map((part) => part.toRpcMap()).toList(),
+            },
+          )
+          .timeout(_networkTimeout);
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'save_repair_parts_v2',
+        payload: {
+          'ticket_id': ticket.id,
+          'parts': parts.map((part) => part.toRpcMap()).toList(),
+        },
+      );
+    }
+  }
+
+  Future<RepairTicketModel> completeRepair({
+    required RepairTicketModel ticket,
+    required double customerCharge,
+    double serviceCharge = 0,
+    double discount = 0,
+    double commission = 0,
+    double otherDirectCost = 0,
+  }) async {
+    await _gate.require('repairs.tickets');
+    final eventId = const Uuid().v4();
+    var localCommitted = false;
+    try {
+      await _client
+          .rpc(
+            'complete_repair_ticket_v2',
+            params: {
+              'p_ticket_id': ticket.id,
+              'p_event_id': eventId,
+              'p_customer_charge': customerCharge,
+              'p_service_charge': serviceCharge,
+              'p_discount': discount,
+              'p_commission': commission,
+              'p_other_direct_cost': otherDirectCost,
+            },
+          )
+          .timeout(_networkTimeout);
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      await RepairFinancialLocalCommitter.complete(
+        ticket: ticket,
+        eventId: eventId,
+        userId: _currentUser.id,
+        customerCharge: customerCharge,
+        serviceCharge: serviceCharge,
+        discount: discount,
+        commission: commission,
+        otherDirectCost: otherDirectCost,
+      );
+      localCommitted = true;
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'complete_repair_ticket_v2',
+        payload: {
+          'ticket_id': ticket.id,
+          'event_id': eventId,
+          'customer_charge': customerCharge,
+          'service_charge': serviceCharge,
+          'discount': discount,
+          'commission': commission,
+          'other_direct_cost': otherDirectCost,
+        },
+      );
+    }
+    // Reports and dashboard read the local immutable financial snapshot.
+    // Mirror a successful remote commit locally as well; the event key makes
+    // this safe if the same completion is replayed.
+    if (!localCommitted) {
+      await RepairFinancialLocalCommitter.complete(
+        ticket: ticket,
+        eventId: eventId,
+        userId: _currentUser.id,
+        customerCharge: customerCharge,
+        serviceCharge: serviceCharge,
+        discount: discount,
+        commission: commission,
+        otherDirectCost: otherDirectCost,
+      );
+    }
+    final updated = ticket.copyWith(
+      status: RepairTicketStatus.completed,
+      totalCost: customerCharge,
+      partsCost: await _localPartCost(ticket.id),
+      laborCost: commission,
+      completedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await OfflineStore.saveRepairTicket(updated);
+    return updated;
+  }
+
+  Future<RepairTicketModel> cancelRepair(RepairTicketModel ticket) async {
+    await _gate.require('repairs.tickets');
+    final eventId = const Uuid().v4();
+    var localCommitted = false;
+    try {
+      await _client
+          .rpc(
+            'cancel_repair_ticket_v2',
+            params: {'p_ticket_id': ticket.id, 'p_event_id': eventId},
+          )
+          .timeout(_networkTimeout);
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      await RepairFinancialLocalCommitter.cancel(
+        ticket: ticket,
+        eventId: eventId,
+        userId: _currentUser.id,
+      );
+      localCommitted = true;
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'cancel_repair_ticket_v2',
+        payload: {'ticket_id': ticket.id, 'event_id': eventId},
+      );
+    }
+    // Keep local inventory, supplier balances, and financial reports aligned
+    // after a successful online reversal too.
+    if (!localCommitted) {
+      await RepairFinancialLocalCommitter.cancel(
+        ticket: ticket,
+        eventId: eventId,
+        userId: _currentUser.id,
+      );
+    }
+    final updated = ticket.copyWith(
+      status: RepairTicketStatus.cancelled,
+      updatedAt: DateTime.now(),
+    );
+    await OfflineStore.saveRepairTicket(updated);
+    return updated;
+  }
+
+  Future<void> archiveRepair(RepairTicketModel ticket) async {
+    await _gate.require('repairs.tickets');
+    final now = DateTime.now();
+    final archived = ticket.copyWith(
+      archivedAt: now,
+      archivedBy: _currentUser.id,
+      updatedAt: now,
+    );
+    try {
+      await _client
+          .rpc('archive_repair_ticket_v2', params: {'p_ticket_id': ticket.id})
+          .timeout(_networkTimeout);
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'archive_repair_ticket_v2',
+        payload: {'ticket_id': ticket.id},
+      );
+    }
+    await OfflineStore.saveRepairTicket(archived);
+  }
+
   Future<RepairPaymentModel> recordRepairPayment({
     required RepairTicketModel ticket,
     required double amount,
@@ -651,7 +915,9 @@ class RepairRepository {
           )
           .timeout(_networkTimeout);
     } catch (e) {
-      OfflineErrorClassifier.rethrowIfTerminal(e);
+      // The local payment and account ledger entry are already committed
+      // atomically. Queue every remote failure instead of reporting a false
+      // failure that could make the cashier submit the same payment again.
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'record_repair_payment_v2',
@@ -699,8 +965,23 @@ class RepairRepository {
     if (mutations.isEmpty) return;
 
     final remaining = <OfflineMutation>[];
+    final failedFinancialTicketIds = <String>{};
 
     for (final mutation in mutations) {
+      final financialTicketId =
+          const {
+                'save_repair_parts_v2',
+                'complete_repair_ticket_v2',
+                'cancel_repair_ticket_v2',
+                'archive_repair_ticket_v2',
+              }.contains(mutation.type)
+              ? mutation.payload['ticket_id'] as String?
+              : null;
+      if (financialTicketId != null &&
+          failedFinancialTicketIds.contains(financialTicketId)) {
+        remaining.add(mutation);
+        continue;
+      }
       try {
         switch (mutation.type) {
           case 'upsert_repair_ticket':
@@ -712,11 +993,65 @@ class RepairRepository {
           case 'record_repair_payment_v2':
             await _syncRepairPayment(mutation.payload);
             break;
+          case 'save_repair_parts_v2':
+            try {
+              await _client.rpc(
+                'save_repair_parts_v2',
+                params: {
+                  'p_ticket_id': mutation.payload['ticket_id'],
+                  'p_parts': mutation.payload['parts'],
+                },
+              );
+            } catch (error) {
+              final staleFinalizedMutation =
+                  _isFinalizedPartsRejection(error) ||
+                  await _isEquivalentFinalizedPartsReplay(mutation.payload);
+              if (!staleFinalizedMutation) {
+                rethrow;
+              }
+              debugPrint(
+                'Discarded stale repair-parts mutation for finalized ticket '
+                '${mutation.payload['ticket_id']}.',
+              );
+            }
+            break;
+          case 'complete_repair_ticket_v2':
+            await _client.rpc(
+              'complete_repair_ticket_v2',
+              params: {
+                'p_ticket_id': mutation.payload['ticket_id'],
+                'p_event_id': mutation.payload['event_id'],
+                'p_customer_charge': mutation.payload['customer_charge'],
+                'p_service_charge': mutation.payload['service_charge'],
+                'p_discount': mutation.payload['discount'],
+                'p_commission': mutation.payload['commission'],
+                'p_other_direct_cost': mutation.payload['other_direct_cost'],
+              },
+            );
+            break;
+          case 'cancel_repair_ticket_v2':
+            await _client.rpc(
+              'cancel_repair_ticket_v2',
+              params: {
+                'p_ticket_id': mutation.payload['ticket_id'],
+                'p_event_id': mutation.payload['event_id'],
+              },
+            );
+            break;
+          case 'archive_repair_ticket_v2':
+            await _client.rpc(
+              'archive_repair_ticket_v2',
+              params: {'p_ticket_id': mutation.payload['ticket_id']},
+            );
+            break;
           default:
             remaining.add(mutation);
         }
       } catch (e) {
         debugPrint('Repair mutation sync failed: $e');
+        if (financialTicketId != null) {
+          failedFinancialTicketIds.add(financialTicketId);
+        }
         remaining.add(mutation);
       }
     }
@@ -726,6 +1061,89 @@ class RepairRepository {
       snapshot: mutations,
       remaining: remaining,
     );
+  }
+
+  Future<bool> _isEquivalentFinalizedPartsReplay(
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      final ticketId = payload['ticket_id'] as String?;
+      final requestedRaw = payload['parts'] as List?;
+      if (ticketId == null || requestedRaw == null) return false;
+
+      final ticket =
+          await _client
+              .from('repair_tickets')
+              .select('status')
+              .eq('id', ticketId)
+              .maybeSingle();
+      if (!const {
+        'completed',
+        'delivered',
+        'cancelled',
+      }.contains(ticket?['status'])) {
+        return false;
+      }
+
+      final savedRaw = await _client
+          .from('repair_parts')
+          .select(
+            'source_type, product_id, supplier_id, settlement_type, '
+            'name, quantity, unit_cost_snapshot, unit_sale_price',
+          )
+          .eq('ticket_id', ticketId);
+      final requested =
+          requestedRaw
+              .map(
+                (part) => _repairPartReplayKey(
+                  Map<String, dynamic>.from(part as Map),
+                ),
+              )
+              .toList()
+            ..sort();
+      final saved =
+          (savedRaw as List)
+              .map(
+                (part) => _repairPartReplayKey(
+                  Map<String, dynamic>.from(part as Map),
+                ),
+              )
+              .toList()
+            ..sort();
+      if (requested.length != saved.length) return false;
+      for (var index = 0; index < requested.length; index++) {
+        if (requested[index] != saved[index]) return false;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _isFinalizedPartsRejection(Object error) {
+    if (error is! PostgrestException || error.code != 'P0001') return false;
+    return error.message == 'Finalized repair parts cannot be edited.' ||
+        error.message == 'Cancelled repair parts cannot be edited.';
+  }
+
+  String _repairPartReplayKey(Map<String, dynamic> part) {
+    final source = part['source_type']?.toString() ?? '';
+    final directName =
+        source == 'direct_purchase'
+            ? part['name']?.toString().trim().toLowerCase() ?? ''
+            : '';
+    String amount(Object? value) =>
+        ((value as num?)?.toDouble() ?? double.nan).toStringAsFixed(4);
+    return [
+      source,
+      part['product_id']?.toString() ?? '',
+      part['supplier_id']?.toString() ?? '',
+      part['settlement_type']?.toString() ?? 'already_recorded',
+      directName,
+      part['quantity']?.toString() ?? '',
+      amount(part['unit_cost_snapshot']),
+      amount(part['unit_sale_price']),
+    ].join('|');
   }
 
   Future<void> _syncUpsertRepairTicket(Map<String, dynamic> payload) async {
@@ -801,6 +1219,65 @@ class RepairRepository {
         ledger_transaction_id, note, received_by, received_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''', map.values.toList());
+  }
+
+  Future<void> _replaceLocalRepairParts(
+    String ticketId,
+    List<RepairPartModel> parts, {
+    String? createdByOverride,
+  }) {
+    return LocalDatabase.runInTransaction(() async {
+      await LocalDatabase.execute(
+        "DELETE FROM repair_parts WHERE ticket_id = ? AND state = 'planned'",
+        [ticketId],
+      );
+      for (final part in parts) {
+        final map = part.toMap();
+        await LocalDatabase.execute(
+          '''
+          INSERT OR REPLACE INTO repair_parts(
+            id, tenant_id, branch_id, ticket_id, source_type, product_id,
+            supplier_id, settlement_type, name, quantity, unit_cost_snapshot,
+            unit_sale_price, state, created_by, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ''',
+          [
+            map['id'],
+            map['tenant_id'],
+            map['branch_id'],
+            map['ticket_id'],
+            map['source_type'],
+            map['product_id'],
+            map['supplier_id'],
+            map['settlement_type'],
+            map['name'],
+            map['quantity'],
+            map['unit_cost_snapshot'],
+            map['unit_sale_price'],
+            map['state'],
+            createdByOverride ?? map['created_by'],
+            map['created_at'],
+            map['updated_at'],
+          ],
+        );
+      }
+    });
+  }
+
+  Future<List<RepairPartModel>> _loadLocalRepairParts(String ticketId) async {
+    final rows = await LocalDatabase.select(
+      'SELECT * FROM repair_parts WHERE ticket_id = ? ORDER BY created_at',
+      [ticketId],
+    );
+    return rows.map(RepairPartModel.fromMap).toList();
+  }
+
+  Future<double> _localPartCost(String ticketId) async {
+    final rows = await LocalDatabase.select(
+      'SELECT COALESCE(SUM(quantity * unit_cost_snapshot), 0) AS cost FROM repair_parts WHERE ticket_id = ?',
+      [ticketId],
+    );
+    return (rows.single['cost'] as num).toDouble();
   }
 
   Future<List<RepairPaymentModel>> _loadRepairPayments(String ticketId) async {

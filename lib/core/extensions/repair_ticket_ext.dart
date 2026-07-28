@@ -70,23 +70,18 @@ extension RepairTicketStatusX on RepairTicketStatus {
 
   bool canMoveTo(RepairTicketStatus next) {
     if (this == RepairTicketStatus.cancelled) return false;
-    if (next == RepairTicketStatus.cancelled) return true;
-
-    const flow = [
-      RepairTicketStatus.received,
-      RepairTicketStatus.diagnosed,
-      RepairTicketStatus.inProgress,
-      RepairTicketStatus.waitingPart,
-      RepairTicketStatus.completed,
-      RepairTicketStatus.delivered,
-    ];
-
-    final currentIndex = flow.indexOf(this);
-    final nextIndex = flow.indexOf(next);
-
-    if (currentIndex == -1 || nextIndex == -1) return false;
-
-    // Strict forward workflow only.
-    return nextIndex == currentIndex + 1;
+    if (this == RepairTicketStatus.delivered) {
+      return next == RepairTicketStatus.cancelled;
+    }
+    if (this == RepairTicketStatus.completed) {
+      return next == RepairTicketStatus.delivered ||
+          next == RepairTicketStatus.cancelled;
+    }
+    if (next == RepairTicketStatus.delivered) return false;
+    if (next == RepairTicketStatus.cancelled ||
+        next == RepairTicketStatus.completed) {
+      return true;
+    }
+    return next != this;
   }
 }

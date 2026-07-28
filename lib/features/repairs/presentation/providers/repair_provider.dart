@@ -5,11 +5,14 @@ import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import '../../data/models/repair_status_log_model.dart';
 import '../../data/models/repair_ticket_model.dart';
 import '../../data/models/repair_payment_model.dart';
+import '../../data/models/repair_part_model.dart';
 import '../../data/repositories/repair_repository.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../../core/entitlements/entitlement_evaluator.dart';
 import '../../../../core/authorization/branch_permission_shadow_provider.dart';
 import '../../../accounts/presentation/providers/accounts_provider.dart';
+import '../../../inventory/presentation/providers/inventory_provider.dart';
+import '../../../reports/presentation/providers/business_report_provider.dart';
 
 /// Repository provider.
 ///
@@ -87,6 +90,11 @@ final repairPaymentsProvider = FutureProvider.autoDispose
       return ref.read(repairRepositoryProvider).fetchRepairPayments(ticketId);
     });
 
+final repairPartsProvider = FutureProvider.autoDispose
+    .family<List<RepairPartModel>, String>((ref, ticketId) {
+      return ref.read(repairRepositoryProvider).fetchRepairParts(ticketId);
+    });
+
 /// Create/update controller.
 ///
 /// Iska state `AsyncValue<RepairTicketModel?>` rakha hai.
@@ -152,6 +160,7 @@ class RepairPaymentController extends StateNotifier<AsyncValue<void>> {
       state = const AsyncData(null);
       _ref.invalidate(repairPaymentsProvider(ticket.id));
       _ref.invalidate(accountsProvider);
+      invalidateBusinessReports(_ref);
       return true;
     } catch (e, st) {
       state = AsyncError(e, st);
@@ -272,6 +281,76 @@ class RepairTicketController
       state = AsyncError(e, st);
       return null;
     }
+  }
+
+  Future<RepairTicketModel?> completeRepair({
+    required RepairTicketModel ticket,
+    required List<RepairPartModel> parts,
+    required double customerCharge,
+    double serviceCharge = 0,
+    double discount = 0,
+    double commission = 0,
+    double otherDirectCost = 0,
+  }) async {
+    state = const AsyncLoading();
+    try {
+      final repository = _ref.read(repairRepositoryProvider);
+      await repository.saveRepairParts(ticket: ticket, parts: parts);
+      final updated = await repository.completeRepair(
+        ticket: ticket,
+        customerCharge: customerCharge,
+        serviceCharge: serviceCharge,
+        discount: discount,
+        commission: commission,
+        otherDirectCost: otherDirectCost,
+      );
+      state = AsyncData(updated);
+      _invalidateFinancialRepair(ticket.id);
+      return updated;
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+      return null;
+    }
+  }
+
+  Future<RepairTicketModel?> cancelRepair(RepairTicketModel ticket) async {
+    state = const AsyncLoading();
+    try {
+      final updated = await _ref
+          .read(repairRepositoryProvider)
+          .cancelRepair(ticket);
+      state = AsyncData(updated);
+      _invalidateFinancialRepair(ticket.id);
+      return updated;
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+      return null;
+    }
+  }
+
+  Future<bool> archiveRepair(RepairTicketModel ticket) async {
+    state = const AsyncLoading();
+    try {
+      await _ref.read(repairRepositoryProvider).archiveRepair(ticket);
+      state = const AsyncData(null);
+      _ref
+        ..invalidate(repairTicketsProvider)
+        ..invalidate(allRepairTicketsProvider);
+      return true;
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+      return false;
+    }
+  }
+
+  void _invalidateFinancialRepair(String ticketId) {
+    _ref
+      ..invalidate(repairTicketsProvider)
+      ..invalidate(allRepairTicketsProvider)
+      ..invalidate(repairPartsProvider(ticketId))
+      ..invalidate(repairStatusLogsProvider(ticketId));
+    invalidateProductListProviders(_ref);
+    invalidateBusinessReports(_ref);
   }
 
   /// Controller state reset.

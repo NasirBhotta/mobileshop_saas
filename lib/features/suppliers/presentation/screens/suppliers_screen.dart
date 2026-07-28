@@ -10,6 +10,7 @@ import '../../../accounts/data/models/account_models.dart';
 import '../../../accounts/presentation/providers/accounts_provider.dart';
 import '../../../pos/data/models/sale_payment_model.dart';
 import '../../../pos/domain/pos_payment_account_policy.dart';
+import '../widgets/supplier_history_dialog.dart';
 
 class SuppliersScreen extends ConsumerWidget {
   const SuppliersScreen({super.key});
@@ -393,6 +394,7 @@ class _SupplierCard extends ConsumerWidget {
             const SizedBox(height: 10),
             _SupplierCardActions(
               compact: compact,
+              onHistory: () => showSupplierHistoryDialog(context, supplier),
               onPayment:
                   paymentsEnabled
                       ? () => _showPaymentDialog(context, ref, supplier)
@@ -572,11 +574,13 @@ class _SupplierDetailLine extends StatelessWidget {
 
 class _SupplierCardActions extends StatelessWidget {
   final bool compact;
+  final VoidCallback onHistory;
   final VoidCallback? onPayment;
   final VoidCallback? onNewPo;
 
   const _SupplierCardActions({
     required this.compact,
+    required this.onHistory,
     required this.onPayment,
     required this.onNewPo,
   });
@@ -588,6 +592,10 @@ class _SupplierCardActions extends StatelessWidget {
         final stackButtons = compact || constraints.maxWidth < 320;
 
         final buttons = <Widget>[
+          OutlinedButton(
+            onPressed: onHistory,
+            child: const Text('History', overflow: TextOverflow.ellipsis),
+          ),
           if (onPayment != null)
             OutlinedButton(
               onPressed: onPayment,

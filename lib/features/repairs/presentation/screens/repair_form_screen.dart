@@ -220,17 +220,17 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                   const SizedBox(height: 16),
 
                   _SectionCard(
-                    title: 'Estimate Optional',
+                    title: 'Repair Charge Estimate',
                     subtitle:
-                        'Estimated cost aur expected completion date non-binding hain.',
+                        'Estimated service/labour charge; parts completion par automatically add honge.',
                     child: Column(
                       children: [
                         _ResponsiveFormWrap(
                           children: [
                             _AppTextField(
                               controller: _estimatedCostController,
-                              label: 'Estimated cost optional',
-                              hint: 'Example: 2500',
+                              label: 'Estimated service charge optional',
+                              hint: 'Example: 500',
                               enabled: !isSaving,
                               keyboardType:
                                   const TextInputType.numberWithOptions(
