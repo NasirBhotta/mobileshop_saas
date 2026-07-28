@@ -1159,10 +1159,7 @@ class _CreditCustomersPanel extends StatelessWidget {
       child: Column(
         children: [
           if (stats != null)
-            _DueSummary(
-              totalOutstanding: stats!.totalOutstanding,
-              totalCreditSales: stats!.totalCreditSales,
-            ),
+            _DueSummary(totalOutstanding: stats!.totalOutstanding),
           if (customers.isEmpty)
             const _EmptyPanelMessage(
               icon: Icons.check_circle_outline_rounded,
@@ -1181,12 +1178,8 @@ class _CreditCustomersPanel extends StatelessWidget {
 
 class _DueSummary extends StatelessWidget {
   final double totalOutstanding;
-  final double totalCreditSales;
 
-  const _DueSummary({
-    required this.totalOutstanding,
-    required this.totalCreditSales,
-  });
+  const _DueSummary({required this.totalOutstanding});
 
   @override
   Widget build(BuildContext context) {
@@ -1227,9 +1220,9 @@ class _DueSummary extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  'Total udhar sales: ${_money(totalCreditSales)}',
-                  style: const TextStyle(
+                const Text(
+                  'Current pending udhar',
+                  style: TextStyle(
                     fontSize: 12,
                     color: AppColors.textSecondary,
                   ),
