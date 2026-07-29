@@ -152,24 +152,34 @@ class ProcurementRepository {
   Future<List<SupplierModel>> fetchSuppliers() async {
     await _entitlements.require('procurement.suppliers');
     final tenantId = await _tenantId();
+    final branchId = await _branchId(tenantId);
 
-    final cached = await ProcurementLocalStore.loadSuppliers(tenantId);
+    final cached = await ProcurementLocalStore.loadSuppliers(
+      tenantId,
+      branchId,
+    );
     if (cached.isNotEmpty) {
-      unawaited(_syncThenRefreshSuppliers(tenantId));
+      unawaited(_syncThenRefreshSuppliers(tenantId, branchId));
       return cached;
     }
 
     try {
-      return await _fetchRemoteSuppliers(tenantId).timeout(_networkTimeout);
+      return await _fetchRemoteSuppliers(
+        tenantId,
+        branchId,
+      ).timeout(_networkTimeout);
     } catch (_) {
-      return ProcurementLocalStore.loadSuppliers(tenantId);
+      return ProcurementLocalStore.loadSuppliers(tenantId, branchId);
     }
   }
 
-  Future<void> _syncThenRefreshSuppliers(String tenantId) async {
+  Future<void> _syncThenRefreshSuppliers(
+    String tenantId,
+    String branchId,
+  ) async {
     await syncOfflineMutations();
     if (await _hasPendingProcurementMutations()) return;
-    await _refreshSuppliers(tenantId);
+    await _refreshSuppliers(tenantId, branchId);
   }
 
   Future<SupplierOverviewModel> fetchSupplierOverview(
@@ -230,9 +240,9 @@ class ProcurementRepository {
     );
   }
 
-  Future<void> _refreshSuppliers(String tenantId) async {
+  Future<void> _refreshSuppliers(String tenantId, String branchId) async {
     try {
-      await _fetchRemoteSuppliers(tenantId).timeout(_networkTimeout);
+      await _fetchRemoteSuppliers(tenantId, branchId).timeout(_networkTimeout);
     } catch (_) {}
   }
 
@@ -240,14 +250,19 @@ class ProcurementRepository {
     Duration timeout = _networkTimeout,
   }) async {
     final tenantId = await _tenantId();
-    await _fetchRemoteSuppliers(tenantId).timeout(timeout);
+    final branchId = await _branchId(tenantId);
+    await _fetchRemoteSuppliers(tenantId, branchId).timeout(timeout);
   }
 
-  Future<List<SupplierModel>> _fetchRemoteSuppliers(String tenantId) async {
+  Future<List<SupplierModel>> _fetchRemoteSuppliers(
+    String tenantId,
+    String branchId,
+  ) async {
     final data = await _client
         .from('suppliers')
         .select()
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId)
         .eq('is_active', true)
         .order('name');
 
@@ -550,7 +565,7 @@ class ProcurementRepository {
     try {
       await _client
           .rpc(
-            'reverse_purchase_order_v1',
+            'reverse_purchase_order_v2',
             params: {
               'p_po_id': po.id,
               'p_reversal_id': reversalId,
@@ -829,7 +844,7 @@ class ProcurementRepository {
 
           case 'reverse_purchase_order':
             await _client.rpc(
-              'reverse_purchase_order_v1',
+              'reverse_purchase_order_v2',
               params: {
                 'p_po_id': mutation.payload['po_id'],
                 'p_reversal_id': mutation.payload['reversal_id'],

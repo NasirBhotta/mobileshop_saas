@@ -14,6 +14,8 @@ class PurchaseOrdersScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ordersAsync = ref.watch(purchaseOrdersProvider);
+    final suppliers =
+        ref.watch(suppliersProvider).value ?? const <SupplierModel>[];
     final selectedStatus = ref.watch(selectedPOStatusProvider);
     final syncState = ref.watch(procurementSyncControllerProvider);
     final canCreate =
@@ -120,34 +122,9 @@ class PurchaseOrdersScreen extends ConsumerWidget {
                           ref
                               .read(procurementSyncControllerProvider.notifier)
                               .sync(),
-                  child: LayoutBuilder(
-                    builder: (_, constraints) {
-                      final isWide = constraints.maxWidth >= 850;
-
-                      if (isWide) {
-                        return GridView.builder(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.all(16),
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 430,
-                                mainAxisSpacing: 12,
-                                crossAxisSpacing: 12,
-                                childAspectRatio: 1.45,
-                              ),
-                          itemCount: orders.length,
-                          itemBuilder: (_, i) => _POCard(po: orders[i]),
-                        );
-                      }
-
-                      return ListView.separated(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(12),
-                        itemCount: orders.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (_, i) => _POCard(po: orders[i]),
-                      );
-                    },
+                  child: _SupplierGroupedPurchaseOrders(
+                    orders: orders,
+                    suppliers: suppliers,
                   ),
                 );
               },
@@ -173,6 +150,89 @@ class PurchaseOrdersScreen extends ConsumerWidget {
           ref.read(selectedPOStatusProvider.notifier).state = status;
         },
       ),
+    );
+  }
+}
+
+class _SupplierGroupedPurchaseOrders extends StatelessWidget {
+  final List<PurchaseOrderModel> orders;
+  final List<SupplierModel> suppliers;
+
+  const _SupplierGroupedPurchaseOrders({
+    required this.orders,
+    required this.suppliers,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final supplierById = {
+      for (final supplier in suppliers) supplier.id: supplier,
+    };
+    final grouped = <String, List<PurchaseOrderModel>>{};
+    for (final order in orders) {
+      grouped.putIfAbsent(order.supplierId, () => []).add(order);
+    }
+    final supplierIds =
+        grouped.keys.toList()..sort((a, b) {
+          final aName = supplierById[a]?.name ?? 'Unknown supplier';
+          final bName = supplierById[b]?.name ?? 'Unknown supplier';
+          return aName.toLowerCase().compareTo(bName.toLowerCase());
+        });
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 850;
+        final cardWidth =
+            wide ? ((constraints.maxWidth - 44) / 2).clamp(340.0, 430.0) : null;
+        return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            for (final supplierId in supplierIds) ...[
+              Row(
+                children: [
+                  const Icon(Icons.local_shipping_outlined, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      supplierById[supplierId]?.name ?? 'Unknown supplier',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text('${grouped[supplierId]!.length} PO(s)'),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (wide)
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    for (final order in grouped[supplierId]!)
+                      SizedBox(
+                        width: cardWidth,
+                        height: 250,
+                        child: _POCard(po: order),
+                      ),
+                  ],
+                )
+              else
+                for (
+                  var index = 0;
+                  index < grouped[supplierId]!.length;
+                  index++
+                ) ...[
+                  _POCard(po: grouped[supplierId]![index]),
+                  if (index < grouped[supplierId]!.length - 1)
+                    const SizedBox(height: 10),
+                ],
+              const SizedBox(height: 24),
+            ],
+          ],
+        );
+      },
     );
   }
 }
@@ -670,7 +730,7 @@ Future<void> _showPOReversalDialog(
 String _poReversalError(String raw) {
   final value = raw.toLowerCase();
   if (value.contains('pgrst202') ||
-      value.contains('reverse_purchase_order_v1') &&
+      value.contains('reverse_purchase_order_v2') &&
           (value.contains('schema cache') || value.contains('not found'))) {
     return 'PO reversal database migration remote Supabase par apply nahi hui.';
   }

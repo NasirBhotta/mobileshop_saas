@@ -624,6 +624,7 @@ Future<void> _showAccountDialog(BuildContext context, WidgetRef ref) async {
   final balanceController = TextEditingController(text: '0');
   final noteController = TextEditingController();
   var type = AccountType.cash;
+  var saving = false;
 
   await showDialog<void>(
     context: context,
@@ -638,6 +639,7 @@ Future<void> _showAccountDialog(BuildContext context, WidgetRef ref) async {
                 children: [
                   TextField(
                     controller: nameController,
+                    enabled: !saving,
                     decoration: const InputDecoration(
                       labelText: 'Account name',
                     ),
@@ -655,13 +657,17 @@ Future<void> _showAccountDialog(BuildContext context, WidgetRef ref) async {
                               ),
                             )
                             .toList(),
-                    onChanged: (value) {
-                      if (value != null) setState(() => type = value);
-                    },
+                    onChanged:
+                        saving
+                            ? null
+                            : (value) {
+                              if (value != null) setState(() => type = value);
+                            },
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: balanceController,
+                    enabled: !saving,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
@@ -673,6 +679,7 @@ Future<void> _showAccountDialog(BuildContext context, WidgetRef ref) async {
                   const SizedBox(height: 10),
                   TextField(
                     controller: noteController,
+                    enabled: !saving,
                     decoration: const InputDecoration(
                       labelText: 'Note optional',
                     ),
@@ -682,30 +689,54 @@ Future<void> _showAccountDialog(BuildContext context, WidgetRef ref) async {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
+                onPressed:
+                    saving ? null : () => Navigator.of(dialogContext).pop(),
                 child: const Text('Cancel'),
               ),
               FilledButton(
-                onPressed: () async {
-                  final name = nameController.text.trim();
-                  if (name.isEmpty) return;
-                  final balance =
-                      double.tryParse(balanceController.text.trim()) ?? 0;
-                  final ok = await ref
-                      .read(accountControllerProvider.notifier)
-                      .createAccount(
-                        name: name,
-                        type: type,
-                        openingBalance: balance,
-                        note: noteController.text,
-                      );
-                  if (ok && dialogContext.mounted) {
-                    Navigator.of(dialogContext).pop();
-                  } else if (dialogContext.mounted) {
-                    _showAccountActionError(dialogContext, ref);
-                  }
-                },
-                child: const Text('Save'),
+                onPressed:
+                    saving
+                        ? null
+                        : () async {
+                          final name = nameController.text.trim();
+                          if (name.isEmpty) return;
+                          final balance =
+                              double.tryParse(balanceController.text.trim()) ??
+                              0;
+                          setState(() => saving = true);
+                          final ok = await ref
+                              .read(accountControllerProvider.notifier)
+                              .createAccount(
+                                name: name,
+                                type: type,
+                                openingBalance: balance,
+                                note: noteController.text,
+                              );
+                          if (ok && dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop();
+                          } else if (dialogContext.mounted) {
+                            setState(() => saving = false);
+                            _showAccountActionError(dialogContext, ref);
+                          }
+                        },
+                child:
+                    saving
+                        ? const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Text('Saving...'),
+                          ],
+                        )
+                        : const Text('Save'),
               ),
             ],
           );

@@ -37,16 +37,20 @@ class ProcurementLocalStore {
     );
   }
 
-  static Future<List<SupplierModel>> loadSuppliers(String tenantId) async {
+  static Future<List<SupplierModel>> loadSuppliers(
+    String tenantId,
+    String branchId,
+  ) async {
     final rows = await LocalDatabase.select(
       '''
       SELECT *
       FROM suppliers
       WHERE tenant_id = ?
+        AND branch_id = ?
         AND is_active = 1
       ORDER BY name ASC
       ''',
-      [tenantId],
+      [tenantId, branchId],
     );
 
     return rows.map(SupplierModel.fromMap).toList();
