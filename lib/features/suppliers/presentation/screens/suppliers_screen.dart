@@ -177,7 +177,7 @@ class _SuppliersBody extends ConsumerWidget {
                         final textScale = MediaQuery.textScalerOf(
                           context,
                         ).scale(1.0).clamp(1.0, 1.3);
-                        final gridCardExtent = 226.0 * textScale;
+                        final gridCardExtent = 300.0 * textScale;
 
                         if (isWide) {
                           return GridView.builder(
@@ -191,10 +191,7 @@ class _SuppliersBody extends ConsumerWidget {
                                 ),
                             itemCount: suppliers.length,
                             itemBuilder: (_, index) {
-                              return _SupplierCard(
-                                supplier: suppliers[index],
-                                compact: false,
-                              );
+                              return _SupplierCard(supplier: suppliers[index]);
                             },
                           );
                         }
@@ -206,10 +203,7 @@ class _SuppliersBody extends ConsumerWidget {
                           separatorBuilder:
                               (_, _) => const SizedBox(height: 10),
                           itemBuilder: (_, index) {
-                            return _SupplierCard(
-                              supplier: suppliers[index],
-                              compact: true,
-                            );
+                            return _SupplierCard(supplier: suppliers[index]);
                           },
                         );
                       },
@@ -334,9 +328,8 @@ class _SupplierErrorView extends StatelessWidget {
 
 class _SupplierCard extends ConsumerStatefulWidget {
   final SupplierModel supplier;
-  final bool compact;
 
-  const _SupplierCard({required this.supplier, required this.compact});
+  const _SupplierCard({required this.supplier});
 
   @override
   ConsumerState<_SupplierCard> createState() => _SupplierCardState();
@@ -348,7 +341,6 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
   @override
   Widget build(BuildContext context) {
     final supplier = widget.supplier;
-    final compact = widget.compact;
     final paymentsEnabled =
         ref
             .watch(
@@ -371,38 +363,156 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
       elevation: 0,
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(18),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              supplier.name,
-              maxLines: compact ? 2 : 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor:
+                      Theme.of(context).colorScheme.primaryContainer,
+                  foregroundColor:
+                      Theme.of(context).colorScheme.onPrimaryContainer,
+                  child: Text(
+                    supplier.name.trim().isEmpty
+                        ? 'S'
+                        : supplier.name.trim()[0].toUpperCase(),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        supplier.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        supplier.contactPerson?.trim().isNotEmpty == true
+                            ? supplier.contactPerson!
+                            : 'Supplier account',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color:
+                        supplier.isActive
+                            ? const Color(0xffe7f6ef)
+                            : const Color(0xfff3f4f4),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    supplier.isActive ? 'Active' : 'Inactive',
+                    style: TextStyle(
+                      color:
+                          supplier.isActive
+                              ? AppColors.success
+                              : AppColors.textSecondary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 6),
-            _SupplierDetailLine(
-              label: 'Contact',
-              value: supplier.contactPerson,
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 14,
+              runSpacing: 9,
+              children: [
+                _SupplierInfo(
+                  icon: Icons.phone_outlined,
+                  value: supplier.phone,
+                  fallback: 'No phone',
+                ),
+                _SupplierInfo(
+                  icon: Icons.location_on_outlined,
+                  value: supplier.city,
+                  fallback: 'No city',
+                ),
+                _SupplierInfo(
+                  icon: Icons.event_note_outlined,
+                  value: supplier.paymentTerms,
+                  fallback: 'No payment terms',
+                ),
+              ],
             ),
-            _SupplierDetailLine(label: 'Phone', value: supplier.phone),
-            _SupplierDetailLine(label: 'Terms', value: supplier.paymentTerms),
-            SizedBox(height: compact ? 12 : 18),
-            Text(
-              'Payable: Rs ${supplier.outstandingBalance.toStringAsFixed(0)}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color:
+                    supplier.outstandingBalance > 0
+                        ? const Color(0xfffff6e6)
+                        : const Color(0xffeaf7f1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    supplier.outstandingBalance > 0
+                        ? Icons.account_balance_wallet_outlined
+                        : Icons.check_circle_outline_rounded,
+                    size: 20,
+                    color:
+                        supplier.outstandingBalance > 0
+                            ? const Color(0xffa76300)
+                            : AppColors.success,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          supplier.outstandingBalance > 0
+                              ? 'Outstanding payable'
+                              : 'Account settled',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        Text(
+                          'Rs ${supplier.outstandingBalance.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 14),
             _SupplierCardActions(
-              compact: compact,
               onHistory: () => showSupplierHistoryDialog(context, supplier),
               onPayment:
                   paymentsEnabled
@@ -740,32 +850,50 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
   }
 }
 
-class _SupplierDetailLine extends StatelessWidget {
-  final String label;
+class _SupplierInfo extends StatelessWidget {
+  final IconData icon;
   final String? value;
+  final String fallback;
 
-  const _SupplierDetailLine({required this.label, required this.value});
+  const _SupplierInfo({
+    required this.icon,
+    required this.value,
+    required this.fallback,
+  });
 
   @override
   Widget build(BuildContext context) {
     final text = value?.trim();
-    if (text == null || text.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Text('$label: $text', maxLines: 1, overflow: TextOverflow.ellipsis);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(width: 1),
+        Icon(icon, size: 16, color: AppColors.textSecondary),
+        const SizedBox(width: 5),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 145),
+          child: Text(
+            text == null || text.isEmpty ? fallback : text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
 class _SupplierCardActions extends StatelessWidget {
-  final bool compact;
   final VoidCallback onHistory;
   final VoidCallback? onPayment;
   final bool paymentLoading;
   final VoidCallback? onNewPo;
 
   const _SupplierCardActions({
-    required this.compact,
     required this.onHistory,
     required this.onPayment,
     this.paymentLoading = false,
@@ -776,17 +904,22 @@ class _SupplierCardActions extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final stackButtons = compact || constraints.maxWidth < 320;
+        final stackButtons = constraints.maxWidth < 300;
 
         final buttons = <Widget>[
-          OutlinedButton(
+          OutlinedButton.icon(
             onPressed: onHistory,
-            child: const Text('History', overflow: TextOverflow.ellipsis),
+            icon: const Icon(Icons.history_rounded, size: 17),
+            label: const Text('History', overflow: TextOverflow.ellipsis),
           ),
           if (onPayment != null || paymentLoading)
-            OutlinedButton(
+            OutlinedButton.icon(
               onPressed: paymentLoading ? null : onPayment,
-              child:
+              icon:
+                  paymentLoading
+                      ? const SizedBox.shrink()
+                      : const Icon(Icons.payments_outlined, size: 17),
+              label:
                   paymentLoading
                       ? const SizedBox(
                         width: 18,
@@ -796,9 +929,10 @@ class _SupplierCardActions extends StatelessWidget {
                       : const Text('Payment', overflow: TextOverflow.ellipsis),
             ),
           if (onNewPo != null)
-            FilledButton(
+            FilledButton.icon(
               onPressed: onNewPo,
-              child: const Text('New PO', overflow: TextOverflow.ellipsis),
+              icon: const Icon(Icons.add_rounded, size: 17),
+              label: const Text('New PO', overflow: TextOverflow.ellipsis),
             ),
         ];
         if (buttons.isEmpty) return const SizedBox.shrink();
