@@ -6,6 +6,7 @@ import 'package:mobileshop_saas/features/suppliers/presentation/providers/procur
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/procurement_models.dart';
+import '../../../accounts/data/models/account_models.dart';
 import '../../../accounts/presentation/providers/accounts_provider.dart';
 import '../../../pos/data/models/sale_payment_model.dart';
 import '../../../pos/domain/pos_payment_account_policy.dart';
@@ -473,10 +474,29 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
                   method,
                   compatible,
                 )?.id;
+            AccountModel? selectedAccount;
+            for (final account in compatible) {
+              if (account.id == effectiveAccountId) {
+                selectedAccount = account;
+                break;
+              }
+            }
             final selectedOrder = payableOrders.firstWhere(
               (order) => order.id == purchaseOrderId,
             );
             final pending = overview.payableForOrder(selectedOrder);
+            final availableBalance = selectedAccount?.currentBalance ?? 0;
+            final maximumSendable =
+                pending < availableBalance ? pending : availableBalance;
+            final enteredAmount =
+                double.tryParse(amountController.text.trim()) ?? 0;
+            final amountExceedsBalance =
+                selectedAccount != null &&
+                enteredAmount > availableBalance + 0.01;
+            final amountIsValid =
+                enteredAmount > 0 &&
+                enteredAmount <= pending + 0.01 &&
+                !amountExceedsBalance;
 
             return Dialog(
               insetPadding: const EdgeInsets.all(16),
@@ -540,9 +560,22 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
                         decoration: InputDecoration(
                           labelText: 'Amount to send',
                           helperText:
-                              'Maximum Rs ${pending.toStringAsFixed(0)}',
+                              selectedAccount == null
+                                  ? 'Select paying account first.'
+                                  : 'Maximum Rs ${maximumSendable.toStringAsFixed(0)} '
+                                      '(account balance Rs '
+                                      '${availableBalance.toStringAsFixed(0)})',
+                          errorText:
+                              amountExceedsBalance
+                                  ? 'Insufficient balance. Available Rs '
+                                      '${availableBalance.toStringAsFixed(0)}.'
+                                  : enteredAmount > pending + 0.01
+                                  ? 'Amount exceeds PO pending Rs '
+                                      '${pending.toStringAsFixed(0)}.'
+                                  : null,
                           border: const OutlineInputBorder(),
                         ),
+                        onChanged: (_) => setDialogState(() {}),
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<PaymentMethod>(
@@ -624,7 +657,9 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
                           const SizedBox(width: 8),
                           FilledButton(
                             onPressed:
-                                submitting || effectiveAccountId == null
+                                submitting ||
+                                        effectiveAccountId == null ||
+                                        !amountIsValid
                                     ? null
                                     : () async {
                                       final amount =
@@ -633,14 +668,15 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
                                           ) ??
                                           0;
                                       if (amount <= 0 ||
-                                          amount > pending + 0.01) {
+                                          amount > pending + 0.01 ||
+                                          amount > availableBalance + 0.01) {
                                         ScaffoldMessenger.of(
                                           context,
                                         ).showSnackBar(
                                           SnackBar(
                                             content: Text(
                                               'Enter amount between Rs 1 and '
-                                              'Rs ${pending.toStringAsFixed(0)}',
+                                              'Rs ${maximumSendable.toStringAsFixed(0)}',
                                             ),
                                           ),
                                         );

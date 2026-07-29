@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
+import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/providers/procurement_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../data/models/procurement_models.dart';
@@ -205,12 +206,20 @@ class _PurchaseOrderFormScreenState
     final items = <PurchaseOrderItemModel>[];
 
     for (final draft in _items) {
+      final separateVariant =
+          draft.resolution == PurchaseProductResolution.existingProduct &&
+          draft.pricingMode == _ExistingProductPricing.separateProduct;
+      final effectiveResolution =
+          separateVariant
+              ? PurchaseProductResolution.createOnReceipt
+              : draft.resolution;
       if (draft.resolution == PurchaseProductResolution.existingProduct &&
           draft.productId == null) {
         _message('Select an existing product in every linked row');
         return;
       }
-      if (draft.resolution != PurchaseProductResolution.existingProduct &&
+      if (effectiveResolution != PurchaseProductResolution.existingProduct &&
+          !separateVariant &&
           draft.name.text.trim().isEmpty) {
         _message('Enter an item name in every unlinked row');
         return;
@@ -218,23 +227,32 @@ class _PurchaseOrderFormScreenState
 
       final qty = int.tryParse(draft.quantity.text.trim()) ?? 0;
       final cost = double.tryParse(draft.cost.text.trim()) ?? -1;
+      final salePrice = double.tryParse(draft.salePrice.text.trim()) ?? -1;
 
-      if (qty <= 0 || cost < 0) {
+      if (qty <= 0 || cost < 0 || (separateVariant && salePrice < 0)) {
         _message('Enter valid quantity and cost');
         return;
       }
+      final separateName =
+          draft.name.text.trim().isNotEmpty
+              ? draft.name.text.trim()
+              : '${draft.productName} (Sale Rs ${salePrice.toStringAsFixed(0)})';
 
       items.add(
         PurchaseOrderItemModel(
           id: const Uuid().v4(),
           tenantId: '',
           purchaseOrderId: '',
-          productId: draft.productId,
-          productResolution: draft.resolution,
+          productId:
+              effectiveResolution == PurchaseProductResolution.existingProduct
+                  ? draft.productId
+                  : null,
+          productResolution: effectiveResolution,
           productDraft:
-              draft.resolution == PurchaseProductResolution.createOnReceipt
+              effectiveResolution == PurchaseProductResolution.createOnReceipt
                   ? {
-                    'name': draft.name.text.trim(),
+                    'name':
+                        separateVariant ? separateName : draft.name.text.trim(),
                     'sku':
                         draft.sku.text.trim().isEmpty
                             ? null
@@ -244,10 +262,15 @@ class _PurchaseOrderFormScreenState
                   }
                   : null,
           productName:
-              draft.resolution == PurchaseProductResolution.existingProduct
+              effectiveResolution == PurchaseProductResolution.existingProduct
                   ? draft.productName ?? ''
+                  : separateVariant
+                  ? separateName
                   : draft.name.text.trim(),
-          productSku: draft.productSku,
+          productSku:
+              effectiveResolution == PurchaseProductResolution.existingProduct
+                  ? draft.productSku
+                  : null,
           orderedQuantity: qty,
           negotiatedUnitCost: cost,
           lineTotal: qty * cost,
@@ -283,7 +306,7 @@ class _PurchaseOrderFormScreenState
 
 class _POItemEditor extends StatelessWidget {
   final _POItemDraft draft;
-  final List<dynamic> products;
+  final List<ProductModel> products;
   final VoidCallback onRemove;
   final VoidCallback onChanged;
 
@@ -330,6 +353,15 @@ class _POItemEditor extends StatelessWidget {
                   if (value == null) return;
                   draft.resolution = value;
                   draft.productId = null;
+                  draft.productName = null;
+                  draft.productSku = null;
+                  draft.originalCostPrice = null;
+                  draft.originalSalePrice = null;
+                  draft.pricingMode =
+                      _ExistingProductPricing.currentProductCost;
+                  draft.cost.clear();
+                  draft.salePrice.clear();
+                  draft.name.clear();
                   onChanged();
                 },
               ),
@@ -344,7 +376,7 @@ class _POItemEditor extends StatelessWidget {
                   items:
                       products.map<DropdownMenuItem<String>>((product) {
                         return DropdownMenuItem<String>(
-                          value: product.id as String,
+                          value: product.id,
                           child: Text(
                             '${product.name} (${product.sku ?? 'No SKU'})',
                             maxLines: 1,
@@ -354,12 +386,76 @@ class _POItemEditor extends StatelessWidget {
                       }).toList(),
                   onChanged: (v) {
                     final product = products.firstWhere((p) => p.id == v);
-                    draft.productId = product.id as String;
-                    draft.productName = product.name as String;
-                    draft.productSku = product.sku as String?;
+                    draft.productId = product.id;
+                    draft.productName = product.name;
+                    draft.productSku = product.sku;
+                    draft.originalCostPrice = product.costPrice;
+                    draft.originalSalePrice = product.salePrice;
+                    draft.cost.text = product.costPrice.toStringAsFixed(2);
+                    draft.salePrice.text = product.salePrice.toStringAsFixed(2);
+                    draft.name.clear();
                     onChanged();
                   },
                 ),
+              if (draft.resolution ==
+                      PurchaseProductResolution.existingProduct &&
+                  draft.productId != null)
+                DropdownButtonFormField<_ExistingProductPricing>(
+                  initialValue: draft.pricingMode,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Cost & product handling',
+                    border: OutlineInputBorder(),
+                  ),
+                  items:
+                      _ExistingProductPricing.values
+                          .map(
+                            (mode) => DropdownMenuItem(
+                              value: mode,
+                              child: Text(
+                                mode.label,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                  onChanged: (mode) {
+                    if (mode == null) return;
+                    draft.pricingMode = mode;
+                    if (mode == _ExistingProductPricing.currentProductCost) {
+                      draft.cost.text =
+                          draft.originalCostPrice?.toStringAsFixed(2) ?? '';
+                    }
+                    if (mode == _ExistingProductPricing.separateProduct) {
+                      draft.salePrice.text =
+                          draft.originalSalePrice?.toStringAsFixed(2) ?? '';
+                    }
+                    onChanged();
+                  },
+                ),
+              if (draft.resolution ==
+                      PurchaseProductResolution.existingProduct &&
+                  draft.pricingMode ==
+                      _ExistingProductPricing.separateProduct) ...[
+                TextField(
+                  controller: draft.name,
+                  decoration: InputDecoration(
+                    labelText: 'Variant name optional',
+                    hintText: '${draft.productName ?? 'Product'} (Sale Rs ...)',
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                TextField(
+                  controller: draft.salePrice,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'New sale price',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
               if (draft.resolution != PurchaseProductResolution.existingProduct)
                 TextField(
                   controller: draft.name,
@@ -400,6 +496,11 @@ class _POItemEditor extends StatelessWidget {
               ),
               TextField(
                 controller: draft.cost,
+                readOnly:
+                    draft.resolution ==
+                        PurchaseProductResolution.existingProduct &&
+                    draft.pricingMode ==
+                        _ExistingProductPricing.currentProductCost,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
@@ -466,6 +567,10 @@ class _POItemDraft {
   String? productId;
   String? productName;
   String? productSku;
+  double? originalCostPrice;
+  double? originalSalePrice;
+  _ExistingProductPricing pricingMode =
+      _ExistingProductPricing.currentProductCost;
 
   final quantity = TextEditingController();
   final cost = TextEditingController();
@@ -480,4 +585,21 @@ class _POItemDraft {
     sku.dispose();
     salePrice.dispose();
   }
+}
+
+enum _ExistingProductPricing {
+  currentProductCost,
+  overrideCost,
+  separateProduct,
+}
+
+extension on _ExistingProductPricing {
+  String get label => switch (this) {
+    _ExistingProductPricing.currentProductCost =>
+      'Use current cost • add to same product',
+    _ExistingProductPricing.overrideCost =>
+      'Override cost • create cost variant if different',
+    _ExistingProductPricing.separateProduct =>
+      'Different cost & sale price • create separate product',
+  };
 }
