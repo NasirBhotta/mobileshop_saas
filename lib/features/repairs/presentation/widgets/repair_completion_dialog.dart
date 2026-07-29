@@ -299,6 +299,13 @@ class _RepairCompletionDialogState
               draft.supplierId == null)) {
         return _message('Complete all part details with valid amounts.');
       }
+      if (draft.source == RepairPartSource.inventory &&
+          product != null &&
+          qty > product.stock) {
+        return _message(
+          '${product.name} ka available stock ${product.stock} hai.',
+        );
+      }
       parts.add(
         RepairPartModel(
           id: const Uuid().v4(),
@@ -403,32 +410,16 @@ class _PartEditor extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           if (draft.source == RepairPartSource.inventory)
-            DropdownButtonFormField<String>(
-              initialValue: draft.productId,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Inventory product',
-                border: OutlineInputBorder(),
-              ),
-              items:
+            _InventoryProductPicker(
+              selectedProduct:
                   products
-                      .map(
-                        (product) => DropdownMenuItem(
-                          value: product.id,
-                          child: Text(
-                            '${product.name} • Stock ${product.stock}',
-                          ),
-                        ),
-                      )
-                      .toList(),
-              onChanged: (value) {
-                draft.productId = value;
-                final product =
-                    products.where((item) => item.id == value).firstOrNull;
-                if (product != null) {
-                  draft.cost.text = product.costPrice.toStringAsFixed(0);
-                  draft.sale.text = product.salePrice.toStringAsFixed(0);
-                }
+                      .where((item) => item.id == draft.productId)
+                      .firstOrNull,
+              products: products,
+              onSelected: (product) {
+                draft.productId = product.id;
+                draft.cost.text = product.costPrice.toStringAsFixed(0);
+                draft.sale.text = product.salePrice.toStringAsFixed(0);
                 onChanged();
               },
             )
@@ -509,6 +500,242 @@ class _PartEditor extends StatelessWidget {
       border: const OutlineInputBorder(),
     ),
   );
+}
+
+class _InventoryProductPicker extends StatelessWidget {
+  final ProductModel? selectedProduct;
+  final List<ProductModel> products;
+  final ValueChanged<ProductModel> onSelected;
+
+  const _InventoryProductPicker({
+    required this.selectedProduct,
+    required this.products,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = selectedProduct;
+    return InkWell(
+      borderRadius: BorderRadius.circular(4),
+      onTap: () async {
+        final product = await _showInventoryProductSearch(context, products);
+        if (context.mounted && product != null) onSelected(product);
+      },
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: 'Inventory product',
+          hintText: 'Search name, SKU or barcode',
+          border: OutlineInputBorder(),
+          suffixIcon: Icon(Icons.search_rounded),
+        ),
+        child:
+            selected == null
+                ? const Text(
+                  'Tap to search inventory',
+                  style: TextStyle(color: Colors.black54),
+                )
+                : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      selected.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      'Stock ${selected.stock} • Cost Rs '
+                      '${selected.costPrice.toStringAsFixed(0)}'
+                      '${selected.sku?.isNotEmpty == true ? ' • SKU ${selected.sku}' : ''}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+      ),
+    );
+  }
+}
+
+Future<ProductModel?> _showInventoryProductSearch(
+  BuildContext context,
+  List<ProductModel> products,
+) async {
+  final search = TextEditingController();
+  var query = '';
+  final result = await showDialog<ProductModel>(
+    context: context,
+    builder:
+        (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final matches = _searchRepairInventoryProducts(products, query);
+            return Dialog(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 620,
+                  maxHeight: 620,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Search inventory part',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.pop(dialogContext),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: search,
+                        autofocus: true,
+                        textInputAction: TextInputAction.search,
+                        decoration: InputDecoration(
+                          hintText: 'Product name, SKU, barcode or category',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon:
+                              query.isEmpty
+                                  ? null
+                                  : IconButton(
+                                    tooltip: 'Clear search',
+                                    onPressed: () {
+                                      search.clear();
+                                      setDialogState(() => query = '');
+                                    },
+                                    icon: const Icon(Icons.clear_rounded),
+                                  ),
+                          border: const OutlineInputBorder(),
+                        ),
+                        onChanged:
+                            (value) => setDialogState(() => query = value),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        query.trim().isEmpty
+                            ? 'Search to find an in-stock inventory item.'
+                            : '${matches.length} matching items'
+                                '${matches.length == 50 ? ' (top results)' : ''}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child:
+                            query.trim().isEmpty
+                                ? const Center(
+                                  child: Text(
+                                    'Type a product name, SKU or barcode.',
+                                  ),
+                                )
+                                : matches.isEmpty
+                                ? const Center(
+                                  child: Text(
+                                    'No active in-stock product matched.',
+                                  ),
+                                )
+                                : ListView.separated(
+                                  itemCount: matches.length,
+                                  separatorBuilder:
+                                      (_, _) => const Divider(height: 1),
+                                  itemBuilder: (context, index) {
+                                    final product = matches[index];
+                                    return ListTile(
+                                      leading: const Icon(
+                                        Icons.inventory_2_outlined,
+                                      ),
+                                      title: Text(product.name),
+                                      subtitle: Text(
+                                        [
+                                          if (product.sku?.isNotEmpty == true)
+                                            'SKU ${product.sku}',
+                                          if (product
+                                                  .categoryName
+                                                  ?.isNotEmpty ==
+                                              true)
+                                            product.categoryName!,
+                                          'Cost Rs ${product.costPrice.toStringAsFixed(0)}',
+                                        ].join(' • '),
+                                      ),
+                                      trailing: Text(
+                                        'Stock ${product.stock}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      onTap:
+                                          () => Navigator.pop(
+                                            dialogContext,
+                                            product,
+                                          ),
+                                    );
+                                  },
+                                ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+  );
+  search.dispose();
+  return result;
+}
+
+List<ProductModel> _searchRepairInventoryProducts(
+  List<ProductModel> products,
+  String rawQuery,
+) {
+  final query = rawQuery.trim().toLowerCase();
+  if (query.isEmpty) return const [];
+  final tokens = query.split(RegExp(r'\s+'));
+  final matches =
+      products.where((product) {
+        if (!product.isActive || product.stock <= 0) return false;
+        final searchable =
+            [
+              product.name,
+              product.sku ?? '',
+              product.barcode ?? '',
+              product.categoryName ?? '',
+            ].join(' ').toLowerCase();
+        return tokens.every(searchable.contains);
+      }).toList();
+  matches.sort((a, b) {
+    int rank(ProductModel product) {
+      final name = product.name.toLowerCase();
+      final sku = product.sku?.toLowerCase();
+      final barcode = product.barcode?.toLowerCase();
+      if (sku == query || barcode == query) return 0;
+      if (name == query) return 1;
+      if (name.startsWith(query)) return 2;
+      if (sku?.startsWith(query) == true) return 3;
+      return 4;
+    }
+
+    final rankCompare = rank(a).compareTo(rank(b));
+    if (rankCompare != 0) return rankCompare;
+    return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+  });
+  return matches.take(50).toList();
 }
 
 class _PartDraft {

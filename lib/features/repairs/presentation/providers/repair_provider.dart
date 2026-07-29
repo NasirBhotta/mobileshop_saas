@@ -313,12 +313,15 @@ class RepairTicketController
     }
   }
 
-  Future<RepairTicketModel?> cancelRepair(RepairTicketModel ticket) async {
+  Future<RepairTicketModel?> cancelRepair(
+    RepairTicketModel ticket, {
+    String? refundAccountId,
+  }) async {
     state = const AsyncLoading();
     try {
       final updated = await _ref
           .read(repairRepositoryProvider)
-          .cancelRepair(ticket);
+          .cancelRepair(ticket, refundAccountId: refundAccountId);
       state = AsyncData(updated);
       _invalidateFinancialRepair(ticket.id);
       return updated;

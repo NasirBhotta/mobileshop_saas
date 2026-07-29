@@ -788,6 +788,28 @@ final returnControllerProvider =
       return ReturnController(ref.read(posRepositoryProvider), ref);
     });
 
+typedef ReturnRefundPreviewRequest = ({String saleId, double refundAmount});
+
+final returnRefundPreviewProvider = FutureProvider.autoDispose
+    .family<List<SaleReturnRefundPreviewModel>, ReturnRefundPreviewRequest>((
+      ref,
+      request,
+    ) {
+      return ref
+          .read(posRepositoryProvider)
+          .previewReturnRefund(
+            saleId: request.saleId,
+            refundAmount: request.refundAmount,
+          );
+    });
+
+final returnCreditCapacityProvider = FutureProvider.autoDispose
+    .family<double, String>((ref, saleId) {
+      return ref
+          .read(posRepositoryProvider)
+          .previewCreditReturnCapacity(saleId);
+    });
+
 final pendingReturnsProvider = FutureProvider<List<SaleReturnModel>>((
   ref,
 ) async {

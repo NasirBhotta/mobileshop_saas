@@ -674,6 +674,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
   final _notes = TextEditingController();
   String _method = 'cash';
   String? _accountId;
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -691,6 +692,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(customerSettlementControllerProvider);
+    final isSubmitting = _submitting || state.isLoading;
     final accounts =
         ref.watch(accountsProvider).value ?? const <AccountModel>[];
     final paymentMethod = PaymentMethodX.fromCode(_method);
@@ -721,6 +723,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
           const SizedBox(height: 12),
           TextField(
             controller: _amount,
+            enabled: !isSubmitting,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
               labelText: 'Amount',
@@ -737,10 +740,12 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
               DropdownMenuItem(value: 'card', child: Text('Card')),
             ],
             onChanged:
-                (value) => setState(() {
-                  _method = value ?? 'cash';
-                  _accountId = null;
-                }),
+                isSubmitting
+                    ? null
+                    : (value) => setState(() {
+                      _method = value ?? 'cash';
+                      _accountId = null;
+                    }),
             decoration: const InputDecoration(labelText: 'Method'),
           ),
           const SizedBox(height: 10),
@@ -760,7 +765,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
                     )
                     .toList(),
             onChanged:
-                compatibleAccounts.isEmpty
+                isSubmitting || compatibleAccounts.isEmpty
                     ? null
                     : (value) => setState(() => _accountId = value),
             decoration: InputDecoration(
@@ -774,6 +779,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
           const SizedBox(height: 10),
           TextField(
             controller: _notes,
+            enabled: !isSubmitting,
             decoration: const InputDecoration(labelText: 'Notes'),
           ),
           const SizedBox(height: 14),
@@ -781,10 +787,27 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
             width: double.infinity,
             child: FilledButton(
               onPressed:
-                  state.isLoading || effectiveAccountId == null
+                  isSubmitting || effectiveAccountId == null
                       ? null
                       : () => _submit(effectiveAccountId),
-              child: const Text('Record Settlement'),
+              child:
+                  isSubmitting
+                      ? const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(width: 10),
+                          Text('Recording...'),
+                        ],
+                      )
+                      : const Text('Record Settlement'),
             ),
           ),
         ],
@@ -794,26 +817,89 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
 
   Future<void> _submit(String accountId) async {
     final amount = double.tryParse(_amount.text.trim()) ?? 0;
-    final ok = await ref
-        .read(customerSettlementControllerProvider.notifier)
-        .settle(
-          customerId: widget.customerId,
-          amount: amount,
-          method: _method,
-          accountId: accountId,
-          notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
-        );
-    if (!mounted) return;
-    if (!ok) {
-      final error = ref.read(customerSettlementControllerProvider).error;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error?.toString() ?? 'Settlement save nahi hui'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+    if (amount <= 0) {
+      _showError('Valid settlement amount enter karein.');
       return;
     }
-    Navigator.pop(context);
+    if (amount > widget.outstanding + 0.01) {
+      _showError('Settlement current dues se zyada nahi ho sakti.');
+      return;
+    }
+
+    setState(() => _submitting = true);
+    try {
+      final ok = await ref
+          .read(customerSettlementControllerProvider.notifier)
+          .settle(
+            customerId: widget.customerId,
+            amount: amount,
+            method: _method,
+            accountId: accountId,
+            notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+          );
+      if (!mounted) return;
+      if (!ok) {
+        final error = ref.read(customerSettlementControllerProvider).error;
+        _showError(_settlementErrorMessage(error));
+        return;
+      }
+
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.pop(context);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Customer dues successfully settle ho gaye.'),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        _showError(_settlementErrorMessage(error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
   }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
+    );
+  }
+}
+
+String _settlementErrorMessage(Object? error) {
+  if (error == null) return 'Settlement save nahi hui. Dobara try karein.';
+
+  final message = error.toString();
+  final normalized = message.toLowerCase();
+  if (normalized.contains('23503') ||
+      normalized.contains('ledger_transaction_id_fkey')) {
+    return 'Settlement ledger update nahi ho saka. Database migration apply '
+        'karke dobara try karein.';
+  }
+  if (normalized.contains('permission') ||
+      normalized.contains('42501') ||
+      normalized.contains('not authorized')) {
+    return 'Aap ke paas customer dues settle karne ki permission nahi hai.';
+  }
+  if (normalized.contains('current dues') ||
+      normalized.contains('exceeds current customer dues')) {
+    return 'Settlement current dues se zyada nahi ho sakti.';
+  }
+  if (normalized.contains('account') &&
+      (normalized.contains('compatible') || normalized.contains('not found'))) {
+    return 'Selected receiving account valid nahi hai.';
+  }
+  if (normalized.contains('timeout') ||
+      normalized.contains('socketexception') ||
+      normalized.contains('failed host lookup') ||
+      normalized.contains('network') ||
+      normalized.contains('connection')) {
+    return 'Network issue hai. Settlement locally save ho gayi hai aur '
+        'connection aane par sync ho jayegi.';
+  }
+
+  return 'Settlement save nahi hui. Please dobara try karein.';
 }

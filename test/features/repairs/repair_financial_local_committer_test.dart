@@ -35,6 +35,7 @@ void main() {
   });
 
   setUp(() async {
+    await LocalDatabase.execute('DELETE FROM repair_payment_refunds');
     await LocalDatabase.execute('DELETE FROM repair_financial_events');
     await LocalDatabase.execute('DELETE FROM repair_parts');
     await LocalDatabase.execute('DELETE FROM repair_payments');
@@ -210,6 +211,61 @@ void main() {
       isEmpty,
     );
   });
+
+  test(
+    'paid cancellation refunds account and reverses repair atomically',
+    () async {
+      await LocalDatabase.execute('''
+      INSERT OR REPLACE INTO accounts(
+        id, tenant_id, branch_id, name, account_type, current_balance,
+        is_default, is_active
+      ) VALUES ('refund-cash', 'tenant-1', 'branch-1', 'Cash', 'cash', 8000, 1, 1)
+      ''');
+      await LocalDatabase.execute(
+        '''
+      INSERT INTO repair_payments(
+        id, tenant_id, branch_id, ticket_id, amount, method, account_id,
+        ledger_transaction_id, received_by, received_at, created_at
+      ) VALUES (
+        'payment-1', 'tenant-1', 'branch-1', 'ticket-1', 8000, 'cash',
+        'refund-cash', 'payment-ledger', 'owner', ?, ?
+      )
+      ''',
+        [DateTime.now().toIso8601String(), DateTime.now().toIso8601String()],
+      );
+      await RepairFinancialLocalCommitter.complete(
+        ticket: ticket,
+        eventId: 'completion-1',
+        userId: 'owner',
+        customerCharge: 8000,
+      );
+
+      await RepairFinancialLocalCommitter.cancel(
+        ticket: ticket,
+        eventId: 'reversal-1',
+        userId: 'owner',
+        refundId: 'refund-1',
+        refundAccountId: 'refund-cash',
+        refundLedgerTransactionId: 'refund-ledger-1',
+      );
+
+      final account = await LocalDatabase.select(
+        "SELECT current_balance FROM accounts WHERE id = 'refund-cash'",
+      );
+      final refunds = await LocalDatabase.select(
+        "SELECT * FROM repair_payment_refunds WHERE ticket_id = 'ticket-1'",
+      );
+      expect((account.single['current_balance'] as num).toDouble(), 0);
+      expect(refunds, hasLength(1));
+      expect((refunds.single['amount'] as num).toDouble(), 8000);
+      expect(
+        await LocalDatabase.select(
+          "SELECT * FROM account_transactions WHERE id = 'refund-ledger-1'",
+        ),
+        hasLength(1),
+      );
+    },
+  );
 }
 
 Future<void> _part({

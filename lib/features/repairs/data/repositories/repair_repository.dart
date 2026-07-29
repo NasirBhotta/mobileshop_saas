@@ -809,15 +809,26 @@ class RepairRepository {
     return updated;
   }
 
-  Future<RepairTicketModel> cancelRepair(RepairTicketModel ticket) async {
+  Future<RepairTicketModel> cancelRepair(
+    RepairTicketModel ticket, {
+    String? refundAccountId,
+  }) async {
     await _gate.require('repairs.tickets');
     final eventId = const Uuid().v4();
+    final refundId = const Uuid().v4();
+    final refundLedgerTransactionId = const Uuid().v4();
     var localCommitted = false;
     try {
       await _client
           .rpc(
-            'cancel_repair_ticket_v2',
-            params: {'p_ticket_id': ticket.id, 'p_event_id': eventId},
+            'cancel_repair_ticket_v3',
+            params: {
+              'p_ticket_id': ticket.id,
+              'p_event_id': eventId,
+              'p_refund_id': refundId,
+              'p_refund_account_id': refundAccountId,
+              'p_refund_ledger_transaction_id': refundLedgerTransactionId,
+            },
           )
           .timeout(_networkTimeout);
     } catch (error) {
@@ -826,12 +837,22 @@ class RepairRepository {
         ticket: ticket,
         eventId: eventId,
         userId: _currentUser.id,
+        refundId: refundId,
+        refundAccountId: refundAccountId,
+        refundLedgerTransactionId: refundLedgerTransactionId,
+        enforceRefundBalance: true,
       );
       localCommitted = true;
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
-        type: 'cancel_repair_ticket_v2',
-        payload: {'ticket_id': ticket.id, 'event_id': eventId},
+        type: 'cancel_repair_ticket_v3',
+        payload: {
+          'ticket_id': ticket.id,
+          'event_id': eventId,
+          'refund_id': refundId,
+          'refund_account_id': refundAccountId,
+          'refund_ledger_transaction_id': refundLedgerTransactionId,
+        },
       );
     }
     // Keep local inventory, supplier balances, and financial reports aligned
@@ -841,6 +862,10 @@ class RepairRepository {
         ticket: ticket,
         eventId: eventId,
         userId: _currentUser.id,
+        refundId: refundId,
+        refundAccountId: refundAccountId,
+        refundLedgerTransactionId: refundLedgerTransactionId,
+        enforceRefundBalance: false,
       );
     }
     final updated = ticket.copyWith(
@@ -973,6 +998,7 @@ class RepairRepository {
                 'save_repair_parts_v2',
                 'complete_repair_ticket_v2',
                 'cancel_repair_ticket_v2',
+                'cancel_repair_ticket_v3',
                 'archive_repair_ticket_v2',
               }.contains(mutation.type)
               ? mutation.payload['ticket_id'] as String?
@@ -1035,6 +1061,19 @@ class RepairRepository {
               params: {
                 'p_ticket_id': mutation.payload['ticket_id'],
                 'p_event_id': mutation.payload['event_id'],
+              },
+            );
+            break;
+          case 'cancel_repair_ticket_v3':
+            await _client.rpc(
+              'cancel_repair_ticket_v3',
+              params: {
+                'p_ticket_id': mutation.payload['ticket_id'],
+                'p_event_id': mutation.payload['event_id'],
+                'p_refund_id': mutation.payload['refund_id'],
+                'p_refund_account_id': mutation.payload['refund_account_id'],
+                'p_refund_ledger_transaction_id':
+                    mutation.payload['refund_ledger_transaction_id'],
               },
             );
             break;

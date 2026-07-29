@@ -158,6 +158,10 @@ class RepairFinancialLocalCommitter {
     required RepairTicketModel ticket,
     required String eventId,
     required String userId,
+    String? refundId,
+    String? refundAccountId,
+    String? refundLedgerTransactionId,
+    bool enforceRefundBalance = true,
   }) {
     return LocalDatabase.runInTransaction(() async {
       final ticketRows = await LocalDatabase.select(
@@ -171,8 +175,82 @@ class RepairFinancialLocalCommitter {
         'SELECT COALESCE(SUM(amount), 0) AS paid FROM repair_payments WHERE ticket_id = ?',
         [ticket.id],
       );
-      if ((paid.single['paid'] as num).toDouble() > 0) {
-        throw StateError('Refund or retain customer credit first.');
+      final paidAmount = (paid.single['paid'] as num).toDouble();
+      final existingRefund = await LocalDatabase.select(
+        'SELECT * FROM repair_payment_refunds WHERE ticket_id = ? LIMIT 1',
+        [ticket.id],
+      );
+      if (paidAmount > 0 && existingRefund.isEmpty) {
+        if (refundId == null ||
+            refundAccountId == null ||
+            refundLedgerTransactionId == null) {
+          throw StateError('Select an account for the customer refund.');
+        }
+        final accounts = await LocalDatabase.select(
+          'SELECT * FROM accounts WHERE id = ? LIMIT 1',
+          [refundAccountId],
+        );
+        if (accounts.isEmpty) {
+          throw StateError('Selected refund account was not found.');
+        }
+        final account = accounts.single;
+        if (account['tenant_id'] != ticket.tenantId ||
+            account['branch_id'] != ticket.branchId ||
+            (account['is_active'] as num).toInt() != 1) {
+          throw StateError('Selected refund account is not available.');
+        }
+        if (enforceRefundBalance &&
+            (account['current_balance'] as num).toDouble() + 0.01 <
+                paidAmount) {
+          throw StateError('Selected account has insufficient balance.');
+        }
+        final now = _now();
+        await LocalDatabase.execute(
+          '''
+          INSERT INTO account_transactions(
+            id, tenant_id, branch_id, account_id, transaction_type,
+            direction, amount, description, reference_type, reference_id,
+            source_event_key, transaction_at, created_by, created_at
+          ) VALUES (?, ?, ?, ?, 'other', 'out', ?, 'Repair cancellation refund',
+                    'repair_payment_refund', ?, ?, ?, ?, ?)
+          ''',
+          [
+            refundLedgerTransactionId,
+            ticket.tenantId,
+            ticket.branchId,
+            refundAccountId,
+            paidAmount,
+            refundId,
+            'repair:refund:${ticket.id}',
+            now,
+            userId,
+            now,
+          ],
+        );
+        await LocalDatabase.execute(
+          '''
+          UPDATE accounts SET current_balance = current_balance - ?,
+            updated_at = ? WHERE id = ?
+          ''',
+          [paidAmount, now, refundAccountId],
+        );
+        await LocalDatabase.execute(
+          '''
+          INSERT INTO repair_payment_refunds(
+            id, ticket_id, account_id, amount, ledger_transaction_id,
+            refunded_by, refunded_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          ''',
+          [
+            refundId,
+            ticket.id,
+            refundAccountId,
+            paidAmount,
+            refundLedgerTransactionId,
+            userId,
+            now,
+          ],
+        );
       }
       if (current['status'] == 'completed' ||
           current['status'] == 'delivered') {

@@ -1,5 +1,19 @@
 import 'cart_item_model.dart';
 
+class SaleReturnRefundPreviewModel {
+  final String accountId;
+  final String accountName;
+  final String paymentMethod;
+  final double amount;
+
+  const SaleReturnRefundPreviewModel({
+    required this.accountId,
+    required this.accountName,
+    required this.paymentMethod,
+    required this.amount,
+  });
+}
+
 class SaleReturnRefundLegModel {
   final String id;
   final String originalPaymentId;

@@ -10,7 +10,8 @@ set search_path = public, pg_temp
 as $function$
 declare
   v_item record;
-  v_product record;
+  v_existing_product_name text;
+  v_existing_product_sku text;
   v_resolution text;
   v_name text;
   v_total numeric(12,2) := 0;
@@ -43,6 +44,8 @@ begin
       ordered_quantity integer, negotiated_unit_cost numeric
     )
   loop
+    v_existing_product_name := null;
+    v_existing_product_sku := null;
     v_resolution := coalesce(v_item.product_resolution, 'existing_product');
     if v_resolution not in (
       'existing_product', 'create_on_receipt',
@@ -57,13 +60,14 @@ begin
     end if;
 
     if v_resolution = 'existing_product' then
-      select id, name, sku into v_product
+      select name, sku
+      into v_existing_product_name, v_existing_product_sku
       from public.products
       where id = v_item.product_id and tenant_id = p_tenant_id
         and branch_id = p_branch_id and is_active
       limit 1;
       if not found then raise exception 'Product does not exist in catalog.'; end if;
-      v_name := v_product.name;
+      v_name := v_existing_product_name;
     else
       v_name := nullif(trim(v_item.product_name), '');
       if v_name is null then raise exception 'Item name is required.'; end if;
@@ -86,7 +90,7 @@ begin
       v_item.product_id, v_resolution, v_item.product_draft,
       v_item.resolved_product_id, coalesce(v_name, v_item.product_name),
       case when v_resolution = 'existing_product'
-        then coalesce(v_item.product_sku, v_product.sku)
+        then coalesce(v_item.product_sku, v_existing_product_sku)
         else v_item.product_sku end,
       v_item.ordered_quantity,
       v_item.negotiated_unit_cost,

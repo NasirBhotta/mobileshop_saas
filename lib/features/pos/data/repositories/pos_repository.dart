@@ -1585,6 +1585,88 @@ class PosRepository {
     );
   }
 
+  Future<List<SaleReturnRefundPreviewModel>> previewReturnRefund({
+    required String saleId,
+    required double refundAmount,
+  }) async {
+    if (refundAmount <= 0) return const [];
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT payment.id, payment.method, payment.account_id, payment.amount,
+             account.name AS account_name,
+             COALESCE(SUM(refund.amount), 0) AS already_refunded
+      FROM sale_payments payment
+      JOIN accounts account ON account.id = payment.account_id
+      LEFT JOIN sale_return_refund_legs refund
+        ON refund.original_payment_id = payment.id
+      WHERE payment.sale_id = ?
+        AND payment.method <> 'credit'
+        AND payment.account_id IS NOT NULL
+        AND account.is_active = 1
+      GROUP BY payment.id, payment.method, payment.account_id, payment.amount,
+               account.name
+      ORDER BY payment.id
+      ''',
+      [saleId],
+    );
+    final rowsByPaymentId = {for (final row in rows) row['id'] as String: row};
+    final allocations = PosRefundAllocator.allocate(
+      refundAmount: refundAmount,
+      payments: rows.map(
+        (row) => RefundablePaymentLeg(
+          paymentId: row['id'] as String,
+          accountId: row['account_id'] as String,
+          paidAmount: (row['amount'] as num).toDouble(),
+          alreadyRefunded: (row['already_refunded'] as num).toDouble(),
+        ),
+      ),
+    );
+    return allocations.map((allocation) {
+      final row = rowsByPaymentId[allocation.paymentId]!;
+      return SaleReturnRefundPreviewModel(
+        accountId: allocation.accountId,
+        accountName: row['account_name'] as String,
+        paymentMethod: PaymentMethodX.fromCode(row['method'] as String).label,
+        amount: allocation.amount,
+      );
+    }).toList();
+  }
+
+  Future<double> previewCreditReturnCapacity(String saleId) async {
+    final saleRows = await LocalDatabase.select(
+      'SELECT customer_id FROM sales WHERE id = ? LIMIT 1',
+      [saleId],
+    );
+    if (saleRows.isEmpty || saleRows.single['customer_id'] == null) return 0;
+    final customerId = saleRows.single['customer_id'] as String;
+    final creditRows = await LocalDatabase.select(
+      '''
+      SELECT COALESCE(SUM(amount), 0) AS issued
+      FROM sale_payments
+      WHERE sale_id = ? AND method = 'credit'
+      ''',
+      [saleId],
+    );
+    final reversedRows = await LocalDatabase.select(
+      '''
+      SELECT COALESCE(SUM(amount), 0) AS reversed
+      FROM sale_return_credit_adjustments
+      WHERE original_sale_id = ?
+      ''',
+      [saleId],
+    );
+    final customerRows = await LocalDatabase.select(
+      'SELECT outstanding_balance FROM customers WHERE id = ? LIMIT 1',
+      [customerId],
+    );
+    if (customerRows.isEmpty) return 0;
+    final issued = (creditRows.single['issued'] as num).toDouble();
+    final reversed = (reversedRows.single['reversed'] as num).toDouble();
+    final outstanding =
+        (customerRows.single['outstanding_balance'] as num).toDouble();
+    return (issued - reversed).clamp(0, outstanding).toDouble();
+  }
+
   Future<void> _markReturnSynced(String returnId) async {
     await LocalDatabase.execute(
       'UPDATE sale_returns SET synced = 1 WHERE id = ?',

@@ -134,6 +134,22 @@ void main() {
     expect(sql, contains("'customer:settlement:' || v_id::text"));
     expect(sql, contains('is distinct from v_account_id'));
   });
+
+  test('remote ledger FK allows the atomic RPC insert order', () {
+    final sql =
+        File(
+          'supabase/migrations/20260729000100_fix_customer_settlement_ledger_fk_order.sql',
+        ).readAsStringSync().toLowerCase();
+
+    expect(sql, contains('alter table public.customer_settlements'));
+    expect(
+      sql,
+      contains(
+        'alter constraint customer_settlements_ledger_transaction_id_fkey',
+      ),
+    );
+    expect(sql, contains('deferrable initially deferred'));
+  });
 }
 
 CustomerSettlementModel _settlement({double amount = 300}) {

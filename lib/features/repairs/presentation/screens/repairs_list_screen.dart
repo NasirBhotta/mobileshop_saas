@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/core/utils/responsive.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/providers/repair_provider.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/repair_payment_model.dart';
 import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
 import 'package:mobileshop_saas/features/accounts/presentation/providers/accounts_provider.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
@@ -169,11 +170,19 @@ class RepairsListScreen extends ConsumerWidget {
   ) {
     final details = _RepairTicketDetails(
       ticket: ticket,
-      onStatusChanged: ({required status, note, totalCost}) async {
+      onStatusChanged: ({
+        required status,
+        note,
+        totalCost,
+        refundAccountId,
+      }) async {
         final controller = ref.read(repairTicketControllerProvider.notifier);
         final updatedTicket =
             status == RepairTicketStatus.cancelled
-                ? await controller.cancelRepair(ticket)
+                ? await controller.cancelRepair(
+                  ticket,
+                  refundAccountId: refundAccountId,
+                )
                 : await controller.updateStatus(
                   ticket: ticket,
                   status: status,
@@ -183,8 +192,7 @@ class RepairsListScreen extends ConsumerWidget {
 
         if (updatedTicket == null) {
           final state = ref.read(repairTicketControllerProvider);
-          final error =
-              state.asError?.error.toString() ?? 'Status update nahi ho saka';
+          final error = _friendlyRepairStatusError(state.asError?.error);
           if (context.mounted) {
             ScaffoldMessenger.of(
               context,
@@ -234,12 +242,35 @@ class RepairsListScreen extends ConsumerWidget {
   }
 }
 
+String _friendlyRepairStatusError(Object? error) {
+  final message = error?.toString().toLowerCase() ?? '';
+  if (message.contains('insufficient refund balance')) {
+    return 'Selected account mein customer refund ke liye balance kam hai.';
+  }
+  if (message.contains('select an account') ||
+      message.contains('refund account is not available')) {
+    return 'Customer refund ke liye valid account select karein.';
+  }
+  if (message.contains('resolve paid supplier amount')) {
+    return 'Supplier ko paid part pehle resolve karein; phir repair cancel hogi.';
+  }
+  if (message.contains('permission') ||
+      message.contains('not allowed') ||
+      message.contains('42501')) {
+    return 'Aap ke paas repair cancel karne ki permission nahi hai.';
+  }
+  return 'Repair cancel nahi ho saki. Records change nahi huay; dobara try karein.';
+}
+
 typedef _StatusChanged =
     Future<bool> Function({
       required RepairTicketStatus status,
       String? note,
       double? totalCost,
+      String? refundAccountId,
     });
+
+typedef _CancellationResolution = ({bool confirmed, String? accountId});
 
 class _RepairTicketDetails extends ConsumerStatefulWidget {
   final RepairTicketModel ticket;
@@ -284,6 +315,9 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
     final statuses = _nextStatuses(ticket.status);
     final selectedStatus = _selectedStatus;
     final paymentsAsync = ref.watch(repairPaymentsProvider(ticket.id));
+    final isReceivingPayment = ref.watch(
+      repairPaymentControllerProvider.select((state) => state.isLoading),
+    );
     final payments = paymentsAsync.value;
     final paid = payments?.fold<double>(
       0,
@@ -303,6 +337,19 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (_isSaving) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 10),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.cloud_sync_outlined, size: 18),
+                    SizedBox(width: 8),
+                    Text('Status update ho raha hai, please wait...'),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
               Row(
                 children: [
                   Expanded(
@@ -366,9 +413,22 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   onPressed:
-                      _isSaving ? null : () => _showPaymentDialog(balance),
-                  icon: const Icon(Icons.payments_outlined),
-                  label: const Text('Receive Payment'),
+                      _isSaving || isReceivingPayment
+                          ? null
+                          : () => _showPaymentDialog(balance),
+                  icon:
+                      isReceivingPayment
+                          ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(Icons.payments_outlined),
+                  label: Text(
+                    isReceivingPayment
+                        ? 'Receiving Payment...'
+                        : 'Receive Payment',
+                  ),
                 ),
               ],
               const SizedBox(height: 12),
@@ -434,7 +494,10 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                           ? const SizedBox(
                             height: 18,
                             width: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
                           : const Icon(Icons.done),
                   label: Text(_isSaving ? 'Updating...' : 'Update Status'),
@@ -671,26 +734,167 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
     }
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) return;
+    String? refundAccountId;
+    if (status == RepairTicketStatus.cancelled) {
+      final resolution = await _showCancellationRefundDialog();
+      if (!mounted || !resolution.confirmed) return;
+      refundAccountId = resolution.accountId;
+    }
 
     setState(() {
       _isSaving = true;
     });
 
-    final updated = await widget.onStatusChanged(
-      status: status,
-      note: _noteController.text,
-      totalCost: null,
-    );
+    var updated = false;
+    try {
+      updated = await widget.onStatusChanged(
+        status: status,
+        note: _noteController.text,
+        totalCost: null,
+        refundAccountId: refundAccountId,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Status update nahi ho saka. Koi record change nahi hua.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
 
     if (!mounted) return;
-
-    setState(() {
-      _isSaving = false;
-    });
-
     if (updated) {
       Navigator.of(context).pop();
     }
+  }
+
+  Future<_CancellationResolution> _showCancellationRefundDialog() async {
+    final results = await Future.wait<Object>([
+      ref.read(repairPaymentsProvider(widget.ticket.id).future),
+      ref.read(accountsProvider.future),
+    ]);
+    if (!mounted) return (confirmed: false, accountId: null);
+    final payments = results[0] as List<RepairPaymentModel>;
+    final paid = payments.fold<double>(
+      0,
+      (sum, payment) => sum + payment.amount,
+    );
+    if (paid <= 0) return (confirmed: true, accountId: null);
+    final accounts =
+        (results[1] as List<AccountModel>)
+            .where(
+              (account) =>
+                  account.isActive &&
+                  account.branchId == widget.ticket.branchId &&
+                  account.currentBalance + 0.01 >= paid,
+            )
+            .toList()
+          ..sort((a, b) {
+            if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
+            return a.name.compareTo(b.name);
+          });
+    String? accountId = accounts.isEmpty ? null : accounts.first.id;
+    bool submitting = false;
+    String? error;
+    final selected = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (dialogContext) => StatefulBuilder(
+            builder:
+                (context, setDialogState) => AlertDialog(
+                  title: const Text('Cancel & refund repair'),
+                  content: SizedBox(
+                    width: 480,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Customer ko Rs ${paid.toStringAsFixed(0)} refund '
+                          'karna zaroori hai.',
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: accountId,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Refund from account / wallet',
+                            border: OutlineInputBorder(),
+                          ),
+                          items:
+                              accounts
+                                  .map(
+                                    (account) => DropdownMenuItem(
+                                      value: account.id,
+                                      child: Text(
+                                        '${account.name} • Rs '
+                                        '${account.currentBalance.toStringAsFixed(0)}',
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged:
+                              submitting
+                                  ? null
+                                  : (value) => setDialogState(() {
+                                    accountId = value;
+                                    error = null;
+                                  }),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Confirm karne par refund ledger, account balance, '
+                          'used inventory parts, supplier payable aur repair '
+                          'profit ek atomic transaction mein reverse honge.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        if (accounts.isEmpty || error != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            error ??
+                                'Kisi active account mein refund ke liye '
+                                    'sufficient balance nahi hai.',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed:
+                          submitting
+                              ? null
+                              : () => Navigator.pop(dialogContext),
+                      child: const Text('Back'),
+                    ),
+                    FilledButton(
+                      onPressed:
+                          submitting || accountId == null
+                              ? null
+                              : () {
+                                setDialogState(() => submitting = true);
+                                Navigator.pop(dialogContext, accountId);
+                              },
+                      child: const Text('Refund & Cancel'),
+                    ),
+                  ],
+                ),
+          ),
+    );
+    return (confirmed: selected != null, accountId: selected);
   }
 
   Future<void> _archive() async {

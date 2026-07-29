@@ -14,7 +14,7 @@ void showSortSheet(BuildContext context, WidgetRef ref) {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (_) => _SortSheet(ref: ref),
+    builder: (_) => const _SortSheet(),
   );
 }
 
@@ -36,7 +36,8 @@ void showSortSheet(BuildContext context, WidgetRef ref) {
 // }
 
 void showDropDown(BuildContext context, WidgetRef ref) {
-  final currentSort = ref.watch(sortOptionProvider);
+  final currentSort = ref.read(sortOptionProvider);
+  final sortController = ref.read(sortOptionProvider.notifier);
 
   showMenu(
     context: context,
@@ -70,18 +71,16 @@ void showDropDown(BuildContext context, WidgetRef ref) {
         }).toList(),
   ).then((selectedOption) {
     if (selectedOption != null) {
-      ref.read(sortOptionProvider.notifier).state = selectedOption;
+      sortController.state = selectedOption;
     }
   });
 }
 
-class _SortSheet extends StatelessWidget {
-  final WidgetRef ref;
-
-  const _SortSheet({required this.ref});
+class _SortSheet extends ConsumerWidget {
+  const _SortSheet();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final currentSort = ref.watch(sortOptionProvider);
 
     return Padding(

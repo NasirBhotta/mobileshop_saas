@@ -299,6 +299,29 @@ class _RefundDecisionPanel extends ConsumerWidget {
     final maxRefund = draft.maxRefundAmount;
     final actualRefund = draft.refundAmount;
     final hasReturnItems = maxRefund > 0;
+    final saleId = draft.sale?.id;
+    final refundPreview =
+        draft.refundMethod == RefundMethod.cash &&
+                actualRefund > 0 &&
+                saleId != null
+            ? ref.watch(
+              returnRefundPreviewProvider((
+                saleId: saleId,
+                refundAmount: actualRefund,
+              )),
+            )
+            : null;
+    final creditCapacity =
+        draft.refundMethod == RefundMethod.credit &&
+                actualRefund > 0 &&
+                saleId != null
+            ? ref.watch(returnCreditCapacityProvider(saleId))
+            : null;
+    final hasRefundDestination =
+        actualRefund <= 0 ||
+        (draft.refundMethod == RefundMethod.cash
+            ? (refundPreview?.value?.isNotEmpty ?? false)
+            : (creditCapacity?.value ?? 0) + 0.01 >= actualRefund);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -358,12 +381,12 @@ class _RefundDecisionPanel extends ConsumerWidget {
               ButtonSegment(
                 value: RefundMethod.cash,
                 icon: Icon(Icons.payments_rounded),
-                label: Text('Cash'),
+                label: Text('Original account'),
               ),
               ButtonSegment(
                 value: RefundMethod.credit,
                 icon: Icon(Icons.account_balance_wallet_rounded),
-                label: Text('Credit'),
+                label: Text('Adjust Khata'),
               ),
             ],
             selected: {draft.refundMethod},
@@ -374,6 +397,15 @@ class _RefundDecisionPanel extends ConsumerWidget {
                         .read(returnDraftProvider.notifier)
                         .setRefundMethod(values.first),
           ),
+          if (actualRefund > 0) ...[
+            const SizedBox(height: 12),
+            _RefundDestinationCard(
+              refundMethod: draft.refundMethod,
+              refundAmount: actualRefund,
+              preview: refundPreview,
+              creditCapacity: creditCapacity,
+            ),
+          ],
           const SizedBox(height: 12),
           TextField(
             controller: overrideReasonController,
@@ -387,7 +419,7 @@ class _RefundDecisionPanel extends ConsumerWidget {
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed:
-                controller.isLoading || !hasReturnItems
+                controller.isLoading || !hasReturnItems || !hasRefundDestination
                     ? null
                     : () => ref
                         .read(returnControllerProvider.notifier)
@@ -403,6 +435,156 @@ class _RefundDecisionPanel extends ConsumerWidget {
                     )
                     : const Icon(Icons.assignment_return_rounded),
             label: Text('Process Return Rs ${actualRefund.toStringAsFixed(0)}'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RefundDestinationCard extends StatelessWidget {
+  final RefundMethod refundMethod;
+  final double refundAmount;
+  final AsyncValue<List<SaleReturnRefundPreviewModel>>? preview;
+  final AsyncValue<double>? creditCapacity;
+
+  const _RefundDestinationCard({
+    required this.refundMethod,
+    required this.refundAmount,
+    required this.preview,
+    required this.creditCapacity,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (refundMethod == RefundMethod.credit) {
+      return creditCapacity!.when(
+        loading:
+            () => const _ReturnFlowCard(
+              icon: Icons.sync_rounded,
+              title: 'Customer Khata check ho raha hai',
+              message: 'Available credit return capacity load ho rahi hai...',
+            ),
+        error:
+            (_, _) => const _ReturnFlowCard(
+              icon: Icons.error_outline_rounded,
+              title: 'Customer Khata unavailable',
+              message: 'Invoice customer aur outstanding verify nahi ho saka.',
+              color: AppColors.error,
+            ),
+        data: (capacity) {
+          final allowed = capacity + 0.01 >= refundAmount;
+          return _ReturnFlowCard(
+            icon:
+                allowed
+                    ? Icons.person_remove_alt_1_rounded
+                    : Icons.error_outline_rounded,
+            title:
+                allowed
+                    ? 'Refund destination: Customer Khata'
+                    : 'Khata refund available nahi',
+            message:
+                allowed
+                    ? 'Cash kisi account se nahi niklega. Customer outstanding '
+                        'se −Rs ${refundAmount.toStringAsFixed(0)} hoga.'
+                    : 'Is invoice ki available Khata capacity '
+                        'Rs ${capacity.toStringAsFixed(0)} hai.',
+            color: allowed ? AppColors.primary : AppColors.error,
+          );
+        },
+      );
+    }
+
+    return preview!.when(
+      loading:
+          () => const _ReturnFlowCard(
+            icon: Icons.sync_rounded,
+            title: 'Refund accounts check ho rahe hain',
+            message: 'Original payment accounts load ho rahe hain...',
+          ),
+      error:
+          (_, _) => const _ReturnFlowCard(
+            icon: Icons.error_outline_rounded,
+            title: 'Refund account unavailable',
+            message:
+                'Original payment account verify nahi hua. Return process na '
+                'karein aur invoice payments check karein.',
+            color: AppColors.error,
+          ),
+      data: (legs) {
+        if (legs.isEmpty) {
+          return const _ReturnFlowCard(
+            icon: Icons.error_outline_rounded,
+            title: 'Refund account nahi mila',
+            message:
+                'Is invoice mein refundable cash/wallet/card payment available '
+                'nahi hai. Adjust Khata select karein ya invoice check karein.',
+            color: AppColors.error,
+          );
+        }
+        final details = legs
+            .map(
+              (leg) =>
+                  '${leg.paymentMethod} • ${leg.accountName}: '
+                  '−Rs ${leg.amount.toStringAsFixed(0)}',
+            )
+            .join('\n');
+        return _ReturnFlowCard(
+          icon: Icons.account_balance_wallet_rounded,
+          title: 'Refund kis account se niklega',
+          message: details,
+        );
+      },
+    );
+  }
+}
+
+class _ReturnFlowCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  final Color color;
+
+  const _ReturnFlowCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.color = AppColors.primary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

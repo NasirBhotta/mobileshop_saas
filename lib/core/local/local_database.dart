@@ -845,6 +845,17 @@ class LocalDatabase {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_repair_payment_ledger
       ON repair_payments(ledger_transaction_id)
     ''');
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS repair_payment_refunds (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL UNIQUE,
+        account_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        ledger_transaction_id TEXT NOT NULL UNIQUE,
+        refunded_by TEXT NOT NULL,
+        refunded_at TEXT NOT NULL
+      )
+    ''');
 
     // ════════════════════════════════════════
     // SUPPLIER TABLES + INDEXES
