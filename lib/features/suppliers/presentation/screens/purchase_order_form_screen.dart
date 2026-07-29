@@ -308,6 +308,7 @@ class _POItemEditor extends StatelessWidget {
             final productFields = <Widget>[
               DropdownButtonFormField<PurchaseProductResolution>(
                 initialValue: draft.resolution,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Item handling',
                   border: OutlineInputBorder(),
@@ -317,7 +318,11 @@ class _POItemEditor extends StatelessWidget {
                         .map(
                           (value) => DropdownMenuItem(
                             value: value,
-                            child: Text(value.label),
+                            child: Text(
+                              value.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         )
                         .toList(),
@@ -331,6 +336,7 @@ class _POItemEditor extends StatelessWidget {
               if (draft.resolution == PurchaseProductResolution.existingProduct)
                 DropdownButtonFormField<String>(
                   initialValue: draft.productId,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Product',
                     border: OutlineInputBorder(),
@@ -339,7 +345,11 @@ class _POItemEditor extends StatelessWidget {
                       products.map<DropdownMenuItem<String>>((product) {
                         return DropdownMenuItem<String>(
                           value: product.id as String,
-                          child: Text('${product.name} (${product.sku})'),
+                          child: Text(
+                            '${product.name} (${product.sku ?? 'No SKU'})',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         );
                       }).toList(),
                   onChanged: (v) {

@@ -450,6 +450,7 @@ class RecurringExpenseRuleModel {
   final double estimatedAmount;
 
   final ExpensePaymentMode paymentMode;
+  final String? accountId;
 
   final String? payee;
   final String? note;
@@ -479,6 +480,7 @@ class RecurringExpenseRuleModel {
     required this.title,
     required this.estimatedAmount,
     this.paymentMode = ExpensePaymentMode.cash,
+    this.accountId,
     this.payee,
     this.note,
     this.frequency = RecurringExpenseFrequency.monthly,
@@ -506,6 +508,7 @@ class RecurringExpenseRuleModel {
           'Recurring Expense',
       estimatedAmount: (map['estimated_amount'] as num?)?.toDouble() ?? 0,
       paymentMode: ExpensePaymentModeX.fromCode(map['payment_mode'] as String?),
+      accountId: map['account_id'] as String?,
       payee: map['payee'] as String?,
       note: map['note'] as String?,
       frequency: RecurringExpenseFrequencyX.fromCode(
@@ -533,6 +536,7 @@ class RecurringExpenseRuleModel {
       'title': title,
       'estimated_amount': estimatedAmount,
       'payment_mode': paymentMode.code,
+      'account_id': accountId,
       'payee': payee,
       'note': note,
       'frequency': frequency.code,

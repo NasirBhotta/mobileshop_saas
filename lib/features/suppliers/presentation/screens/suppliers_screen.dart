@@ -6,7 +6,6 @@ import 'package:mobileshop_saas/features/suppliers/presentation/providers/procur
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/procurement_models.dart';
-import '../../../accounts/data/models/account_models.dart';
 import '../../../accounts/presentation/providers/accounts_provider.dart';
 import '../../../pos/data/models/sale_payment_model.dart';
 import '../../../pos/domain/pos_payment_account_policy.dart';
@@ -332,14 +331,23 @@ class _SupplierErrorView extends StatelessWidget {
   }
 }
 
-class _SupplierCard extends ConsumerWidget {
+class _SupplierCard extends ConsumerStatefulWidget {
   final SupplierModel supplier;
   final bool compact;
 
   const _SupplierCard({required this.supplier, required this.compact});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SupplierCard> createState() => _SupplierCardState();
+}
+
+class _SupplierCardState extends ConsumerState<_SupplierCard> {
+  bool _openingPayment = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final supplier = widget.supplier;
+    final compact = widget.compact;
     final paymentsEnabled =
         ref
             .watch(
@@ -397,8 +405,20 @@ class _SupplierCard extends ConsumerWidget {
               onHistory: () => showSupplierHistoryDialog(context, supplier),
               onPayment:
                   paymentsEnabled
-                      ? () => _showPaymentDialog(context, ref, supplier)
+                      ? _openingPayment
+                          ? null
+                          : () async {
+                            setState(() => _openingPayment = true);
+                            try {
+                              await _showPaymentDialog(context, ref, supplier);
+                            } finally {
+                              if (mounted) {
+                                setState(() => _openingPayment = false);
+                              }
+                            }
+                          }
                       : null,
+              paymentLoading: _openingPayment,
               onNewPo:
                   purchaseOrdersEnabled
                       ? () =>
@@ -416,18 +436,33 @@ class _SupplierCard extends ConsumerWidget {
     WidgetRef ref,
     SupplierModel supplier,
   ) async {
+    final overview = await ref.read(supplierOverviewProvider(supplier).future);
+    final accounts = await ref.read(accountsProvider.future);
+    if (!context.mounted) return;
+
+    final payableOrders =
+        overview.activeOrders
+            .where((order) => overview.payableForOrder(order) > 0.01)
+            .toList();
+    if (payableOrders.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No received PO payment is pending.')),
+      );
+      return;
+    }
+
     final amountController = TextEditingController();
     final noteController = TextEditingController();
     var method = PaymentMethod.cash;
     String? accountId;
+    var purchaseOrderId = payableOrders.first.id;
+    var submitting = false;
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final accounts =
-                ref.read(accountsProvider).value ?? const <AccountModel>[];
             final compatible = PosPaymentAccountPolicy.compatibleAccounts(
               method,
               accounts,
@@ -438,112 +473,226 @@ class _SupplierCard extends ConsumerWidget {
                   method,
                   compatible,
                 )?.id;
-            return AlertDialog(
-              title: const Text('Record Supplier Payment'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: amountController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(labelText: 'Amount'),
-                  ),
-                  DropdownButtonFormField<PaymentMethod>(
-                    initialValue: method,
-                    decoration: const InputDecoration(labelText: 'Method'),
-                    items:
-                        PaymentMethod.values
-                            .where((value) => value != PaymentMethod.credit)
-                            .map(
-                              (value) => DropdownMenuItem(
-                                value: value,
-                                child: Text(value.label),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setDialogState(() {
-                        method = value;
-                        accountId = null;
-                      });
-                    },
-                  ),
-                  DropdownButtonFormField<String>(
-                    initialValue: effectiveAccountId,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: 'Paying Account',
-                      helperText:
-                          compatible.isEmpty
-                              ? 'Create a compatible account first.'
-                              : null,
-                    ),
-                    items:
-                        compatible
-                            .map(
-                              (account) => DropdownMenuItem(
-                                value: account.id,
-                                child: Text(account.name),
-                              ),
-                            )
-                            .toList(),
-                    onChanged:
-                        compatible.isEmpty
-                            ? null
-                            : (value) =>
-                                setDialogState(() => accountId = value),
-                  ),
-                  TextField(
-                    controller: noteController,
-                    decoration: const InputDecoration(
-                      labelText: 'Note optional',
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed:
-                      effectiveAccountId == null
-                          ? null
-                          : () async {
-                            final amount =
-                                double.tryParse(amountController.text.trim()) ??
-                                0;
+            final selectedOrder = payableOrders.firstWhere(
+              (order) => order.id == purchaseOrderId,
+            );
+            final pending = overview.payableForOrder(selectedOrder);
 
-                            final ok = await ref
-                                .read(
-                                  supplierPaymentControllerProvider.notifier,
+            return Dialog(
+              insetPadding: const EdgeInsets.all(16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Record Supplier Payment',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 20),
+                      DropdownButtonFormField<String>(
+                        initialValue: purchaseOrderId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Purchase Order',
+                          border: OutlineInputBorder(),
+                        ),
+                        items:
+                            payableOrders
+                                .map(
+                                  (order) => DropdownMenuItem(
+                                    value: order.id,
+                                    child: Text(
+                                      '${order.poNo} • Pending Rs '
+                                      '${overview.payableForOrder(order).toStringAsFixed(0)}',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
                                 )
-                                .recordPayment(
-                                  supplier: supplier,
-                                  amount: amount,
-                                  method: method.code,
-                                  accountId: effectiveAccountId,
-                                  note: noteController.text,
-                                );
-
-                            if (!context.mounted) return;
-
-                            if (ok) {
-                              Navigator.of(dialogContext).pop();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Payment recorded'),
-                                ),
-                              );
-                            }
-                          },
-                  child: const Text('Save'),
+                                .toList(),
+                        onChanged:
+                            submitting
+                                ? null
+                                : (value) {
+                                  if (value == null) return;
+                                  setDialogState(() {
+                                    purchaseOrderId = value;
+                                    amountController.clear();
+                                  });
+                                },
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'PO total: Rs ${selectedOrder.totalExpectedCost.toStringAsFixed(0)}'
+                        '  •  Received: Rs ${selectedOrder.totalReceivedCost.toStringAsFixed(0)}'
+                        '  •  Paid: Rs ${overview.paidForOrder(selectedOrder.id).toStringAsFixed(0)}'
+                        '  •  Pending: Rs ${pending.toStringAsFixed(0)}',
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: amountController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Amount to send',
+                          helperText:
+                              'Maximum Rs ${pending.toStringAsFixed(0)}',
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<PaymentMethod>(
+                        initialValue: method,
+                        decoration: const InputDecoration(
+                          labelText: 'Method',
+                          border: OutlineInputBorder(),
+                        ),
+                        items:
+                            PaymentMethod.values
+                                .where((value) => value != PaymentMethod.credit)
+                                .map(
+                                  (value) => DropdownMenuItem(
+                                    value: value,
+                                    child: Text(value.label),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged:
+                            submitting
+                                ? null
+                                : (value) {
+                                  if (value == null) return;
+                                  setDialogState(() {
+                                    method = value;
+                                    accountId = null;
+                                  });
+                                },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: effectiveAccountId,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: 'Pay from account / wallet',
+                          border: const OutlineInputBorder(),
+                          helperText:
+                              compatible.isEmpty
+                                  ? 'No ${method.label} account is available.'
+                                  : null,
+                        ),
+                        items:
+                            compatible
+                                .map(
+                                  (account) => DropdownMenuItem(
+                                    value: account.id,
+                                    child: Text(
+                                      '${account.name} • Rs ${account.currentBalance.toStringAsFixed(0)}',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged:
+                            submitting || compatible.isEmpty
+                                ? null
+                                : (value) =>
+                                    setDialogState(() => accountId = value),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: noteController,
+                        decoration: const InputDecoration(
+                          labelText: 'Note optional',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed:
+                                submitting
+                                    ? null
+                                    : () => Navigator.of(dialogContext).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed:
+                                submitting || effectiveAccountId == null
+                                    ? null
+                                    : () async {
+                                      final amount =
+                                          double.tryParse(
+                                            amountController.text.trim(),
+                                          ) ??
+                                          0;
+                                      if (amount <= 0 ||
+                                          amount > pending + 0.01) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Enter amount between Rs 1 and '
+                                              'Rs ${pending.toStringAsFixed(0)}',
+                                            ),
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      setDialogState(() => submitting = true);
+                                      final ok = await ref
+                                          .read(
+                                            supplierPaymentControllerProvider
+                                                .notifier,
+                                          )
+                                          .recordPayment(
+                                            supplier: supplier,
+                                            purchaseOrderId: purchaseOrderId,
+                                            amount: amount,
+                                            method: method.code,
+                                            accountId: effectiveAccountId,
+                                            note: noteController.text,
+                                          );
+                                      if (!context.mounted) return;
+                                      if (ok) {
+                                        Navigator.of(dialogContext).pop();
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Payment recorded'),
+                                          ),
+                                        );
+                                      } else {
+                                        setDialogState(
+                                          () => submitting = false,
+                                        );
+                                      }
+                                    },
+                            child:
+                                submitting
+                                    ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                    : const Text('Send Payment'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
             );
           },
         );
@@ -576,12 +725,14 @@ class _SupplierCardActions extends StatelessWidget {
   final bool compact;
   final VoidCallback onHistory;
   final VoidCallback? onPayment;
+  final bool paymentLoading;
   final VoidCallback? onNewPo;
 
   const _SupplierCardActions({
     required this.compact,
     required this.onHistory,
     required this.onPayment,
+    this.paymentLoading = false,
     required this.onNewPo,
   });
 
@@ -596,10 +747,17 @@ class _SupplierCardActions extends StatelessWidget {
             onPressed: onHistory,
             child: const Text('History', overflow: TextOverflow.ellipsis),
           ),
-          if (onPayment != null)
+          if (onPayment != null || paymentLoading)
             OutlinedButton(
-              onPressed: onPayment,
-              child: const Text('Payment', overflow: TextOverflow.ellipsis),
+              onPressed: paymentLoading ? null : onPayment,
+              child:
+                  paymentLoading
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Text('Payment', overflow: TextOverflow.ellipsis),
             ),
           if (onNewPo != null)
             FilledButton(

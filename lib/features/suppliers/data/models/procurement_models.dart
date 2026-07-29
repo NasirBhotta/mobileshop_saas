@@ -439,6 +439,7 @@ class SupplierPaymentModel {
   final String tenantId;
   final String branchId;
   final String supplierId;
+  final String? purchaseOrderId;
   final double amount;
   final String? method;
   final String? accountId;
@@ -453,6 +454,7 @@ class SupplierPaymentModel {
     required this.tenantId,
     required this.branchId,
     required this.supplierId,
+    this.purchaseOrderId,
     required this.amount,
     this.method,
     this.accountId,
@@ -463,12 +465,31 @@ class SupplierPaymentModel {
     this.createdAt,
   });
 
+  factory SupplierPaymentModel.fromMap(Map<String, dynamic> map) {
+    return SupplierPaymentModel(
+      id: map['id'] as String,
+      tenantId: map['tenant_id'] as String,
+      branchId: map['branch_id'] as String,
+      supplierId: map['supplier_id'] as String,
+      purchaseOrderId: map['purchase_order_id'] as String?,
+      amount: (map['amount'] as num).toDouble(),
+      method: map['method'] as String?,
+      accountId: map['account_id'] as String?,
+      ledgerTransactionId: map['ledger_transaction_id'] as String?,
+      note: map['note'] as String?,
+      paidBy: map['paid_by'] as String?,
+      paidAt: _date(map['paid_at']),
+      createdAt: _date(map['created_at']),
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'tenant_id': tenantId,
       'branch_id': branchId,
       'supplier_id': supplierId,
+      'purchase_order_id': purchaseOrderId,
       'amount': amount,
       'method': method,
       'account_id': accountId,
@@ -478,6 +499,11 @@ class SupplierPaymentModel {
       'paid_at': paidAt?.toIso8601String(),
       'created_at': createdAt?.toIso8601String(),
     };
+  }
+
+  static DateTime? _date(dynamic value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
   }
 }
 
@@ -568,11 +594,13 @@ class SupplierOverviewModel {
   final SupplierModel supplier;
   final List<PurchaseOrderModel> purchaseOrders;
   final List<SupplierLedgerEntryModel> ledgerEntries;
+  final List<SupplierPaymentModel> payments;
 
   const SupplierOverviewModel({
     required this.supplier,
     required this.purchaseOrders,
     required this.ledgerEntries,
+    this.payments = const [],
   });
 
   Iterable<PurchaseOrderModel> get activeOrders =>
@@ -603,6 +631,16 @@ class SupplierOverviewModel {
             entry.entryType == 'supplier_payment',
       )
       .fold(0, (total, entry) => total + entry.amount);
+
+  double paidForOrder(String purchaseOrderId) => payments
+      .where((payment) => payment.purchaseOrderId == purchaseOrderId)
+      .fold(0, (total, payment) => total + payment.amount);
+
+  double payableForOrder(PurchaseOrderModel order) =>
+      (order.totalReceivedCost - paidForOrder(order.id)).clamp(
+        0,
+        double.infinity,
+      );
 
   double get statementBalance =>
       ledgerEntries.fold(0, (total, entry) => total + entry.signedAmount);

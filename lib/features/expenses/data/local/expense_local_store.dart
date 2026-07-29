@@ -1,5 +1,7 @@
 import 'package:mobileshop_saas/core/local/local_database.dart';
+import 'package:uuid/uuid.dart';
 
+import 'expense_local_ledger_committer.dart';
 import '../models/expense_models.dart';
 
 class ExpenseLocalStore {
@@ -376,6 +378,7 @@ class ExpenseLocalStore {
         title,
         estimated_amount,
         payment_mode,
+        account_id,
         payee,
         note,
         frequency,
@@ -389,7 +392,7 @@ class ExpenseLocalStore {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         rule.id,
@@ -400,6 +403,7 @@ class ExpenseLocalStore {
         rule.title,
         rule.estimatedAmount,
         rule.paymentMode.code,
+        rule.accountId,
         rule.payee,
         rule.note,
         rule.frequency.code,
@@ -530,29 +534,33 @@ class ExpenseLocalStore {
 
     var createdCount = 0;
 
-    await LocalDatabase.execute(
+    final dueDrafts = await LocalDatabase.select(
       '''
-      UPDATE expenses
-      SET status = ?,
-          confirmed_by = COALESCE(confirmed_by, ?),
-          confirmed_at = COALESCE(confirmed_at, ?),
-          updated_at = ?
-      WHERE branch_id = ?
-        AND source = ?
-        AND status = ?
-        AND expense_date <= ?
+      SELECT expense.id, rule.account_id
+      FROM expenses expense
+      JOIN recurring_expense_rules rule
+        ON rule.id = expense.recurring_rule_id
+      WHERE expense.branch_id = ?
+        AND expense.source = ?
+        AND expense.status = ?
+        AND expense.expense_date <= ?
+        AND rule.account_id IS NOT NULL
       ''',
       [
-        ExpenseStatus.confirmed.code,
-        userId,
-        today.toIso8601String(),
-        today.toIso8601String(),
         branchId,
         ExpenseSource.recurring.code,
         ExpenseStatus.draft.code,
         _dateOnly(today),
       ],
     );
+    for (final draft in dueDrafts) {
+      await ExpenseLocalLedgerCommitter.confirm(
+        expenseId: draft['id'] as String,
+        accountId: draft['account_id'] as String,
+        ledgerTransactionId: const Uuid().v4(),
+        confirmedBy: userId,
+      );
+    }
 
     for (final rule in rules) {
       final reminderDate = today.add(Duration(days: rule.reminderDaysBefore));
@@ -569,9 +577,10 @@ class ExpenseLocalStore {
           final now = DateTime.now();
           final isDue = !dueDate.isAfter(today);
 
+          final expenseId = _localId();
           await saveExpense(
             ExpenseModel(
-              id: _localId(),
+              id: expenseId,
               tenantId: tenantId,
               branchId: branchId,
               categoryId: rule.categoryId,
@@ -582,17 +591,23 @@ class ExpenseLocalStore {
               paymentMode: rule.paymentMode,
               payee: rule.payee,
               notes: rule.note,
-              status: isDue ? ExpenseStatus.confirmed : ExpenseStatus.draft,
+              status: ExpenseStatus.draft,
               source: ExpenseSource.recurring,
               recurringRuleId: rule.id,
               recurringDueDate: dueDate,
               createdBy: userId,
-              confirmedBy: isDue ? userId : null,
-              confirmedAt: isDue ? now : null,
               createdAt: now,
               updatedAt: now,
             ),
           );
+          if (isDue && rule.accountId != null) {
+            await ExpenseLocalLedgerCommitter.confirm(
+              expenseId: expenseId,
+              accountId: rule.accountId!,
+              ledgerTransactionId: const Uuid().v4(),
+              confirmedBy: userId,
+            );
+          }
           createdCount++;
         }
 

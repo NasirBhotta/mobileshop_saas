@@ -216,6 +216,18 @@ class ProcurementLocalStore {
     );
   }
 
+  static Future<void> markPurchaseOrderCancelled(String poId) async {
+    final now = DateTime.now().toIso8601String();
+    await LocalDatabase.execute(
+      '''
+      UPDATE purchase_orders
+      SET status = ?, cancelled_at = ?, updated_at = ?
+      WHERE id = ?
+      ''',
+      [PurchaseOrderStatus.cancelled.code, now, now, poId],
+    );
+  }
+
   static Future<void> applyReceiptLocally({
     required PurchaseOrderModel po,
     required String receiptId,
@@ -482,17 +494,18 @@ class ProcurementLocalStore {
     await LocalDatabase.execute(
       '''
       INSERT OR REPLACE INTO supplier_payments(
-        id, tenant_id, branch_id, supplier_id, amount,
+        id, tenant_id, branch_id, supplier_id, purchase_order_id, amount,
         method, account_id, ledger_transaction_id, note, paid_by, paid_at,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         payment.id,
         payment.tenantId,
         payment.branchId,
         payment.supplierId,
+        payment.purchaseOrderId,
         payment.amount,
         payment.method,
         payment.accountId,
@@ -503,11 +516,20 @@ class ProcurementLocalStore {
         payment.createdAt?.toIso8601String(),
       ],
     );
+  }
 
-    await updateSupplierBalance(
-      supplierId: payment.supplierId,
-      delta: -payment.amount,
+  static Future<List<SupplierPaymentModel>> loadSupplierPayments(
+    String supplierId,
+  ) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM supplier_payments
+      WHERE supplier_id = ?
+      ORDER BY paid_at DESC, created_at DESC
+      ''',
+      [supplierId],
     );
+    return rows.map(SupplierPaymentModel.fromMap).toList();
   }
 
   static Future<List<SupplierLedgerEntryModel>> loadSupplierLedger(

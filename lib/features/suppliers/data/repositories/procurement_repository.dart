@@ -17,6 +17,7 @@ class ProcurementRepository {
   // Procurement RPCs perform multiple transactional writes. A 1.2 second
   // timeout was short enough to classify successful server commits as offline.
   static const _networkTimeout = Duration(seconds: 8);
+  static Future<void>? _procurementSyncInFlight;
 
   final SupabaseClient _client;
   final ProcurementEntitlementGate _entitlements;
@@ -154,8 +155,7 @@ class ProcurementRepository {
 
     final cached = await ProcurementLocalStore.loadSuppliers(tenantId);
     if (cached.isNotEmpty) {
-      unawaited(_refreshSuppliers(tenantId));
-      unawaited(syncOfflineMutations());
+      unawaited(_syncThenRefreshSuppliers(tenantId));
       return cached;
     }
 
@@ -164,6 +164,12 @@ class ProcurementRepository {
     } catch (_) {
       return ProcurementLocalStore.loadSuppliers(tenantId);
     }
+  }
+
+  Future<void> _syncThenRefreshSuppliers(String tenantId) async {
+    await syncOfflineMutations();
+    if (await _hasPendingProcurementMutations()) return;
+    await _refreshSuppliers(tenantId);
   }
 
   Future<SupplierOverviewModel> fetchSupplierOverview(
@@ -190,6 +196,19 @@ class ProcurementRepository {
           SupplierLedgerEntryModel.fromMap(row),
         );
       }
+      final paymentRows = await _client
+          .from('supplier_payments')
+          .select()
+          .eq('tenant_id', supplier.tenantId)
+          .eq('branch_id', branchId)
+          .eq('supplier_id', supplier.id)
+          .order('paid_at', ascending: false)
+          .timeout(_networkTimeout);
+      for (final row in paymentRows as List) {
+        await ProcurementLocalStore.saveSupplierPayment(
+          SupplierPaymentModel.fromMap(row),
+        );
+      }
     } catch (error) {
       OfflineErrorClassifier.rethrowIfTerminal(error);
       debugPrint('Supplier overview using offline data: $error');
@@ -197,6 +216,9 @@ class ProcurementRepository {
 
     final orders = await ProcurementLocalStore.loadPurchaseOrders(branchId);
     final ledger = await ProcurementLocalStore.loadSupplierLedger(supplier.id);
+    final payments = await ProcurementLocalStore.loadSupplierPayments(
+      supplier.id,
+    );
     final currentSupplier =
         await ProcurementLocalStore.loadSupplierById(supplier.id) ?? supplier;
     return SupplierOverviewModel(
@@ -204,6 +226,7 @@ class ProcurementRepository {
       purchaseOrders:
           orders.where((order) => order.supplierId == supplier.id).toList(),
       ledgerEntries: ledger,
+      payments: payments,
     );
   }
 
@@ -347,8 +370,9 @@ class ProcurementRepository {
     );
 
     if (cached.isNotEmpty) {
-      unawaited(_refreshPurchaseOrders(tenantId, branchId, status: status));
-      unawaited(syncOfflineMutations());
+      unawaited(
+        _syncThenRefreshPurchaseOrders(tenantId, branchId, status: status),
+      );
       return cached;
     }
 
@@ -361,6 +385,29 @@ class ProcurementRepository {
     } catch (_) {
       return ProcurementLocalStore.loadPurchaseOrders(branchId, status: status);
     }
+  }
+
+  Future<void> _syncThenRefreshPurchaseOrders(
+    String tenantId,
+    String branchId, {
+    PurchaseOrderStatus? status,
+  }) async {
+    await syncOfflineMutations();
+    if (await _hasPendingProcurementMutations()) return;
+    await _refreshPurchaseOrders(tenantId, branchId, status: status);
+  }
+
+  Future<bool> _hasPendingProcurementMutations() async {
+    const types = {
+      'upsert_supplier',
+      'create_purchase_order',
+      'mark_po_sent',
+      'receive_po_goods',
+      'record_supplier_payment',
+      'reverse_purchase_order',
+    };
+    final pending = await OfflineStore.loadMutations(_currentUser.id);
+    return pending.any((mutation) => types.contains(mutation.type));
   }
 
   Future<PurchaseOrderModel?> fetchPurchaseOrderById(String poId) async {
@@ -487,6 +534,65 @@ class ProcurementRepository {
     }
   }
 
+  Future<void> reversePurchaseOrder({
+    required PurchaseOrderModel po,
+    required String resolution,
+    required String reason,
+    String? recoveryAccountId,
+  }) async {
+    await _entitlements.require('procurement.purchase_orders');
+    if (reason.trim().isEmpty) {
+      throw Exception('Cancellation/return reason is required.');
+    }
+    final reversalId = const Uuid().v4();
+    final recoveryLedgerId =
+        resolution == 'supplier_refund' ? const Uuid().v4() : null;
+    try {
+      await _client
+          .rpc(
+            'reverse_purchase_order_v1',
+            params: {
+              'p_po_id': po.id,
+              'p_reversal_id': reversalId,
+              'p_resolution': resolution,
+              'p_reason': reason.trim(),
+              'p_recovery_account_id': recoveryAccountId,
+              'p_recovery_ledger_transaction_id': recoveryLedgerId,
+            },
+          )
+          .timeout(_networkTimeout);
+    } catch (error) {
+      OfflineErrorClassifier.rethrowIfTerminal(error);
+      if (po.totalReceivedCost > 0) {
+        throw StateError(
+          'Received PO return needs internet so stock, payable and refund '
+          'can be reversed atomically.',
+        );
+      }
+      await ProcurementLocalStore.markPurchaseOrderCancelled(po.id);
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'reverse_purchase_order',
+        payload: {
+          'po_id': po.id,
+          'reversal_id': reversalId,
+          'resolution': resolution,
+          'reason': reason.trim(),
+          'recovery_account_id': recoveryAccountId,
+          'recovery_ledger_transaction_id': recoveryLedgerId,
+        },
+      );
+      return;
+    }
+    try {
+      await fetchPurchaseOrderById(po.id);
+    } catch (error) {
+      // The atomic RPC has already committed. A follow-up cache refresh must
+      // not report the completed reversal itself as failed.
+      debugPrint('PO reversed; follow-up cache refresh failed: $error');
+    }
+  }
+
   Future<void> receiveGoods({
     required PurchaseOrderModel po,
     String? note,
@@ -541,6 +647,7 @@ class ProcurementRepository {
     required SupplierModel supplier,
     required double amount,
     required String accountId,
+    required String purchaseOrderId,
     String? method,
     String? note,
   }) async {
@@ -556,6 +663,7 @@ class ProcurementRepository {
       tenantId: tenantId,
       branchId: branchId,
       supplierId: supplier.id,
+      purchaseOrderId: purchaseOrderId,
       amount: amount,
       method: _clean(method),
       accountId: accountId,
@@ -571,12 +679,13 @@ class ProcurementRepository {
     try {
       await _client
           .rpc(
-            'record_supplier_payment_v2',
+            'record_supplier_payment_v3',
             params: {
               'p_payment_id': payment.id,
               'p_tenant_id': tenantId,
               'p_branch_id': branchId,
               'p_supplier_id': supplier.id,
+              'p_purchase_order_id': purchaseOrderId,
               'p_amount': amount,
               'p_method': _clean(method),
               'p_note': _clean(note),
@@ -597,18 +706,42 @@ class ProcurementRepository {
   }
 
   Future<void> syncOfflineMutations() async {
+    final running = _procurementSyncInFlight;
+    if (running != null) return running;
+    final operation = _syncOfflineMutationsInternal();
+    _procurementSyncInFlight = operation;
+    try {
+      await operation;
+    } finally {
+      if (identical(_procurementSyncInFlight, operation)) {
+        _procurementSyncInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _syncOfflineMutationsInternal() async {
     final userId = _currentUser.id;
     final mutations = await OfflineStore.loadMutations(userId);
     if (mutations.isEmpty) return;
 
     final remaining = <OfflineMutation>[];
     final failedPurchaseOrderIds = <String>{};
+    final failedSupplierIds = <String>{};
 
     for (final mutation in mutations) {
       final dependentPoId = switch (mutation.type) {
         'mark_po_sent' => mutation.payload['po_id'] as String?,
+        'reverse_purchase_order' => mutation.payload['po_id'] as String?,
         'receive_po_goods' =>
           (mutation.payload['po'] as Map?)?['id'] as String?,
+        'record_supplier_payment' =>
+          mutation.payload['purchase_order_id'] as String?,
+        _ => null,
+      };
+      final dependentSupplierId = switch (mutation.type) {
+        'create_purchase_order' =>
+          (mutation.payload['po'] as Map?)?['supplier_id'] as String?,
+        'record_supplier_payment' => mutation.payload['supplier_id'] as String?,
         _ => null,
       };
 
@@ -617,6 +750,14 @@ class ProcurementRepository {
       if (dependentPoId != null &&
           failedPurchaseOrderIds.contains(dependentPoId)) {
         remaining.add(mutation);
+        continue;
+      }
+      if (dependentSupplierId != null &&
+          failedSupplierIds.contains(dependentSupplierId)) {
+        remaining.add(mutation);
+        if (dependentPoId != null) {
+          failedPurchaseOrderIds.add(dependentPoId);
+        }
         continue;
       }
 
@@ -686,14 +827,31 @@ class ProcurementRepository {
             );
             break;
 
+          case 'reverse_purchase_order':
+            await _client.rpc(
+              'reverse_purchase_order_v1',
+              params: {
+                'p_po_id': mutation.payload['po_id'],
+                'p_reversal_id': mutation.payload['reversal_id'],
+                'p_resolution': mutation.payload['resolution'],
+                'p_reason': mutation.payload['reason'],
+                'p_recovery_account_id':
+                    mutation.payload['recovery_account_id'],
+                'p_recovery_ledger_transaction_id':
+                    mutation.payload['recovery_ledger_transaction_id'],
+              },
+            );
+            break;
+
           case 'record_supplier_payment':
             await _client.rpc(
-              'record_supplier_payment_v2',
+              'record_supplier_payment_v3',
               params: {
                 'p_payment_id': mutation.payload['id'],
                 'p_tenant_id': mutation.payload['tenant_id'],
                 'p_branch_id': mutation.payload['branch_id'],
                 'p_supplier_id': mutation.payload['supplier_id'],
+                'p_purchase_order_id': mutation.payload['purchase_order_id'],
                 'p_amount': mutation.payload['amount'],
                 'p_method': mutation.payload['method'],
                 'p_note': mutation.payload['note'],
@@ -709,10 +867,16 @@ class ProcurementRepository {
         }
       } catch (e) {
         debugPrint('Procurement sync failed: $e');
-        if (mutation.type == 'create_purchase_order') {
+        if (dependentPoId != null) {
+          failedPurchaseOrderIds.add(dependentPoId);
+        } else if (mutation.type == 'create_purchase_order') {
           final po = mutation.payload['po'] as Map?;
           final poId = po?['id'] as String?;
           if (poId != null) failedPurchaseOrderIds.add(poId);
+        }
+        if (mutation.type == 'upsert_supplier') {
+          final supplierId = mutation.payload['id'] as String?;
+          if (supplierId != null) failedSupplierIds.add(supplierId);
         }
         remaining.add(mutation);
       }

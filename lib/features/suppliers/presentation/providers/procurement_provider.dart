@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
+import 'package:mobileshop_saas/features/accounts/presentation/providers/accounts_provider.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
@@ -127,7 +128,10 @@ class PurchaseOrderController
           );
 
       state = AsyncData(po);
-      _ref.invalidate(purchaseOrdersProvider);
+      _ref
+        ..invalidate(purchaseOrdersProvider)
+        ..invalidate(suppliersProvider)
+        ..invalidate(supplierOverviewProvider);
       return po;
     } catch (e, st) {
       state = AsyncError(e, st);
@@ -142,9 +146,43 @@ class PurchaseOrderController
       await _requireProcurement(_ref, 'procurement.purchase_orders');
       await _ref.read(procurementRepositoryProvider).markPurchaseOrderSent(po);
       state = AsyncData(po.copyWith(status: PurchaseOrderStatus.sent));
-      _ref.invalidate(purchaseOrdersProvider);
+      _ref
+        ..invalidate(purchaseOrdersProvider)
+        ..invalidate(supplierOverviewProvider);
     } catch (e, st) {
       state = AsyncError(e, st);
+    }
+  }
+
+  Future<bool> reversePO({
+    required PurchaseOrderModel po,
+    required String resolution,
+    required String reason,
+    String? recoveryAccountId,
+  }) async {
+    if (state.isLoading) return false;
+    state = const AsyncLoading();
+    try {
+      await _requireProcurement(_ref, 'procurement.purchase_orders');
+      await _ref
+          .read(procurementRepositoryProvider)
+          .reversePurchaseOrder(
+            po: po,
+            resolution: resolution,
+            reason: reason,
+            recoveryAccountId: recoveryAccountId,
+          );
+      state = AsyncData(po.copyWith(status: PurchaseOrderStatus.cancelled));
+      _ref
+        ..invalidate(purchaseOrdersProvider)
+        ..invalidate(suppliersProvider)
+        ..invalidate(supplierOverviewProvider);
+      invalidateProductListProviders(_ref);
+      _ref.invalidate(accountsProvider);
+      return true;
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+      return false;
     }
   }
 }
@@ -177,7 +215,10 @@ class ReceiveGoodsController extends StateNotifier<AsyncValue<void>> {
           .refreshCurrentProductsCache();
 
       state = const AsyncData(null);
-      _ref.invalidate(purchaseOrdersProvider);
+      _ref
+        ..invalidate(purchaseOrdersProvider)
+        ..invalidate(suppliersProvider)
+        ..invalidate(supplierOverviewProvider);
       invalidateProductListProviders(_ref);
       return true;
     } catch (e, st) {
@@ -201,6 +242,7 @@ class SupplierPaymentController extends StateNotifier<AsyncValue<void>> {
     required SupplierModel supplier,
     required double amount,
     required String accountId,
+    required String purchaseOrderId,
     String? method,
     String? note,
   }) async {
@@ -220,12 +262,15 @@ class SupplierPaymentController extends StateNotifier<AsyncValue<void>> {
             supplier: supplier,
             amount: amount,
             accountId: accountId,
+            purchaseOrderId: purchaseOrderId,
             method: method,
             note: note,
           );
 
       state = const AsyncData(null);
-      _ref.invalidate(suppliersProvider);
+      _ref
+        ..invalidate(suppliersProvider)
+        ..invalidate(supplierOverviewProvider);
       return true;
     } catch (e, st) {
       state = AsyncError(e, st);
@@ -259,23 +304,10 @@ class ProcurementSyncController extends StateNotifier<AsyncValue<void>> {
         }
       }
 
-      await Future.wait([
-        safelyRefresh(
-          repository.refreshCurrentSuppliersCache(
-            timeout: const Duration(seconds: 10),
-          ),
-        ),
-        safelyRefresh(
-          repository.refreshCurrentPurchaseOrdersCache(
-            status: _ref.read(selectedPOStatusProvider),
-            timeout: const Duration(seconds: 10),
-          ),
-        ),
-      ]);
-
       _ref
         ..invalidate(suppliersProvider)
-        ..invalidate(purchaseOrdersProvider);
+        ..invalidate(purchaseOrdersProvider)
+        ..invalidate(supplierOverviewProvider);
       await Future.wait([
         safelyRefresh(_ref.read(suppliersProvider.future)),
         safelyRefresh(_ref.read(purchaseOrdersProvider.future)),

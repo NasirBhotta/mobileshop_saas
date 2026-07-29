@@ -16,6 +16,7 @@ class SupplierPaymentLocalCommitter {
       if (existing.isNotEmpty) {
         final row = existing.single;
         if (row['supplier_id'] != payment.supplierId ||
+            row['purchase_order_id'] != payment.purchaseOrderId ||
             (row['amount'] as num).toDouble() != payment.amount ||
             row['account_id'] != payment.accountId ||
             row['ledger_transaction_id'] != payment.ledgerTransactionId) {
@@ -58,19 +59,46 @@ class SupplierPaymentLocalCommitter {
       if (outstanding + 0.01 < payment.amount) {
         throw StateError('Payment exceeds supplier outstanding balance.');
       }
+      final purchaseOrderId = payment.purchaseOrderId;
+      if (purchaseOrderId != null) {
+        final poRows = await LocalDatabase.select(
+          '''
+        SELECT * FROM purchase_orders
+        WHERE id = ? AND supplier_id = ? AND branch_id = ?
+        LIMIT 1
+        ''',
+          [purchaseOrderId, payment.supplierId, payment.branchId],
+        );
+        if (poRows.isEmpty) throw StateError('Purchase order not found.');
+        final paidRows = await LocalDatabase.select(
+          '''
+        SELECT COALESCE(SUM(amount), 0) AS paid
+        FROM supplier_payments WHERE purchase_order_id = ?
+        ''',
+          [purchaseOrderId],
+        );
+        final received =
+            (poRows.single['total_received_cost'] as num?)?.toDouble() ?? 0;
+        final paid = (paidRows.single['paid'] as num).toDouble();
+        if (received - paid + 0.01 < payment.amount) {
+          throw StateError('Payment exceeds purchase order pending amount.');
+        }
+      }
 
       await LocalDatabase.execute(
         '''
         INSERT INTO supplier_payments(
-          id, tenant_id, branch_id, supplier_id, amount, method, account_id,
+          id, tenant_id, branch_id, supplier_id, purchase_order_id, amount,
+          method, account_id,
           ledger_transaction_id, note, paid_by, paid_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''',
         [
           payment.id,
           payment.tenantId,
           payment.branchId,
           payment.supplierId,
+          purchaseOrderId,
           payment.amount,
           payment.method,
           accountId,

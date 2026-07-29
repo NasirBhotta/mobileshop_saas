@@ -5,6 +5,9 @@ import 'package:mobileshop_saas/features/expenses/presentation/providers/expense
 import 'package:mobileshop_saas/features/expenses/presentation/widgets/expense_category_dialog.dart';
 
 import '../../data/models/expense_models.dart';
+import '../../domain/expense_account_policy.dart';
+import '../../../accounts/data/models/account_models.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
 
 class RecurringExpenseFormScreen extends ConsumerStatefulWidget {
   const RecurringExpenseFormScreen({super.key});
@@ -29,6 +32,7 @@ class _RecurringExpenseFormScreenState
   String? _selectedCategoryName;
 
   ExpensePaymentMode _paymentMode = ExpensePaymentMode.cash;
+  String? _accountId;
   RecurringExpenseFrequency _frequency = RecurringExpenseFrequency.monthly;
 
   DateTime _startDate = DateTime.now();
@@ -53,6 +57,15 @@ class _RecurringExpenseFormScreenState
     final categoriesAsync = ref.watch(expenseCategoriesProvider);
     final ruleState = ref.watch(recurringExpenseControllerProvider);
     final categoryState = ref.watch(expenseCategoryControllerProvider);
+    final accounts =
+        ref.watch(accountsProvider).value ?? const <AccountModel>[];
+    final compatibleAccounts = ExpenseAccountPolicy.compatible(
+      _paymentMode,
+      accounts,
+    );
+    final effectiveAccountId =
+        _accountId ??
+        ExpenseAccountPolicy.suggested(_paymentMode, compatibleAccounts)?.id;
 
     final saving = ruleState.isLoading || categoryState.isLoading;
 
@@ -310,8 +323,45 @@ class _RecurringExpenseFormScreenState
                                       ? null
                                       : (value) {
                                         if (value == null) return;
-                                        setState(() => _paymentMode = value);
+                                        setState(() {
+                                          _paymentMode = value;
+                                          _accountId = null;
+                                        });
                                       },
+                            ),
+                            DropdownButtonFormField<String>(
+                              initialValue: effectiveAccountId,
+                              isExpanded: true,
+                              decoration: InputDecoration(
+                                labelText: 'Paying Account',
+                                border: const OutlineInputBorder(),
+                                helperText:
+                                    compatibleAccounts.isEmpty
+                                        ? 'Create a compatible account first.'
+                                        : 'Each due expense is deducted from this account.',
+                              ),
+                              items:
+                                  compatibleAccounts
+                                      .map(
+                                        (account) => DropdownMenuItem(
+                                          value: account.id,
+                                          child: Text(
+                                            '${account.name} • Rs ${account.currentBalance.toStringAsFixed(0)}',
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                              validator:
+                                  (_) =>
+                                      effectiveAccountId == null
+                                          ? 'Select a paying account'
+                                          : null,
+                              onChanged:
+                                  saving || compatibleAccounts.isEmpty
+                                      ? null
+                                      : (value) =>
+                                          setState(() => _accountId = value),
                             ),
                             TextFormField(
                               controller: _payeeController,
@@ -406,6 +456,16 @@ class _RecurringExpenseFormScreenState
     final amount = double.parse(_amountController.text.trim());
     final interval = int.parse(_intervalController.text.trim());
     final reminderDays = int.parse(_reminderController.text.trim());
+    final accounts = ref.read(accountsProvider).value ?? const <AccountModel>[];
+    final accountId =
+        _accountId ??
+        ExpenseAccountPolicy.suggested(_paymentMode, accounts)?.id;
+    if (accountId == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Select a paying account')));
+      return;
+    }
 
     if (_endDate != null && _endDate!.isBefore(_startDate)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -424,6 +484,7 @@ class _RecurringExpenseFormScreenState
           categoryId: _selectedCategoryId,
           estimatedAmount: amount,
           paymentMode: _paymentMode,
+          accountId: accountId,
           payee: _payeeController.text,
           note: _noteController.text,
           frequency: _frequency,

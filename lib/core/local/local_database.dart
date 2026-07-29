@@ -895,7 +895,6 @@ class LocalDatabase {
         UNIQUE(supplier_id, product_id)
       )
     ''');
-
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS purchase_orders (
         id TEXT PRIMARY KEY,
@@ -1003,6 +1002,7 @@ class LocalDatabase {
         tenant_id TEXT NOT NULL,
         branch_id TEXT NOT NULL,
         supplier_id TEXT NOT NULL,
+        purchase_order_id TEXT,
         amount REAL NOT NULL,
         method TEXT,
         account_id TEXT,
@@ -1013,6 +1013,11 @@ class LocalDatabase {
         created_at TEXT
       )
     ''');
+    await _addColumnIfMissing(
+      table: 'supplier_payments',
+      column: 'purchase_order_id',
+      definition: 'TEXT',
+    );
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS supplier_ledger_entries (
         id TEXT PRIMARY KEY,
@@ -1215,6 +1220,7 @@ class LocalDatabase {
         title TEXT NOT NULL,
         estimated_amount REAL NOT NULL DEFAULT 0,
         payment_mode TEXT NOT NULL DEFAULT 'cash',
+        account_id TEXT,
         payee TEXT,
         note TEXT,
         frequency TEXT NOT NULL DEFAULT 'monthly',
@@ -1229,6 +1235,11 @@ class LocalDatabase {
         updated_at TEXT
       )
     ''');
+    await _addColumnIfMissing(
+      table: 'recurring_expense_rules',
+      column: 'account_id',
+      definition: 'TEXT',
+    );
     // ════════════════════════════════════════
     // REPORTING & ANALYTICS
     // ════════════════════════════════════════
