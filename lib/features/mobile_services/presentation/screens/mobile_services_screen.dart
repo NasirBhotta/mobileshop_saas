@@ -318,6 +318,28 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
     final isManual =
         selectedRule?.calculationMethod ==
         ServiceChargeCalculationMethod.manual;
+    final selectedCashAccount =
+        widget.accounts
+            .where((account) => account.id == _cashAccountId)
+            .firstOrNull;
+    final preview = form.preview;
+    final balanceError =
+        preview == null
+            ? null
+            : form.operation == MobileServiceOperation.send &&
+                selectedWallet != null &&
+                selectedWallet.currentBalance + 0.01 < preview.serviceAmount
+            ? 'You cannot send this amount. ${selectedWallet.name} balance is '
+                'Rs ${_money(selectedWallet.currentBalance)}, but '
+                'Rs ${_money(preview.serviceAmount)} is required.'
+            : form.operation == MobileServiceOperation.receive &&
+                selectedCashAccount != null &&
+                selectedCashAccount.currentBalance + 0.01 <
+                    preview.customerCashAmount
+            ? 'You cannot pay this customer. ${selectedCashAccount.name} '
+                'balance is Rs ${_money(selectedCashAccount.currentBalance)}, '
+                'but Rs ${_money(preview.customerCashAmount)} is required.'
+            : null;
 
     return Card(
       child: Padding(
@@ -473,15 +495,22 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
+            if (balanceError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                balanceError,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
             if (form.preview != null && selectedProvider != null) ...[
               const SizedBox(height: 16),
               _PreviewCard(
                 preview: form.preview!,
                 provider: selectedProvider,
-                cashAccount:
-                    widget.accounts
-                        .where((account) => account.id == _cashAccountId)
-                        .firstOrNull,
+                cashAccount: selectedCashAccount,
                 walletAccount: selectedWallet,
               ),
             ],
@@ -494,7 +523,8 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
                             !form.canSubmit ||
                             _cashAccountId == null ||
                             selectedWallet == null ||
-                            !selectedWallet.isActive
+                            !selectedWallet.isActive ||
+                            balanceError != null
                         ? null
                         : () => _confirmAndSubmit(context),
                 icon: const Icon(Icons.check_circle_outline_rounded),

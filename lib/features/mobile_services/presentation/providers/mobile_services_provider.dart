@@ -483,6 +483,32 @@ class MobileServiceActionController
       );
       return false;
     }
+    final preview = form.preview!;
+    final accounts = _ref.read(accountsProvider).value ?? const [];
+    final cashAccount =
+        accounts.where((account) => account.id == cashAccountId).firstOrNull;
+    final walletAccount =
+        accounts
+            .where((account) => account.id == provider.providerAccountId)
+            .firstOrNull;
+    final insufficientMessage =
+        form.operation == MobileServiceOperation.send &&
+                walletAccount != null &&
+                walletAccount.currentBalance + 0.01 < preview.serviceAmount
+            ? 'Insufficient provider wallet balance. Available '
+                'Rs ${walletAccount.currentBalance.toStringAsFixed(2)}, '
+                'required Rs ${preview.serviceAmount.toStringAsFixed(2)}.'
+            : form.operation == MobileServiceOperation.receive &&
+                cashAccount != null &&
+                cashAccount.currentBalance + 0.01 < preview.customerCashAmount
+            ? 'Insufficient cash balance. Available '
+                'Rs ${cashAccount.currentBalance.toStringAsFixed(2)}, '
+                'required Rs ${preview.customerCashAmount.toStringAsFixed(2)}.'
+            : null;
+    if (insufficientMessage != null) {
+      state = AsyncError(StateError(insufficientMessage), StackTrace.current);
+      return false;
+    }
 
     state = const AsyncLoading();
     final command = RecordMobileServiceTransactionCommand.create(
