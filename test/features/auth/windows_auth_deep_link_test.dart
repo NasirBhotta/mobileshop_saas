@@ -9,7 +9,7 @@ void main() {
     expect(source, contains('L"io.supabase.mobileshop"'));
     expect(source, contains('HKEY_CURRENT_USER'));
     expect(source, contains('L"URL Protocol"'));
-    expect(source, contains('L"\\\" \\\"%1\\\""'));
+    expect(source, contains('L"\\" \\"%1\\""'));
     expect(source, contains('SendAppLinkToInstance()'));
     expect(
       source.indexOf('RegisterAuthProtocol();'),

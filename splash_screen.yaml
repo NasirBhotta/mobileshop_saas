@@ -1,6 +1,14 @@
 flutter_native_splash:
-  color: "#FFFFFF"      # Light mode background
-  color_dark: "#121212" # Dark mode background
+  # Keep the native launch window aligned with the app's light startup screen.
+  # A dark-only background looks like a hung black screen before Flutter draws.
+  color: "#F7F5F0"
+  color_dark: "#F7F5F0"
+  image: assets/icon/app_icon.png
 
   android: true
   ios: true
+
+  android_12:
+    color: "#F7F5F0"
+    color_dark: "#F7F5F0"
+    image: assets/icon/app_icon.png

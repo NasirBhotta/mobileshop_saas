@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/accounts/presentation/screens/accounts_screen.dart';
@@ -68,6 +68,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mobileshop_saas/core/tenant_access/tenant_access_provider.dart';
 import 'package:mobileshop_saas/core/tenant_access/tenant_suspended_screen.dart';
 import 'package:mobileshop_saas/features/auth/presentation/providers/auth_provider.dart';
+import 'package:mobileshop_saas/core/constants/app_colors.dart';
+import 'package:mobileshop_saas/core/constants/app_strings.dart';
 
 import 'router_error_screen.dart';
 
@@ -296,7 +298,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
-      GoRoute(path: '/', redirect: (_, _) => null),
+      GoRoute(path: '/', builder: (_, _) => const _RouterLoadingScreen()),
       GoRoute(
         path: '/intro',
         builder: (context, state) => const AppIntroScreen(),
@@ -697,6 +699,40 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+class _RouterLoadingScreen extends StatelessWidget {
+  const _RouterLoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: AppColors.background,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.storefront_rounded, size: 72, color: AppColors.primary),
+            SizedBox(height: 18),
+            Text(
+              AppStrings.appName,
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 24),
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 String _safeLockedFeatureReturnLocation(String? location) {
   if (location == null ||
