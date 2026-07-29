@@ -4,7 +4,7 @@ class AppStrings {
   // ═══════════════════════════════════════
   // App General
   // ═══════════════════════════════════════
-  static const String appName = 'MobileShop SaaS';
+  static const String appName = 'Nizaaam';
   static const String navMobileServices = 'Mobile Services';
 
   // ═══════════════════════════════════════
