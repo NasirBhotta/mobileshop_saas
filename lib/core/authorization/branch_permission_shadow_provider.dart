@@ -10,12 +10,16 @@ final branchPermissionDataSourceProvider = Provider<BranchPermissionDataSource>(
   (ref) => SupabaseBranchPermissionDataSource(),
 );
 
-final branchPermissionShadowEvaluatorProvider =
-    Provider<BranchPermissionShadowEvaluator>((ref) {
-      return BranchPermissionShadowEvaluator(
-        dataSource: ref.watch(branchPermissionDataSourceProvider),
-      );
-    });
+final branchPermissionShadowEvaluatorProvider = Provider<
+  BranchPermissionShadowEvaluator
+>((ref) {
+  // Recreate the snapshot cache whenever realtime/safety refresh invalidates
+  // legacy permissions, so branch grants and revocations stay aligned.
+  ref.watch(permissionRevisionProvider);
+  return BranchPermissionShadowEvaluator(
+    dataSource: ref.watch(branchPermissionDataSourceProvider),
+  );
+});
 
 final branchPermissionShadowProvider =
     FutureProvider.family<BranchPermissionShadowResult?, String>((

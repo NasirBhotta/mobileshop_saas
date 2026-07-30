@@ -9,8 +9,8 @@ void main() {
           'lib/features/repairs/presentation/widgets/repair_completion_dialog.dart',
         ).readAsStringSync();
 
-    expect(source, contains('Search inventory part'));
-    expect(source, contains('Product name, SKU, barcode or category'));
+    expect(source, contains('AppStrings.repairSearchInventoryPart'));
+    expect(source, contains('AppStrings.repairProductSearchHint'));
     expect(source, contains('_searchRepairInventoryProducts'));
     expect(source, contains('!product.isActive || product.stock <= 0'));
     expect(source, contains('tokens.every(searchable.contains)'));

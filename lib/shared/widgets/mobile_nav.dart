@@ -316,6 +316,7 @@ class MobileNav extends ConsumerWidget {
                         context.go('/select-branch');
                       },
                     ),
+                  SizedBox(height: 10),
                 ],
               ),
             ),

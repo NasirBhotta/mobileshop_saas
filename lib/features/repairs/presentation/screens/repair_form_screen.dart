@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mobileshop_saas/core/constants/app_strings.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
@@ -69,11 +70,11 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          tooltip: 'Back',
+          tooltip: AppStrings.repairBack,
           onPressed: isSaving ? null : _closeForm,
           icon: const Icon(Icons.arrow_back),
         ),
-        title: const Text('Create Repair Ticket'),
+        title: const Text(AppStrings.repairCreateTicket),
       ),
       body: SafeArea(
         child: Center(
@@ -85,21 +86,21 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   _SectionCard(
-                    title: 'Customer Details',
-                    subtitle: 'Customer ka basic info yahan save hoga.',
+                    title: AppStrings.repairCustomerDetails,
+                    subtitle: AppStrings.repairCustomerDetailsSubtitle,
                     child: _ResponsiveFormWrap(
                       children: [
                         _AppTextField(
                           controller: _customerNameController,
-                          label: 'Customer name',
-                          hint: 'Example: Ali Raza',
+                          label: AppStrings.repairCustomerName,
+                          hint: AppStrings.repairCustomerNameHint,
                           enabled: !isSaving,
                           validator: _requiredValidator,
                         ),
                         _AppTextField(
                           controller: _customerPhoneController,
-                          label: 'Customer phone',
-                          hint: 'Example: 03001234567',
+                          label: AppStrings.repairCustomerPhone,
+                          hint: AppStrings.repairCustomerPhoneHint,
                           enabled: !isSaving,
                           keyboardType: TextInputType.phone,
                         ),
@@ -110,33 +111,34 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                   const SizedBox(height: 16),
 
                   _SectionCard(
-                    title: 'Device Details',
-                    subtitle:
-                        'Device ka model, IMEI aur optional inventory product link.',
+                    title: AppStrings.repairDeviceDetails,
+                    subtitle: AppStrings.repairDeviceDetailsSubtitle,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         productsAsync.when(
                           data: (products) {
                             return DropdownButtonFormField<String>(
+                              isExpanded: true,
                               initialValue: _selectedProductValue,
                               decoration: const InputDecoration(
-                                labelText: 'Linked inventory product optional',
+                                labelText: AppStrings.repairLinkedProduct,
                                 border: OutlineInputBorder(),
                               ),
                               items: [
                                 const DropdownMenuItem(
                                   value: _externalProductValue,
-                                  child: Text(
-                                    'External device / no product link',
-                                  ),
+                                  child: Text(AppStrings.repairExternalDevice),
                                 ),
                                 ...products.map(
                                   (product) => DropdownMenuItem(
                                     value: product.id,
                                     child: Text(
-                                      '${product.name} (${product.sku})'
-                                      '${product.imeiTracked ? ' • IMEI' : ''}',
+                                      AppStrings.repairProductLabel(
+                                        product.name,
+                                        product.sku,
+                                        product.imeiTracked,
+                                      ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
@@ -158,7 +160,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                           },
                           error: (_, _) {
                             return const Text(
-                              'Products load nahi ho sake. Ticket phir bhi external device ke tor par create ho sakta hai.',
+                              AppStrings.repairProductsLoadFailed,
                             );
                           },
                         ),
@@ -169,29 +171,29 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                           children: [
                             _AppTextField(
                               controller: _deviceBrandController,
-                              label: 'Device brand',
-                              hint: 'Example: Samsung',
+                              label: AppStrings.repairDeviceBrand,
+                              hint: AppStrings.repairDeviceBrandHint,
                               enabled: !isSaving,
                               validator: _requiredValidator,
                             ),
                             _AppTextField(
                               controller: _deviceModelController,
-                              label: 'Device model',
-                              hint: 'Example: A15',
+                              label: AppStrings.repairDeviceModel,
+                              hint: AppStrings.repairDeviceModelHint,
                               enabled: !isSaving,
                               validator: _requiredValidator,
                             ),
                             _AppTextField(
                               controller: _deviceColorController,
-                              label: 'Device color optional',
-                              hint: 'Example: Black',
+                              label: AppStrings.repairDeviceColor,
+                              hint: AppStrings.repairDeviceColorHint,
                               enabled: !isSaving,
                             ),
                             if (imeiEnabled)
                               _AppTextField(
                                 controller: _imeiController,
-                                label: 'IMEI optional',
-                                hint: 'Example: 356789XXXXXXXXX',
+                                label: AppStrings.repairImeiOptional,
+                                hint: AppStrings.repairImeiHint,
                                 enabled: !isSaving,
                                 keyboardType: TextInputType.number,
                               ),
@@ -204,13 +206,12 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                   const SizedBox(height: 16),
 
                   _SectionCard(
-                    title: 'Fault Description',
-                    subtitle:
-                        'Customer ne device mein jo problem batayi hai woh yahan likho.',
+                    title: AppStrings.repairFaultDescription,
+                    subtitle: AppStrings.repairFaultDescriptionSubtitle,
                     child: _AppTextField(
                       controller: _faultDescriptionController,
-                      label: 'Fault / issue',
-                      hint: 'Example: Charging nahi ho rahi',
+                      label: AppStrings.repairFaultIssue,
+                      hint: AppStrings.repairFaultHint,
                       enabled: !isSaving,
                       maxLines: 4,
                       validator: _requiredValidator,
@@ -220,17 +221,16 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                   const SizedBox(height: 16),
 
                   _SectionCard(
-                    title: 'Repair Charge Estimate',
-                    subtitle:
-                        'Estimated service/labour charge; parts completion par automatically add honge.',
+                    title: AppStrings.repairChargeEstimate,
+                    subtitle: AppStrings.repairChargeEstimateSubtitle,
                     child: Column(
                       children: [
                         _ResponsiveFormWrap(
                           children: [
                             _AppTextField(
                               controller: _estimatedCostController,
-                              label: 'Estimated service charge optional',
-                              hint: 'Example: 500',
+                              label: AppStrings.repairEstimatedServiceCharge,
+                              hint: AppStrings.repairEstimatedServiceChargeHint,
                               enabled: !isSaving,
                               keyboardType:
                                   const TextInputType.numberWithOptions(
@@ -239,7 +239,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                               validator: _optionalAmountValidator,
                             ),
                             _DatePickerField(
-                              label: 'Estimated completion optional',
+                              label: AppStrings.repairEstimatedCompletion,
                               value: _estimatedCompletionAt,
                               enabled: !isSaving,
                               onTap: _pickEstimatedDate,
@@ -249,9 +249,8 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                         const SizedBox(height: 12),
                         _AppTextField(
                           controller: _estimateNoteController,
-                          label: 'Estimate note optional',
-                          hint:
-                              'Example: Parts available hone par confirm hoga',
+                          label: AppStrings.repairEstimateNote,
+                          hint: AppStrings.repairEstimateNoteHint,
                           enabled: !isSaving,
                           maxLines: 2,
                         ),
@@ -272,7 +271,9 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                             )
                             : const Icon(Icons.build_circle_outlined),
                     label: Text(
-                      isSaving ? 'Saving...' : 'Create Repair Ticket',
+                      isSaving
+                          ? AppStrings.repairSaving
+                          : AppStrings.repairCreateTicket,
                     ),
                   ),
 
@@ -280,7 +281,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
 
                   OutlinedButton(
                     onPressed: isSaving ? null : _closeForm,
-                    child: const Text('Cancel'),
+                    child: const Text(AppStrings.repairCancel),
                   ),
                 ],
               ),
@@ -348,7 +349,9 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
 
     if (ticket == null) {
       final state = ref.read(repairTicketControllerProvider);
-      final error = state.asError?.error.toString() ?? 'Something went wrong';
+      final error =
+          state.asError?.error.toString() ??
+          AppStrings.repairSomethingWentWrong;
 
       ScaffoldMessenger.of(
         context,
@@ -357,7 +360,9 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Repair ticket ${ticket.ticketNo ?? ''} created')),
+      SnackBar(
+        content: Text(AppStrings.repairTicketCreated(ticket.ticketNo ?? '')),
+      ),
     );
 
     context.go('/repairs');
@@ -365,7 +370,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
 
   String? _requiredValidator(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Required';
+      return AppStrings.repairRequired;
     }
     return null;
   }
@@ -375,11 +380,11 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
 
     final amount = double.tryParse(value.trim());
     if (amount == null) {
-      return 'Enter valid amount';
+      return AppStrings.repairValidAmount;
     }
 
     if (amount < 0) {
-      return 'Amount cannot be negative';
+      return AppStrings.repairAmountNotNegative;
     }
 
     return null;
@@ -510,10 +515,8 @@ class _DatePickerField extends StatelessWidget {
     final selectedDate = value;
     final text =
         selectedDate == null
-            ? 'Select date'
-            : '${selectedDate.day.toString().padLeft(2, '0')}-'
-                '${selectedDate.month.toString().padLeft(2, '0')}-'
-                '${selectedDate.year}';
+            ? AppStrings.repairSelectDate
+            : AppStrings.repairDate(selectedDate);
 
     return InkWell(
       onTap: enabled ? onTap : null,

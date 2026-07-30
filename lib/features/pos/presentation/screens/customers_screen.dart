@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../data/models/customer_model.dart';
 import '../../data/models/sale_payment_model.dart';
@@ -50,7 +51,7 @@ class _CustomersBodyState extends ConsumerState<_CustomersBody> {
                 children: [
                   const Expanded(
                     child: Text(
-                      'Customers',
+                      AppStrings.customersTitle,
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -61,21 +62,21 @@ class _CustomersBodyState extends ConsumerState<_CustomersBody> {
                   FilledButton.icon(
                     onPressed: () => _showAddCustomerSheet(context),
                     icon: const Icon(Icons.person_add_rounded, size: 18),
-                    label: const Text('Add'),
+                    label: const Text(AppStrings.customerAdd),
                   ),
                 ],
               ),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: TextField(
+              child: TextFormField(
                 controller: _searchCtrl,
                 onChanged:
                     (value) =>
                         ref.read(customerListQueryProvider.notifier).state =
                             value,
                 decoration: const InputDecoration(
-                  hintText: 'Search name, phone, email...',
+                  hintText: AppStrings.customerSearchHint,
                   prefixIcon: Icon(Icons.search_rounded),
                 ),
               ),
@@ -94,7 +95,7 @@ class _CustomersBodyState extends ConsumerState<_CustomersBody> {
                   if (items.isEmpty) {
                     return const Center(
                       child: Text(
-                        'No customers yet',
+                        AppStrings.customersEmpty,
                         style: TextStyle(color: AppColors.textSecondary),
                       ),
                     );
@@ -166,7 +167,7 @@ class _CustomerTile extends StatelessWidget {
           backgroundColor: AppColors.primary.withValues(alpha: 0.1),
           child: Text(
             customer.fullName.isEmpty
-                ? '?'
+                ? AppStrings.customerUnknownInitial
                 : customer.fullName[0].toUpperCase(),
             style: const TextStyle(
               color: AppColors.primary,
@@ -182,8 +183,8 @@ class _CustomerTile extends StatelessWidget {
           [
             if (customer.phone != null) customer.phone,
             if (customer.email != null) customer.email,
-            'Due Rs ${due.toStringAsFixed(0)}',
-          ].join(' • '),
+            AppStrings.customerDue(due),
+          ].join(AppStrings.customerDetailSeparator),
         ),
         trailing: const Icon(Icons.chevron_right_rounded),
         onTap: () => context.push('/customers/detail', extra: customer),
@@ -214,7 +215,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                   builder: (_) => _CreditLimitSheet(customerId: customer.id!),
                 ),
             icon: const Icon(Icons.account_balance_wallet_rounded),
-            tooltip: 'Credit limit',
+            tooltip: AppStrings.customerCreditLimitTooltip,
           ),
         ],
       ),
@@ -241,13 +242,13 @@ class CustomerDetailScreen extends ConsumerWidget {
                   runSpacing: 12,
                   children: [
                     _MetricCard(
-                      label: 'Lifetime Value',
-                      value: 'Rs ${data.lifetimeValue.toStringAsFixed(0)}',
+                      label: AppStrings.customerLifetimeValue,
+                      value: AppStrings.customerMoney(data.lifetimeValue),
                       icon: Icons.trending_up_rounded,
                     ),
                     _MetricCard(
-                      label: 'Outstanding',
-                      value: 'Rs ${data.outstandingDues.toStringAsFixed(0)}',
+                      label: AppStrings.customerOutstanding,
+                      value: AppStrings.customerMoney(data.outstandingDues),
                       icon: Icons.payments_rounded,
                       color:
                           data.outstandingDues > 0
@@ -255,15 +256,15 @@ class CustomerDetailScreen extends ConsumerWidget {
                               : AppColors.success,
                     ),
                     _MetricCard(
-                      label: 'Credit Limit',
+                      label: AppStrings.customerCreditLimit,
                       value:
                           limit == null
-                              ? 'Not set'
-                              : 'Rs ${limit.toStringAsFixed(0)}',
+                              ? AppStrings.customerCreditLimitNotSet
+                              : AppStrings.customerMoney(limit),
                       icon: Icons.speed_rounded,
                     ),
                     _MetricCard(
-                      label: 'Active Repairs',
+                      label: AppStrings.customerActiveRepairs,
                       value: data.activeRepairTickets.toString(),
                       icon: Icons.build_rounded,
                     ),
@@ -280,7 +281,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                     ),
                   ),
                   child: const Text(
-                    'Credit limit max khata allowance hai. Khata sale checkout par outstanding mein add hoti hai; Settle Dues se customer ki payment record hoti hai aur outstanding kam hota hai.',
+                    AppStrings.customerCreditExplanation,
                     style: TextStyle(
                       color: AppColors.info,
                       fontSize: 12,
@@ -306,12 +307,12 @@ class CustomerDetailScreen extends ConsumerWidget {
                                   ),
                             ),
                     icon: const Icon(Icons.task_alt_rounded, size: 18),
-                    label: const Text('Settle Dues'),
+                    label: const Text(AppStrings.customerSettleDues),
                   ),
                 ),
                 const SizedBox(height: 20),
                 const Text(
-                  'Purchase History',
+                  AppStrings.customerPurchaseHistory,
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -321,7 +322,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                 const SizedBox(height: 8),
                 if (data.purchases.isEmpty)
                   const Text(
-                    'No purchases found',
+                    AppStrings.customerNoPurchases,
                     style: TextStyle(color: AppColors.textSecondary),
                   )
                 else
@@ -329,7 +330,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                     (sale) => Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
-                        title: Text('Invoice ${sale.id ?? ''}'),
+                        title: Text(AppStrings.customerInvoice(sale.id ?? '')),
                         subtitle: Text(
                           sale.createdAt
                                   ?.toLocal()
@@ -339,7 +340,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                               '',
                         ),
                         trailing: Text(
-                          'Rs ${sale.total.toStringAsFixed(0)}',
+                          AppStrings.customerMoney(sale.total),
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
@@ -347,7 +348,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                   ),
                 const SizedBox(height: 20),
                 const Text(
-                  'Settlements',
+                  AppStrings.customerSettlements,
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -357,7 +358,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                 const SizedBox(height: 8),
                 if (data.settlements.isEmpty)
                   const Text(
-                    'No settlements yet',
+                    AppStrings.customerNoSettlements,
                     style: TextStyle(color: AppColors.textSecondary),
                   )
                 else
@@ -367,10 +368,17 @@ class CustomerDetailScreen extends ConsumerWidget {
                       child: ListTile(
                         leading: const Icon(Icons.receipt_long_rounded),
                         title: Text(
-                          'Rs ${settlement.amount.toStringAsFixed(0)}',
+                          AppStrings.customerMoney(settlement.amount),
                         ),
                         subtitle: Text(
-                          '${settlement.method} • ${settlement.createdAt.toLocal().toString().split('.').first}',
+                          AppStrings.customerSettlementDetails(
+                            settlement.method,
+                            settlement.createdAt
+                                .toLocal()
+                                .toString()
+                                .split('.')
+                                .first,
+                          ),
                         ),
                       ),
                     ),
@@ -447,6 +455,7 @@ class _CustomerFormSheetState extends ConsumerState<_CustomerFormSheet> {
   final _email = TextEditingController();
   final _notes = TextEditingController();
   final _creditLimit = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
 
   @override
   void dispose() {
@@ -469,103 +478,169 @@ class _CustomerFormSheetState extends ConsumerState<_CustomerFormSheet> {
         MediaQuery.of(context).viewInsets.bottom + 16,
       ),
       child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Add Customer',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        child: Form(
+          key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      AppStrings.customerAddTitle,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
                   ),
+                  if (!widget.showHandle)
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded),
+                      tooltip: AppStrings.customerClose,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _name,
+                decoration: const InputDecoration(
+                  labelText: AppStrings.customerFullNameLabel,
                 ),
-                if (!widget.showHandle)
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded),
-                    tooltip: 'Close',
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _name,
-              decoration: const InputDecoration(labelText: 'Full name'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(labelText: 'Phone'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _email,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _creditLimit,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Credit limit',
-                prefixText: 'Rs ',
-                helperText: 'Owner set kare. Blank ka matlab fixed limit nahi.',
+                validator: (value) {
+                  final name = value?.trim() ?? '';
+
+                  if (name.isEmpty) {
+                    return "Full name required hai.";
+                  }
+
+                  if (name.length < 4) {
+                    return "Full name kam az kam 4 characters ka ho";
+                  }
+
+                  return null;
+                },
               ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _notes,
-              minLines: 2,
-              maxLines: 3,
-              decoration: const InputDecoration(labelText: 'Notes'),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: state.isLoading ? null : _submit,
-                child:
-                    state.isLoading
-                        ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                        : const Text('Save Customer'),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _phone,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'Phone'),
+                validator: (value) {
+                  final phone = value?.trim() ?? '';
+                  if (phone.isEmpty) return 'Phone required ha.';
+
+                  final normalized = phone.replaceAll(RegExp(r'[\s\-()]'), '');
+
+                  if (!RegExp(r'^\+?\d{10,15}$').hasMatch(normalized)) {
+                    return 'Valid phone number enter karein.';
+                  }
+
+                  return null;
+                },
               ),
-            ),
-          ],
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _email,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email (optional)',
+                ),
+                validator: (value) {
+                  final email = value?.trim() ?? '';
+                  if (email.isEmpty) return null;
+
+                  final validEmail = RegExp(
+                    r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                  ).hasMatch(email);
+
+                  if (!validEmail) {
+                    return 'Valid email address enter karein.';
+                  }
+
+                  return null;
+                },
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _creditLimit,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: AppStrings.customerCreditLimitLabel,
+                  prefixText: AppStrings.customerCreditLimitPrefix,
+                  helperText: AppStrings.customerCreditLimitHelper,
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _notes,
+                minLines: 2,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Notes (optional)',
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: state.isLoading ? null : _submit,
+                  child:
+                      state.isLoading
+                          ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Text(AppStrings.customerSave),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Future<void> _submit() async {
-    if (_name.text.trim().isEmpty) return;
+    FocusScope.of(context).unfocus();
+
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+
     final customer = await ref
         .read(customerControllerProvider.notifier)
         .addCustomer(
           fullName: _name.text.trim(),
-          phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
-          email: _email.text.trim().isEmpty ? null : _email.text.trim(),
-          notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
-          creditLimit: double.tryParse(_creditLimit.text.trim()),
+          phone: _nullIfEmpty(_phone.text),
+          email: _nullIfEmpty(_email.text),
+          notes: _nullIfEmpty(_notes.text),
+          creditLimit:
+              _creditLimit.text.trim().isEmpty
+                  ? null
+                  : double.parse(_creditLimit.text.trim()),
         );
+
     if (!mounted) return;
     if (customer == null) {
       final error = ref.read(customerControllerProvider).error;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error?.toString() ?? 'Customer save nahi hua'),
+          content: Text(error?.toString() ?? AppStrings.customerSaveFailed),
           backgroundColor: AppColors.error,
         ),
       );
       return;
     }
     Navigator.pop(context);
+  }
+
+  String? _nullIfEmpty(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 }
 
@@ -601,16 +676,16 @@ class _CreditLimitSheetState extends ConsumerState<_CreditLimitSheet> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            'Credit Limit',
+            AppStrings.customerCreditLimitTitle,
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
           ),
           const SizedBox(height: 12),
-          TextField(
+          TextFormField(
             controller: _limit,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
-              labelText: 'Limit',
-              prefixText: 'Rs ',
+              labelText: AppStrings.customerLimitLabel,
+              prefixText: AppStrings.customerCreditLimitPrefix,
             ),
           ),
           const SizedBox(height: 12),
@@ -619,14 +694,14 @@ class _CreditLimitSheetState extends ConsumerState<_CreditLimitSheet> {
               Expanded(
                 child: OutlinedButton(
                   onPressed: state.isLoading ? null : () => _save(clear: true),
-                  child: const Text('Clear'),
+                  child: const Text(AppStrings.customerClear),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton(
                   onPressed: state.isLoading ? null : () => _save(),
-                  child: const Text('Save'),
+                  child: const Text(AppStrings.customerSaveAction),
                 ),
               ),
             ],
@@ -649,7 +724,9 @@ class _CreditLimitSheetState extends ConsumerState<_CreditLimitSheet> {
       final error = ref.read(customerControllerProvider).error;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error?.toString() ?? 'Credit limit save nahi hui'),
+          content: Text(
+            error?.toString() ?? AppStrings.customerCreditLimitSaveFailed,
+          ),
           backgroundColor: AppColors.error,
         ),
       );
@@ -717,27 +794,39 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            'Settle Dues',
+            AppStrings.customerSettleDues,
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
           ),
           const SizedBox(height: 12),
-          TextField(
+          TextFormField(
             controller: _amount,
             enabled: !isSubmitting,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
-              labelText: 'Amount',
-              prefixText: 'Rs ',
+              labelText: AppStrings.customerSettlementAmountLabel,
+              prefixText: AppStrings.customerCreditLimitPrefix,
             ),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
             initialValue: _method,
             items: const [
-              DropdownMenuItem(value: 'cash', child: Text('Cash')),
-              DropdownMenuItem(value: 'easypaisa', child: Text('EasyPaisa')),
-              DropdownMenuItem(value: 'jazzcash', child: Text('JazzCash')),
-              DropdownMenuItem(value: 'card', child: Text('Card')),
+              DropdownMenuItem(
+                value: 'cash',
+                child: Text(AppStrings.paymentCash),
+              ),
+              DropdownMenuItem(
+                value: 'easypaisa',
+                child: Text(AppStrings.paymentEasypaisa),
+              ),
+              DropdownMenuItem(
+                value: 'jazzcash',
+                child: Text(AppStrings.paymentJazzcash),
+              ),
+              DropdownMenuItem(
+                value: 'card',
+                child: Text(AppStrings.paymentCard),
+              ),
             ],
             onChanged:
                 isSubmitting
@@ -746,7 +835,9 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
                       _method = value ?? 'cash';
                       _accountId = null;
                     }),
-            decoration: const InputDecoration(labelText: 'Method'),
+            decoration: const InputDecoration(
+              labelText: AppStrings.customerSettlementMethodLabel,
+            ),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
@@ -758,7 +849,10 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
                       (account) => DropdownMenuItem(
                         value: account.id,
                         child: Text(
-                          '${account.name} • Rs ${account.currentBalance.toStringAsFixed(0)}',
+                          AppStrings.customerAccountSummary(
+                            account.name,
+                            account.currentBalance,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -769,18 +863,20 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
                     ? null
                     : (value) => setState(() => _accountId = value),
             decoration: InputDecoration(
-              labelText: 'Receiving account',
+              labelText: AppStrings.customerReceivingAccountLabel,
               helperText:
                   compatibleAccounts.isEmpty
-                      ? 'Accounts screen mein compatible account banayein.'
+                      ? AppStrings.customerCompatibleAccountRequired
                       : null,
             ),
           ),
           const SizedBox(height: 10),
-          TextField(
+          TextFormField(
             controller: _notes,
             enabled: !isSubmitting,
-            decoration: const InputDecoration(labelText: 'Notes'),
+            decoration: const InputDecoration(
+              labelText: AppStrings.customerNotesLabel,
+            ),
           ),
           const SizedBox(height: 14),
           SizedBox(
@@ -804,10 +900,10 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
                             ),
                           ),
                           SizedBox(width: 10),
-                          Text('Recording...'),
+                          Text(AppStrings.customerRecordingSettlement),
                         ],
                       )
-                      : const Text('Record Settlement'),
+                      : const Text(AppStrings.customerRecordSettlement),
             ),
           ),
         ],
@@ -818,11 +914,11 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
   Future<void> _submit(String accountId) async {
     final amount = double.tryParse(_amount.text.trim()) ?? 0;
     if (amount <= 0) {
-      _showError('Valid settlement amount enter karein.');
+      _showError(AppStrings.customerSettlementAmountInvalid);
       return;
     }
     if (amount > widget.outstanding + 0.01) {
-      _showError('Settlement current dues se zyada nahi ho sakti.');
+      _showError(AppStrings.customerSettlementExceedsDues);
       return;
     }
 
@@ -847,9 +943,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
       final messenger = ScaffoldMessenger.of(context);
       Navigator.pop(context);
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Customer dues successfully settle ho gaye.'),
-        ),
+        const SnackBar(content: Text(AppStrings.customerSettlementSuccess)),
       );
     } catch (error) {
       if (mounted) {
@@ -870,36 +964,34 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
 }
 
 String _settlementErrorMessage(Object? error) {
-  if (error == null) return 'Settlement save nahi hui. Dobara try karein.';
+  if (error == null) return AppStrings.customerSettlementSaveFailed;
 
   final message = error.toString();
   final normalized = message.toLowerCase();
   if (normalized.contains('23503') ||
       normalized.contains('ledger_transaction_id_fkey')) {
-    return 'Settlement ledger update nahi ho saka. Database migration apply '
-        'karke dobara try karein.';
+    return AppStrings.customerSettlementLedgerFailed;
   }
   if (normalized.contains('permission') ||
       normalized.contains('42501') ||
       normalized.contains('not authorized')) {
-    return 'Aap ke paas customer dues settle karne ki permission nahi hai.';
+    return AppStrings.customerSettlementPermissionDenied;
   }
   if (normalized.contains('current dues') ||
       normalized.contains('exceeds current customer dues')) {
-    return 'Settlement current dues se zyada nahi ho sakti.';
+    return AppStrings.customerSettlementExceedsDues;
   }
   if (normalized.contains('account') &&
       (normalized.contains('compatible') || normalized.contains('not found'))) {
-    return 'Selected receiving account valid nahi hai.';
+    return AppStrings.customerSettlementAccountInvalid;
   }
   if (normalized.contains('timeout') ||
       normalized.contains('socketexception') ||
       normalized.contains('failed host lookup') ||
       normalized.contains('network') ||
       normalized.contains('connection')) {
-    return 'Network issue hai. Settlement locally save ho gayi hai aur '
-        'connection aane par sync ho jayegi.';
+    return AppStrings.customerSettlementOffline;
   }
 
-  return 'Settlement save nahi hui. Please dobara try karein.';
+  return AppStrings.customerSettlementRetry;
 }

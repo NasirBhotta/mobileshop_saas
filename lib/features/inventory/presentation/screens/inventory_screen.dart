@@ -154,45 +154,60 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     final selectedCategory = ref.watch(selectedCategoryProvider);
     final searchQuery = ref.watch(searchQueryProvider);
     final sortOption = ref.watch(sortOptionProvider);
-    final productsState = ref.watch(
-      inventoryProductsProvider(
-        InventoryProductsRequest(
-          query: searchQuery,
-          categoryId: selectedCategory,
-          sortOption: sortOption,
-          limit: _visibleLimit,
-        ),
-      ),
+    final productsRequest = InventoryProductsRequest(
+      query: searchQuery,
+      categoryId: selectedCategory,
+      sortOption: sortOption,
+      limit: _visibleLimit,
     );
+    final productsState = ref.watch(inventoryProductsProvider(productsRequest));
     final isUpdating = ref.watch(productControllerProvider).isLoading;
     final isDesktop = Responsive.isDesktop(context);
     final isTablet = Responsive.isTablet(context);
+    final csvImportEntitlement = ref.watch(
+      featureEntitlementProvider('inventory.csv_import'),
+    );
+    final bulkPricingEntitlement = ref.watch(
+      featureEntitlementProvider('inventory.bulk_pricing'),
+    );
+    final createPermission = ref.watch(
+      branchAwarePermissionProvider('inventory.product.create'),
+    );
+    final updatePermission = ref.watch(
+      branchAwarePermissionProvider('inventory.product.update'),
+    );
+    final categoryPermission = ref.watch(
+      branchAwarePermissionProvider('inventory.category.view'),
+    );
+    final adjustStockPermission = ref.watch(
+      branchAwarePermissionProvider('inventory.stock.adjust'),
+    );
+
+    final initialDependencies = <AsyncValue<Object?>>[
+      categoriesState,
+      productsState,
+    ];
+    final isInitialLoad = initialDependencies.any(
+      (dependency) => dependency.isLoading && !dependency.hasValue,
+    );
+
+    if (isInitialLoad) {
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        body: SafeArea(child: Center(child: CircularProgressIndicator())),
+      );
+    }
+
     final csvImportEnabled = isEntitledActionVisible(
-      ref.watch(featureEntitlementProvider('inventory.csv_import')).value,
+      csvImportEntitlement.value,
     );
     final bulkPricingEnabled = isEntitledActionVisible(
-      ref.watch(featureEntitlementProvider('inventory.bulk_pricing')).value,
+      bulkPricingEntitlement.value,
     );
-    final canCreate =
-        ref
-            .watch(branchAwarePermissionProvider('inventory.product.create'))
-            .value ==
-        true;
-    final canUpdate =
-        ref
-            .watch(branchAwarePermissionProvider('inventory.product.update'))
-            .value ==
-        true;
-    final canViewCategories =
-        ref
-            .watch(branchAwarePermissionProvider('inventory.category.view'))
-            .value ==
-        true;
-    final canAdjustStock =
-        ref
-            .watch(branchAwarePermissionProvider('inventory.stock.adjust'))
-            .value ==
-        true;
+    final canCreate = createPermission.value == true;
+    final canUpdate = updatePermission.value == true;
+    final canViewCategories = categoryPermission.value == true;
+    final canAdjustStock = adjustStockPermission.value == true;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(

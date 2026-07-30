@@ -13,8 +13,8 @@ void main() {
           'supabase/migrations/20260729000200_atomic_paid_repair_cancellation.sql',
         ).readAsStringSync().toLowerCase();
 
-    expect(screen, contains('Refund from account / wallet'));
-    expect(screen, contains('Refund & Cancel'));
+    expect(screen, contains('AppStrings.repairRefundAccount'));
+    expect(screen, contains('AppStrings.repairRefundAndCancel'));
     expect(screen, contains('account.currentBalance + 0.01 >= paid'));
     expect(migration, contains('cancel_repair_ticket_v3'));
     expect(

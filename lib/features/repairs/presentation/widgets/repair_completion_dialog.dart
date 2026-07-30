@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mobileshop_saas/core/constants/app_strings.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_part_model.dart';
@@ -93,16 +94,14 @@ class _RepairCompletionDialogState
     );
 
     return AlertDialog(
-      title: const Text('Complete Repair'),
+      title: const Text(AppStrings.repairCompleteTitle),
       content: SizedBox(
         width: 760,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Parts are consumed and profit is finalized only after confirmation.',
-              ),
+              const Text(AppStrings.repairCompletionInfo),
               const SizedBox(height: 12),
               for (var index = 0; index < _parts.length; index++)
                 _PartEditor(
@@ -124,7 +123,7 @@ class _RepairCompletionDialogState
                         ? null
                         : () => setState(() => _parts.add(_PartDraft())),
                 icon: const Icon(Icons.add_rounded),
-                label: const Text('Add Part'),
+                label: const Text(AppStrings.repairAddPart),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -137,16 +136,16 @@ class _RepairCompletionDialogState
                   decimal: true,
                 ),
                 decoration: InputDecoration(
-                  labelText: 'Final bill total (including parts)',
+                  labelText: AppStrings.repairFinalBill,
                   helperText:
                       _chargeManuallyEdited
-                          ? 'Manually adjusted. Tap calculate to restore the suggested total.'
-                          : 'Parts + service charge - discount',
-                  prefixText: 'Rs ',
+                          ? AppStrings.repairManualTotalHelper
+                          : AppStrings.repairFinalBillHelper,
+                  prefixText: AppStrings.customerCreditLimitPrefix,
                   suffixIcon:
                       _chargeManuallyEdited
                           ? IconButton(
-                            tooltip: 'Use calculated total',
+                            tooltip: AppStrings.repairUseCalculatedTotal,
                             onPressed: () {
                               _chargeManuallyEdited = false;
                               _syncSuggestedCharge();
@@ -164,12 +163,12 @@ class _RepairCompletionDialogState
                 children: [
                   _amountField(
                     _service,
-                    'Repair / service charge',
+                    AppStrings.repairServiceCharge,
                     affectsCustomerTotal: true,
                   ),
                   _amountField(
                     _discount,
-                    'Discount',
+                    AppStrings.repairDiscount,
                     affectsCustomerTotal: true,
                   ),
                 ],
@@ -181,15 +180,15 @@ class _RepairCompletionDialogState
                     _saving
                         ? null
                         : (value) => setState(() => _advanced = value),
-                title: const Text('Optional advanced charges & costs'),
+                title: const Text(AppStrings.repairAdvancedCharges),
               ),
               if (_advanced)
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _amountField(_commission, 'Per-job commission'),
-                    _amountField(_otherCost, 'Other direct cost'),
+                    _amountField(_commission, AppStrings.repairCommission),
+                    _amountField(_otherCost, AppStrings.repairOtherDirectCost),
                   ],
                 ),
               const SizedBox(height: 12),
@@ -200,15 +199,13 @@ class _RepairCompletionDialogState
                     spacing: 24,
                     runSpacing: 8,
                     children: [
-                      Text('Customer total: Rs ${charge.toStringAsFixed(0)}'),
+                      Text(AppStrings.repairCustomerTotal(charge)),
+                      Text(AppStrings.repairPartsCustomerPrice(partsCharge)),
                       Text(
-                        'Parts customer price: Rs ${partsCharge.toStringAsFixed(0)}',
+                        AppStrings.repairPartsCost(inventoryCost + directCost),
                       ),
                       Text(
-                        'Parts cost: Rs ${(inventoryCost + directCost).toStringAsFixed(0)}',
-                      ),
-                      Text(
-                        'Gross profit: Rs ${profit.toStringAsFixed(0)}',
+                        AppStrings.repairGrossProfit(profit),
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ],
@@ -222,11 +219,15 @@ class _RepairCompletionDialogState
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Back'),
+          child: const Text(AppStrings.repairBack),
         ),
         FilledButton(
           onPressed: _saving ? null : () => _complete(products),
-          child: Text(_saving ? 'Completing...' : 'Confirm Completion'),
+          child: Text(
+            _saving
+                ? AppStrings.repairCompleting
+                : AppStrings.repairConfirmCompletion,
+          ),
         ),
       ],
     );
@@ -248,7 +249,7 @@ class _RepairCompletionDialogState
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       decoration: InputDecoration(
         labelText: label,
-        prefixText: 'Rs ',
+        prefixText: AppStrings.customerCreditLimitPrefix,
         border: const OutlineInputBorder(),
       ),
     ),
@@ -273,7 +274,9 @@ class _RepairCompletionDialogState
 
   Future<void> _complete(List<ProductModel> products) async {
     final charge = double.tryParse(_charge.text.trim());
-    if (charge == null || charge < 0) return _message('Enter a valid charge.');
+    if (charge == null || charge < 0) {
+      return _message(AppStrings.repairInvalidCharge);
+    }
     final now = DateTime.now();
     final parts = <RepairPartModel>[];
     for (final draft in _parts) {
@@ -297,13 +300,13 @@ class _RepairCompletionDialogState
           name.isEmpty ||
           (draft.settlementType == 'supplier_payable' &&
               draft.supplierId == null)) {
-        return _message('Complete all part details with valid amounts.');
+        return _message(AppStrings.repairInvalidPartDetails);
       }
       if (draft.source == RepairPartSource.inventory &&
           product != null &&
           qty > product.stock) {
         return _message(
-          '${product.name} ka available stock ${product.stock} hai.',
+          AppStrings.repairStockAvailable(product.name, product.stock),
         );
       }
       parts.add(
@@ -346,7 +349,7 @@ class _RepairCompletionDialogState
       setState(() => _saving = false);
       return _message(
         ref.read(repairTicketControllerProvider).asError?.error.toString() ??
-            'Repair could not be completed.',
+            AppStrings.repairCompletionFailed,
       );
     }
     Navigator.of(context).pop(true);
@@ -387,11 +390,11 @@ class _PartEditor extends StatelessWidget {
                   segments: const [
                     ButtonSegment(
                       value: RepairPartSource.inventory,
-                      label: Text('Inventory'),
+                      label: Text(AppStrings.repairInventory),
                     ),
                     ButtonSegment(
                       value: RepairPartSource.directPurchase,
-                      label: Text('Direct purchase'),
+                      label: Text(AppStrings.repairDirectPurchase),
                     ),
                   ],
                   selected: {draft.source},
@@ -427,7 +430,7 @@ class _PartEditor extends StatelessWidget {
             TextField(
               controller: draft.name,
               decoration: const InputDecoration(
-                labelText: 'Part name',
+                labelText: AppStrings.repairPartName,
                 border: OutlineInputBorder(),
               ),
             ),
@@ -435,17 +438,17 @@ class _PartEditor extends StatelessWidget {
             DropdownButtonFormField<String>(
               initialValue: draft.settlementType,
               decoration: const InputDecoration(
-                labelText: 'Purchase settlement',
+                labelText: AppStrings.repairPurchaseSettlement,
                 border: OutlineInputBorder(),
               ),
               items: const [
                 DropdownMenuItem(
                   value: 'already_recorded',
-                  child: Text('Cost already recorded'),
+                  child: Text(AppStrings.repairCostAlreadyRecorded),
                 ),
                 DropdownMenuItem(
                   value: 'supplier_payable',
-                  child: Text('Add to supplier payable'),
+                  child: Text(AppStrings.repairAddSupplierPayable),
                 ),
               ],
               onChanged: (value) {
@@ -460,7 +463,7 @@ class _PartEditor extends StatelessWidget {
                 initialValue: draft.supplierId,
                 isExpanded: true,
                 decoration: const InputDecoration(
-                  labelText: 'Supplier',
+                  labelText: AppStrings.repairSupplier,
                   border: OutlineInputBorder(),
                 ),
                 items:
@@ -479,11 +482,15 @@ class _PartEditor extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _field(draft.quantity, 'Qty')),
+              Expanded(
+                child: _field(draft.quantity, AppStrings.repairQuantity),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _field(draft.cost, 'Unit cost')),
+              Expanded(child: _field(draft.cost, AppStrings.repairUnitCost)),
               const SizedBox(width: 8),
-              Expanded(child: _field(draft.sale, 'Customer price')),
+              Expanded(
+                child: _field(draft.sale, AppStrings.repairCustomerPrice),
+              ),
             ],
           ),
         ],
@@ -524,15 +531,15 @@ class _InventoryProductPicker extends StatelessWidget {
       },
       child: InputDecorator(
         decoration: const InputDecoration(
-          labelText: 'Inventory product',
-          hintText: 'Search name, SKU or barcode',
+          labelText: AppStrings.repairInventoryProduct,
+          hintText: AppStrings.repairInventorySearchHint,
           border: OutlineInputBorder(),
           suffixIcon: Icon(Icons.search_rounded),
         ),
         child:
             selected == null
                 ? const Text(
-                  'Tap to search inventory',
+                  AppStrings.repairTapInventorySearch,
                   style: TextStyle(color: Colors.black54),
                 )
                 : Column(
@@ -544,9 +551,11 @@ class _InventoryProductPicker extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      'Stock ${selected.stock} • Cost Rs '
-                      '${selected.costPrice.toStringAsFixed(0)}'
-                      '${selected.sku?.isNotEmpty == true ? ' • SKU ${selected.sku}' : ''}',
+                      AppStrings.repairInventorySummary(
+                        selected.stock,
+                        selected.costPrice,
+                        selected.sku,
+                      ),
                       style: const TextStyle(
                         fontSize: 12,
                         color: Colors.black54,
@@ -586,7 +595,7 @@ Future<ProductModel?> _showInventoryProductSearch(
                         children: [
                           const Expanded(
                             child: Text(
-                              'Search inventory part',
+                              AppStrings.repairSearchInventoryPart,
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
@@ -594,7 +603,7 @@ Future<ProductModel?> _showInventoryProductSearch(
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Close',
+                            tooltip: AppStrings.repairClose,
                             onPressed: () => Navigator.pop(dialogContext),
                             icon: const Icon(Icons.close_rounded),
                           ),
@@ -606,13 +615,13 @@ Future<ProductModel?> _showInventoryProductSearch(
                         autofocus: true,
                         textInputAction: TextInputAction.search,
                         decoration: InputDecoration(
-                          hintText: 'Product name, SKU, barcode or category',
+                          hintText: AppStrings.repairProductSearchHint,
                           prefixIcon: const Icon(Icons.search_rounded),
                           suffixIcon:
                               query.isEmpty
                                   ? null
                                   : IconButton(
-                                    tooltip: 'Clear search',
+                                    tooltip: AppStrings.repairClearSearch,
                                     onPressed: () {
                                       search.clear();
                                       setDialogState(() => query = '');
@@ -627,9 +636,8 @@ Future<ProductModel?> _showInventoryProductSearch(
                       const SizedBox(height: 8),
                       Text(
                         query.trim().isEmpty
-                            ? 'Search to find an in-stock inventory item.'
-                            : '${matches.length} matching items'
-                                '${matches.length == 50 ? ' (top results)' : ''}',
+                            ? AppStrings.repairSearchInventoryPrompt
+                            : AppStrings.repairMatchingItems(matches.length),
                         style: const TextStyle(
                           fontSize: 12,
                           color: Colors.black54,
@@ -641,13 +649,13 @@ Future<ProductModel?> _showInventoryProductSearch(
                             query.trim().isEmpty
                                 ? const Center(
                                   child: Text(
-                                    'Type a product name, SKU or barcode.',
+                                    AppStrings.repairTypeInventoryPrompt,
                                   ),
                                 )
                                 : matches.isEmpty
                                 ? const Center(
                                   child: Text(
-                                    'No active in-stock product matched.',
+                                    AppStrings.repairNoInventoryMatch,
                                   ),
                                 )
                                 : ListView.separated(
@@ -664,17 +672,21 @@ Future<ProductModel?> _showInventoryProductSearch(
                                       subtitle: Text(
                                         [
                                           if (product.sku?.isNotEmpty == true)
-                                            'SKU ${product.sku}',
+                                            AppStrings.repairSku(product.sku!),
                                           if (product
                                                   .categoryName
                                                   ?.isNotEmpty ==
                                               true)
                                             product.categoryName!,
-                                          'Cost Rs ${product.costPrice.toStringAsFixed(0)}',
-                                        ].join(' • '),
+                                          AppStrings.repairCost(
+                                            product.costPrice,
+                                          ),
+                                        ].join(
+                                          AppStrings.customerDetailSeparator,
+                                        ),
                                       ),
                                       trailing: Text(
-                                        'Stock ${product.stock}',
+                                        AppStrings.repairStock(product.stock),
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w700,
                                         ),

@@ -82,6 +82,63 @@ void main() {
 
     expect(result.branchAllowed, isTrue);
   });
+
+  test('reuses one branch snapshot for concurrent permission checks', () async {
+    final dataSource = _CountingDataSource(
+      _snapshot(
+        hasBranchConfiguration: true,
+        hasActiveBranchRole: true,
+        rolePermissionKeys: {
+          'inventory.product.view',
+          'inventory.product.create',
+        },
+      ),
+    );
+    final evaluator = BranchPermissionShadowEvaluator(
+      dataSource: dataSource,
+      logger: (_) {},
+    );
+
+    final results = await Future.wait([
+      evaluator.compare(
+        userId: 'staff-user',
+        tenantId: 'tenant-1',
+        branchId: 'branch-1',
+        permissionKey: 'inventory.product.view',
+        legacyAllowed: true,
+      ),
+      evaluator.compare(
+        userId: 'staff-user',
+        tenantId: 'tenant-1',
+        branchId: 'branch-1',
+        permissionKey: 'inventory.product.create',
+        legacyAllowed: true,
+      ),
+    ]);
+
+    expect(results.every((result) => result.branchAllowed), isTrue);
+    expect(dataSource.loadCount, 1);
+  });
+
+  test('keeps branch snapshots isolated by branch', () async {
+    final dataSource = _CountingDataSource(_snapshot(isOwner: true));
+    final evaluator = BranchPermissionShadowEvaluator(
+      dataSource: dataSource,
+      logger: (_) {},
+    );
+
+    for (final branchId in ['branch-1', 'branch-2']) {
+      await evaluator.compare(
+        userId: 'staff-user',
+        tenantId: 'tenant-1',
+        branchId: branchId,
+        permissionKey: 'dashboard.overview.view',
+        legacyAllowed: true,
+      );
+    }
+
+    expect(dataSource.loadCount, 2);
+  });
 }
 
 Future<BranchPermissionShadowResult> _evaluate({
@@ -127,6 +184,24 @@ class _DataSource implements BranchPermissionDataSource {
     required String tenantId,
     required String branchId,
   }) async {
+    return snapshot;
+  }
+}
+
+class _CountingDataSource implements BranchPermissionDataSource {
+  final BranchPermissionSnapshot snapshot;
+  int loadCount = 0;
+
+  _CountingDataSource(this.snapshot);
+
+  @override
+  Future<BranchPermissionSnapshot> loadSnapshot({
+    required String userId,
+    required String tenantId,
+    required String branchId,
+  }) async {
+    loadCount++;
+    await Future<void>.delayed(Duration.zero);
     return snapshot;
   }
 }

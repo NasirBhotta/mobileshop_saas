@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mobileshop_saas/core/constants/app_strings.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/core/utils/responsive.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/providers/repair_provider.dart';
@@ -25,10 +26,10 @@ class RepairsListScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        title: const Text('Repairs'),
+        title: const Text(AppStrings.repairsTitle),
         actions: [
           IconButton(
-            tooltip: 'Sync',
+            tooltip: AppStrings.repairSync,
             onPressed:
                 syncState.isLoading
                     ? null
@@ -51,7 +52,7 @@ class RepairsListScreen extends ConsumerWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/repairs/new'),
         icon: const Icon(Icons.add),
-        label: const Text('New Repair'),
+        label: const Text(AppStrings.repairNew),
       ),
       body: SafeArea(
         child: Column(
@@ -203,7 +204,9 @@ class RepairsListScreen extends ConsumerWidget {
 
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Status ${status.label} ho gaya')),
+            SnackBar(
+              content: Text(AppStrings.repairStatusUpdated(status.label)),
+            ),
           );
         }
         return true;
@@ -245,21 +248,21 @@ class RepairsListScreen extends ConsumerWidget {
 String _friendlyRepairStatusError(Object? error) {
   final message = error?.toString().toLowerCase() ?? '';
   if (message.contains('insufficient refund balance')) {
-    return 'Selected account mein customer refund ke liye balance kam hai.';
+    return AppStrings.repairRefundBalanceLow;
   }
   if (message.contains('select an account') ||
       message.contains('refund account is not available')) {
-    return 'Customer refund ke liye valid account select karein.';
+    return AppStrings.repairRefundAccountRequired;
   }
   if (message.contains('resolve paid supplier amount')) {
-    return 'Supplier ko paid part pehle resolve karein; phir repair cancel hogi.';
+    return AppStrings.repairSupplierPaidPartBlocked;
   }
   if (message.contains('permission') ||
       message.contains('not allowed') ||
       message.contains('42501')) {
-    return 'Aap ke paas repair cancel karne ki permission nahi hai.';
+    return AppStrings.repairCancelPermissionDenied;
   }
-  return 'Repair cancel nahi ho saki. Records change nahi huay; dobara try karein.';
+  return AppStrings.repairCancelFailed;
 }
 
 typedef _StatusChanged =
@@ -345,7 +348,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                   children: [
                     Icon(Icons.cloud_sync_outlined, size: 18),
                     SizedBox(width: 8),
-                    Text('Status update ho raha hai, please wait...'),
+                    Text(AppStrings.repairStatusUpdating),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -354,14 +357,14 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                 children: [
                   Expanded(
                     child: Text(
-                      ticket.ticketNo ?? 'Repair Ticket',
+                      ticket.ticketNo ?? AppStrings.repairTicketLabel,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Close',
+                    tooltip: AppStrings.repairClose,
                     onPressed:
                         _isSaving ? null : () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close),
@@ -372,37 +375,46 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
               Wrap(
                 runSpacing: 6,
                 children: [
-                  _DetailLine(label: 'Customer', value: ticket.customerName),
                   _DetailLine(
-                    label: 'Device',
-                    value: '${ticket.deviceBrand} ${ticket.deviceModel}',
+                    label: AppStrings.repairCustomer,
+                    value: ticket.customerName,
                   ),
-                  _DetailLine(label: 'Status', value: ticket.status.label),
+                  _DetailLine(
+                    label: AppStrings.repairDevice,
+                    value: AppStrings.repairDeviceName(
+                      ticket.deviceBrand,
+                      ticket.deviceModel,
+                    ),
+                  ),
+                  _DetailLine(
+                    label: AppStrings.repairStatus,
+                    value: ticket.status.label,
+                  ),
                   if (imei != null && imei.isNotEmpty)
-                    _DetailLine(label: 'IMEI', value: imei),
+                    _DetailLine(label: AppStrings.repairImei, value: imei),
                   if (estimatedCost != null)
                     _DetailLine(
-                      label: 'Service Estimate',
-                      value: 'Rs ${estimatedCost.toStringAsFixed(0)}',
+                      label: AppStrings.repairServiceEstimate,
+                      value: AppStrings.repairMoney(estimatedCost),
                     ),
                   if (totalCost != null)
                     _DetailLine(
-                      label: 'Final Bill',
-                      value: 'Rs ${totalCost.toStringAsFixed(0)}',
+                      label: AppStrings.repairFinalBillLabel,
+                      value: AppStrings.repairMoney(totalCost),
                     ),
                   _DetailLine(
-                    label: 'Received',
+                    label: AppStrings.repairReceive,
                     value:
                         paid == null
                             ? paymentsAsync.hasError
-                                ? 'Unable to load'
-                                : 'Loading...'
-                            : 'Rs ${paid.toStringAsFixed(0)}',
+                                ? AppStrings.repairUnableToLoad
+                                : AppStrings.loading
+                            : AppStrings.repairMoney(paid),
                   ),
                   if (balance != null)
                     _DetailLine(
-                      label: 'Remaining',
-                      value: 'Rs ${balance.toStringAsFixed(0)}',
+                      label: AppStrings.paymentRemaining,
+                      value: AppStrings.repairMoney(balance),
                     ),
                 ],
               ),
@@ -426,8 +438,8 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                           : const Icon(Icons.payments_outlined),
                   label: Text(
                     isReceivingPayment
-                        ? 'Receiving Payment...'
-                        : 'Receive Payment',
+                        ? AppStrings.repairReceivingPayment
+                        : AppStrings.repairReceivePayment,
                   ),
                 ),
               ],
@@ -440,19 +452,19 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
               OutlinedButton.icon(
                 onPressed: _isSaving ? null : _archive,
                 icon: const Icon(Icons.archive_outlined),
-                label: const Text('Archive Ticket'),
+                label: const Text(AppStrings.repairArchiveTicket),
               ),
               const SizedBox(height: 12),
               if (statuses.isEmpty)
                 Text(
-                  'Is ticket ka status ab change nahi ho sakta.',
+                  AppStrings.repairStatusLocked,
                   style: Theme.of(context).textTheme.bodyMedium,
                 )
               else ...[
                 DropdownButtonFormField<RepairTicketStatus>(
                   initialValue: selectedStatus,
                   decoration: const InputDecoration(
-                    labelText: 'Next status',
+                    labelText: AppStrings.repairNextStatus,
                     border: OutlineInputBorder(),
                   ),
                   items:
@@ -479,7 +491,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                   enabled: !_isSaving,
                   maxLines: 2,
                   decoration: const InputDecoration(
-                    labelText: 'Status note optional',
+                    labelText: AppStrings.repairStatusNote,
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -500,7 +512,11 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                             ),
                           )
                           : const Icon(Icons.done),
-                  label: Text(_isSaving ? 'Updating...' : 'Update Status'),
+                  label: Text(
+                    _isSaving
+                        ? AppStrings.repairUpdating
+                        : AppStrings.repairUpdateStatus,
+                  ),
                 ),
               ],
             ],
@@ -517,7 +533,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Receiving accounts load nahi ho sake: $error')),
+        SnackBar(content: Text(AppStrings.repairAccountsLoadFailed(error))),
       );
       return;
     }
@@ -548,7 +564,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                     compatible,
                   )?.id;
               return AlertDialog(
-                title: const Text('Receive Repair Payment'),
+                title: const Text(AppStrings.repairReceivePaymentTitle),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -559,14 +575,15 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                         decimal: true,
                       ),
                       decoration: InputDecoration(
-                        labelText: 'Amount',
-                        helperText:
-                            'Remaining Rs ${remaining.toStringAsFixed(0)}',
+                        labelText: AppStrings.repairAmount,
+                        helperText: AppStrings.repairRemaining(remaining),
                       ),
                     ),
                     DropdownButtonFormField<PaymentMethod>(
                       initialValue: method,
-                      decoration: const InputDecoration(labelText: 'Method'),
+                      decoration: const InputDecoration(
+                        labelText: AppStrings.repairMethod,
+                      ),
                       items:
                           PaymentMethod.values
                               .where((value) => value != PaymentMethod.credit)
@@ -592,10 +609,10 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                       initialValue: effectiveAccountId,
                       isExpanded: true,
                       decoration: InputDecoration(
-                        labelText: 'Receiving Account',
+                        labelText: AppStrings.repairReceivingAccount,
                         helperText:
                             compatible.isEmpty
-                                ? 'Create a compatible account first.'
+                                ? AppStrings.repairCompatibleAccountRequired
                                 : null,
                       ),
                       items:
@@ -617,7 +634,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                       controller: noteController,
                       enabled: !isReceiving,
                       decoration: const InputDecoration(
-                        labelText: 'Note optional',
+                        labelText: AppStrings.repairPaymentNote,
                       ),
                     ),
                     if (paymentError != null) ...[
@@ -637,7 +654,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                         isReceiving
                             ? null
                             : () => Navigator.of(dialogContext).pop(),
-                    child: const Text('Cancel'),
+                    child: const Text(AppStrings.repairCancel),
                   ),
                   FilledButton(
                     onPressed:
@@ -651,9 +668,9 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                   0;
                               if (amount <= 0 || amount > remaining + 0.01) {
                                 setDialogState(() {
-                                  paymentError =
-                                      'Enter an amount between Rs 1 and '
-                                      'Rs ${remaining.toStringAsFixed(0)}.';
+                                  paymentError = AppStrings.repairAmountRange(
+                                    remaining,
+                                  );
                                 });
                                 return;
                               }
@@ -677,7 +694,9 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                 Navigator.of(dialogContext).pop();
                                 ScaffoldMessenger.of(this.context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('Payment received'),
+                                    content: Text(
+                                      AppStrings.repairPaymentReceived,
+                                    ),
                                   ),
                                 );
                               } else {
@@ -687,7 +706,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                         .asError
                                         ?.error
                                         .toString() ??
-                                    'Payment receive nahi ho saki';
+                                    AppStrings.repairPaymentFailed;
                                 setDialogState(() {
                                   isReceiving = false;
                                   paymentError = error;
@@ -707,10 +726,10 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                   ),
                                 ),
                                 SizedBox(width: 8),
-                                Text('Receiving...'),
+                                Text(AppStrings.repairReceiving),
                               ],
                             )
-                            : const Text('Receive'),
+                            : const Text(AppStrings.repairReceive),
                   ),
                 ],
               );
@@ -756,11 +775,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Status update nahi ho saka. Koi record change nahi hua.',
-            ),
-          ),
+          const SnackBar(content: Text(AppStrings.repairStatusUpdateFailed)),
         );
       }
     } finally {
@@ -812,23 +827,20 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
           (dialogContext) => StatefulBuilder(
             builder:
                 (context, setDialogState) => AlertDialog(
-                  title: const Text('Cancel & refund repair'),
+                  title: const Text(AppStrings.repairCancelRefundTitle),
                   content: SizedBox(
                     width: 480,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(
-                          'Customer ko Rs ${paid.toStringAsFixed(0)} refund '
-                          'karna zaroori hai.',
-                        ),
+                        Text(AppStrings.repairRefundAmount(paid)),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
                           initialValue: accountId,
                           isExpanded: true,
                           decoration: const InputDecoration(
-                            labelText: 'Refund from account / wallet',
+                            labelText: AppStrings.repairRefundAccount,
                             border: OutlineInputBorder(),
                           ),
                           items:
@@ -837,8 +849,10 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                     (account) => DropdownMenuItem(
                                       value: account.id,
                                       child: Text(
-                                        '${account.name} • Rs '
-                                        '${account.currentBalance.toStringAsFixed(0)}',
+                                        AppStrings.repairAccountBalance(
+                                          account.name,
+                                          account.currentBalance,
+                                        ),
                                       ),
                                     ),
                                   )
@@ -853,17 +867,13 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                         ),
                         const SizedBox(height: 10),
                         const Text(
-                          'Confirm karne par refund ledger, account balance, '
-                          'used inventory parts, supplier payable aur repair '
-                          'profit ek atomic transaction mein reverse honge.',
+                          AppStrings.repairRefundConfirmation,
                           style: TextStyle(fontSize: 12),
                         ),
                         if (accounts.isEmpty || error != null) ...[
                           const SizedBox(height: 10),
                           Text(
-                            error ??
-                                'Kisi active account mein refund ke liye '
-                                    'sufficient balance nahi hai.',
+                            error ?? AppStrings.repairRefundBalanceUnavailable,
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.error,
                             ),
@@ -878,7 +888,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                           submitting
                               ? null
                               : () => Navigator.pop(dialogContext),
-                      child: const Text('Back'),
+                      child: const Text(AppStrings.repairBack),
                     ),
                     FilledButton(
                       onPressed:
@@ -888,7 +898,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                 setDialogState(() => submitting = true);
                                 Navigator.pop(dialogContext, accountId);
                               },
-                      child: const Text('Refund & Cancel'),
+                      child: const Text(AppStrings.repairRefundAndCancel),
                     ),
                   ],
                 ),
@@ -903,19 +913,16 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
           context: context,
           builder:
               (dialogContext) => AlertDialog(
-                title: const Text('Archive ticket?'),
-                content: const Text(
-                  'Ticket list se hide ho ga. Financial history, payments, '
-                  'parts aur reversal records delete nahi honge.',
-                ),
+                title: const Text(AppStrings.repairArchiveTitle),
+                content: const Text(AppStrings.repairArchiveMessage),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.of(dialogContext).pop(false),
-                    child: const Text('Back'),
+                    child: const Text(AppStrings.repairBack),
                   ),
                   FilledButton(
                     onPressed: () => Navigator.of(dialogContext).pop(true),
-                    child: const Text('Archive'),
+                    child: const Text(AppStrings.repairArchive),
                   ),
                 ],
               ),
@@ -955,7 +962,7 @@ class _DetailLine extends StatelessWidget {
           style: Theme.of(context).textTheme.bodyMedium,
           children: [
             TextSpan(
-              text: '$label: ',
+              text: AppStrings.repairDetailLabel(label),
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             TextSpan(text: value),
@@ -1034,7 +1041,9 @@ class _RepairStatusFilterBarState extends State<_RepairStatusFilterBar> {
                 for (final status in statuses) ...[
                   FilterChip(
                     selected: widget.selectedStatus == status,
-                    label: Text(status == null ? 'All' : status.label),
+                    label: Text(
+                      status == null ? AppStrings.repairAll : status.label,
+                    ),
                     onSelected: (_) => widget.onChanged(status),
                   ),
                   if (status != statuses.last) const SizedBox(width: 8),
@@ -1075,7 +1084,7 @@ class _RepairTicketCard extends StatelessWidget {
     final estimate =
         estimatedCost == null
             ? null
-            : 'Service est. Rs ${estimatedCost.toStringAsFixed(0)}';
+            : AppStrings.repairServiceEstimateAmount(estimatedCost);
     return Card(
       elevation: 0,
       clipBehavior: Clip.antiAlias,
@@ -1090,7 +1099,7 @@ class _RepairTicketCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      ticket.ticketNo ?? 'No Ticket No',
+                      ticket.ticketNo ?? AppStrings.repairNoTicketNumber,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -1110,14 +1119,17 @@ class _RepairTicketCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '${ticket.deviceBrand} ${ticket.deviceModel}',
+                AppStrings.repairDeviceName(
+                  ticket.deviceBrand,
+                  ticket.deviceModel,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
               if (imei != null && imei.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'IMEI: $imei',
+                  AppStrings.repairImeiValue(imei),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,
@@ -1162,11 +1174,8 @@ class _RepairTicketCard extends StatelessWidget {
   }
 
   static String _formatDate(DateTime? date) {
-    if (date == null) return 'No date';
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    final year = date.year.toString();
-    return '$day-$month-$year';
+    if (date == null) return AppStrings.repairNoDate;
+    return AppStrings.repairDate(date);
   }
 }
 
@@ -1204,8 +1213,8 @@ class _EmptyRepairsView extends StatelessWidget {
     final status = selectedStatus;
     final text =
         status == null
-            ? 'Abhi koi repair ticket nahi bana.'
-            : '${status.label} status mein koi repair ticket nahi hai.';
+            ? AppStrings.repairsEmptyMessage
+            : AppStrings.repairStatusEmpty(status.label);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -1217,7 +1226,7 @@ class _EmptyRepairsView extends StatelessWidget {
               const Icon(Icons.build_circle_outlined, size: 52),
               const SizedBox(height: 12),
               Text(
-                'No Repairs',
+                AppStrings.repairsEmptyTitle,
                 style: Theme.of(
                   context,
                 ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
@@ -1228,7 +1237,7 @@ class _EmptyRepairsView extends StatelessWidget {
               FilledButton.icon(
                 onPressed: onCreate,
                 icon: const Icon(Icons.add),
-                label: const Text('Create Repair Ticket'),
+                label: const Text(AppStrings.repairCreateTicket),
               ),
             ],
           ),
@@ -1255,7 +1264,7 @@ class _RepairErrorView extends StatelessWidget {
               const Icon(Icons.error_outline, size: 52),
               const SizedBox(height: 12),
               Text(
-                'Repairs load nahi ho sake',
+                AppStrings.repairsLoadFailed,
                 style: Theme.of(
                   context,
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
@@ -1266,7 +1275,7 @@ class _RepairErrorView extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                label: const Text(AppStrings.repairRetry),
               ),
             ],
           ),

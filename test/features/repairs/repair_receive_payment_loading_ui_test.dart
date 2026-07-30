@@ -15,7 +15,7 @@ void main() {
         'repairPaymentControllerProvider.select((state) => state.isLoading)',
       ),
     );
-    expect(source, contains("'Receiving Payment...'"));
+    expect(source, contains('AppStrings.repairReceivingPayment'));
     expect(source, contains('_isSaving || isReceivingPayment'));
     expect(source, contains('isReceivingPayment\n'));
   });

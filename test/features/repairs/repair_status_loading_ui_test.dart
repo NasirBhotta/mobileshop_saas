@@ -9,12 +9,9 @@ void main() {
           'lib/features/repairs/presentation/screens/repairs_list_screen.dart',
         ).readAsStringSync();
 
-    expect(source, contains('Status update ho raha hai, please wait...'));
+    expect(source, contains('AppStrings.repairStatusUpdating'));
     expect(source, contains('LinearProgressIndicator'));
-    expect(
-      source,
-      contains("Text(_isSaving ? 'Updating...' : 'Update Status')"),
-    );
+    expect(source, contains('AppStrings.repairUpdateStatus'));
     expect(source, contains('_isSaving || selectedStatus == null'));
     expect(source, contains('finally {'));
   });

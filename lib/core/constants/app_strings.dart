@@ -63,7 +63,7 @@ class AppStrings {
 
   static const String hintEmail = 'you@example.com';
   static const String hintPassword = '••••••••';
-  static const String hintFullName = 'Muhammad Ali';
+  static const String hintFullName = 'Nasir Bhutta';
   static const String hintPhone = '03XX-XXXXXXX';
 
   // ═══════════════════════════════════════
@@ -164,7 +164,7 @@ class AppStrings {
 
   static const String dashboardTitle = 'Dashboard';
   static const String dashboardWelcome = 'Khush Aamdeed';
-  static const String dashboardTodaySales = 'Aaj Cash Received';
+  static const String dashboardTodaySales = 'Aaj ki sales';
   static const String dashboardTotalStock = 'Total Stock';
   static const String dashboardActiveRepairs = 'Active Repairs';
   static const String dashboardLowStock = 'Low Stock Items';
@@ -292,6 +292,80 @@ class AppStrings {
   static const String hintCustomerName = 'Muhammad Ali';
   static const String errorCustomerNameRequired = 'Naam zaroori hai';
 
+  // Customer Management
+  static const String customersTitle = 'Customers';
+  static const String customerUnknownInitial = '?';
+  static const String customerDetailSeparator = ' • ';
+  static const String customerAdd = 'Add';
+  static const String customerSearchHint = 'Search name, phone, email...';
+  static const String customersEmpty = 'No customers yet';
+  static const String customerCreditLimitTooltip = 'Credit limit';
+  static const String customerLifetimeValue = 'Lifetime Value';
+  static const String customerOutstanding = 'Outstanding';
+  static const String customerCreditLimit = 'Credit Limit';
+  static const String customerActiveRepairs = 'Active Repairs';
+  static const String customerCreditLimitNotSet = 'Not set';
+  static const String customerCreditExplanation =
+      'Credit limit max khata allowance hai. Khata sale checkout par outstanding mein add hoti hai; Settle Dues se customer ki payment record hoti hai aur outstanding kam hota hai.';
+  static const String customerSettleDues = 'Settle Dues';
+  static const String customerPurchaseHistory = 'Purchase History';
+  static const String customerNoPurchases = 'No purchases found';
+  static const String customerSettlements = 'Settlements';
+  static const String customerNoSettlements = 'No settlements yet';
+  static const String customerAddTitle = 'Add Customer';
+  static const String customerClose = 'Close';
+  static const String customerFullNameLabel = 'Full name';
+  static const String customerPhoneLabel = 'Phone';
+  static const String customerEmailLabel = 'Email';
+  static const String customerCreditLimitLabel = 'Credit limit (optional)';
+  static const String customerCreditLimitPrefix = 'Rs ';
+  static const String customerCreditLimitHelper =
+      'Owner set kare. Blank ka matlab fixed limit nahi.';
+  static const String customerNotesLabel = 'Notes';
+  static const String customerSave = 'Save Customer';
+  static const String customerSaveFailed = 'Customer save nahi hua';
+  static const String customerCreditLimitTitle = 'Credit Limit';
+  static const String customerLimitLabel = 'Limit';
+  static const String customerClear = 'Clear';
+  static const String customerSaveAction = 'Save';
+  static const String customerCreditLimitSaveFailed =
+      'Credit limit save nahi hui';
+  static const String customerSettlementAmountLabel = 'Amount';
+  static const String customerSettlementMethodLabel = 'Method';
+  static const String customerReceivingAccountLabel = 'Receiving account';
+  static const String customerCompatibleAccountRequired =
+      'Accounts screen mein compatible account banayein.';
+  static const String customerRecordSettlement = 'Record Settlement';
+  static const String customerRecordingSettlement = 'Recording...';
+  static const String customerSettlementAmountInvalid =
+      'Valid settlement amount enter karein.';
+  static const String customerSettlementExceedsDues =
+      'Settlement current dues se zyada nahi ho sakti.';
+  static const String customerSettlementSuccess =
+      'Customer dues successfully settle ho gaye.';
+  static const String customerSettlementSaveFailed =
+      'Settlement save nahi hui. Dobara try karein.';
+  static const String customerSettlementLedgerFailed =
+      'Settlement ledger update nahi ho saka. Database migration apply karke dobara try karein.';
+  static const String customerSettlementPermissionDenied =
+      'Aap ke paas customer dues settle karne ki permission nahi hai.';
+  static const String customerSettlementAccountInvalid =
+      'Selected receiving account valid nahi hai.';
+  static const String customerSettlementOffline =
+      'Network issue hai. Settlement locally save ho gayi hai aur connection aane par sync ho jayegi.';
+  static const String customerSettlementRetry =
+      'Settlement save nahi hui. Please dobara try karein.';
+
+  static String customerDue(double amount) =>
+      'Due Rs ${amount.toStringAsFixed(0)}';
+  static String customerMoney(double amount) =>
+      'Rs ${amount.toStringAsFixed(0)}';
+  static String customerInvoice(String id) => 'Invoice $id';
+  static String customerSettlementDetails(String method, String createdAt) =>
+      '$method • $createdAt';
+  static String customerAccountSummary(String name, double balance) =>
+      '$name • Rs ${balance.toStringAsFixed(0)}';
+
   // Payment
   static const String paymentTitle = 'Payment';
   static const String paymentMethod = 'Payment Method';
@@ -344,4 +418,218 @@ class AppStrings {
   static const String errorPaymentMismatch = 'Payment total match nahi karta';
   static const String errorCheckoutFailed =
       'Checkout fail ho gaya, dobara try karein';
+
+  // Repairs
+  static const String repairsTitle = 'Repairs';
+  static const String repairBack = 'Back';
+  static const String repairCancel = 'Cancel';
+  static const String repairClose = 'Close';
+  static const String repairSync = 'Sync';
+  static const String repairRetry = 'Retry';
+  static const String repairCreateTicket = 'Create Repair Ticket';
+  static const String repairTicketLabel = 'Repair Ticket';
+  static const String repairNew = 'New Repair';
+  static const String repairSaving = 'Saving...';
+  static const String repairRequired = 'Required';
+  static const String repairSomethingWentWrong = 'Something went wrong';
+  static const String repairCustomerDetails = 'Customer Details';
+  static const String repairCustomerDetailsSubtitle =
+      'Customer ka basic info yahan save hoga.';
+  static const String repairCustomerName = 'Customer name';
+  static const String repairCustomerNameHint = 'Example: Ali Raza';
+  static const String repairCustomerPhone = 'Customer phone optional';
+  static const String repairCustomerPhoneHint = 'Example: 03001234567';
+  static const String repairDeviceDetails = 'Device Details';
+  static const String repairDeviceDetailsSubtitle =
+      'Device ka model, IMEI aur optional inventory product link.';
+  static const String repairLinkedProduct = 'Linked inventory product optional';
+  static const String repairExternalDevice =
+      'External device / no product link';
+  static const String repairProductsLoadFailed =
+      'Products load nahi ho sake. Ticket phir bhi external device ke tor par create ho sakta hai.';
+  static const String repairDeviceBrand = 'Device brand';
+  static const String repairDeviceBrandHint = 'Example: Samsung';
+  static const String repairDeviceModel = 'Device model';
+  static const String repairDeviceModelHint = 'Example: A15';
+  static const String repairDeviceColor = 'Device color optional';
+  static const String repairDeviceColorHint = 'Example: Black';
+  static const String repairImeiOptional = 'IMEI optional';
+  static const String repairImeiHint = 'Example: 356789XXXXXXXXX';
+  static const String repairFaultDescription = 'Fault Description';
+  static const String repairFaultDescriptionSubtitle =
+      'Customer ne device mein jo problem batayi hai woh yahan likho.';
+  static const String repairFaultIssue = 'Fault / issue';
+  static const String repairFaultHint = 'Example: Charging nahi ho rahi';
+  static const String repairChargeEstimate = 'Repair Charge Estimate';
+  static const String repairChargeEstimateSubtitle =
+      'Estimated service/labour charge; parts completion par automatically add honge.';
+  static const String repairEstimatedServiceCharge =
+      'Estimated service charge optional';
+  static const String repairEstimatedServiceChargeHint = 'Example: 500';
+  static const String repairEstimatedCompletion =
+      'Estimated completion optional';
+  static const String repairEstimateNote = 'Estimate note optional';
+  static const String repairEstimateNoteHint =
+      'Example: Parts available hone par confirm hoga';
+  static const String repairSelectDate = 'Select date';
+  static const String repairValidAmount = 'Enter valid amount';
+  static const String repairAmountNotNegative = 'Amount cannot be negative';
+
+  static const String repairCompleteTitle = 'Complete Repair';
+  static const String repairCompletionInfo =
+      'Parts are consumed and profit is finalized only after confirmation.';
+  static const String repairAddPart = 'Add Part';
+  static const String repairFinalBill = 'Final bill total (including parts)';
+  static const String repairFinalBillHelper =
+      'Parts + service charge - discount';
+  static const String repairUseCalculatedTotal = 'Use calculated total';
+  static const String repairManualTotalHelper =
+      'Manually adjusted. Tap calculate to restore the suggested total.';
+  static const String repairAdvancedCharges =
+      'Optional advanced charges & costs';
+  static const String repairServiceCharge = 'Repair / service charge';
+  static const String repairDiscount = 'Discount';
+  static const String repairCommission = 'Per-job commission';
+  static const String repairOtherDirectCost = 'Other direct cost';
+  static const String repairCompleting = 'Completing...';
+  static const String repairConfirmCompletion = 'Confirm Completion';
+  static const String repairInvalidCharge = 'Enter a valid charge.';
+  static const String repairInvalidPartDetails =
+      'Complete all part details with valid amounts.';
+  static const String repairCompletionFailed = 'Repair could not be completed.';
+  static const String repairInventory = 'Inventory';
+  static const String repairDirectPurchase = 'Direct purchase';
+  static const String repairPartName = 'Part name';
+  static const String repairPurchaseSettlement = 'Purchase settlement';
+  static const String repairCostAlreadyRecorded = 'Cost already recorded';
+  static const String repairAddSupplierPayable = 'Add to supplier payable';
+  static const String repairSupplier = 'Supplier';
+  static const String repairQuantity = 'Qty';
+  static const String repairUnitCost = 'Unit cost';
+  static const String repairCustomerPrice = 'Customer price';
+  static const String repairInventoryProduct = 'Inventory product';
+  static const String repairInventorySearchHint = 'Search name, SKU or barcode';
+  static const String repairTapInventorySearch = 'Tap to search inventory';
+  static const String repairSearchInventoryPart = 'Search inventory part';
+  static const String repairProductSearchHint =
+      'Product name, SKU, barcode or category';
+  static const String repairClearSearch = 'Clear search';
+  static const String repairSearchInventoryPrompt =
+      'Search to find an in-stock inventory item.';
+  static const String repairTypeInventoryPrompt =
+      'Type a product name, SKU or barcode.';
+  static const String repairNoInventoryMatch =
+      'No active in-stock product matched.';
+
+  static const String repairsEmptyTitle = 'No Repairs';
+  static const String repairsEmptyMessage = 'Abhi koi repair ticket nahi bana.';
+  static const String repairsLoadFailed = 'Repairs load nahi ho sake';
+  static const String repairUnableToLoad = 'Unable to load';
+  static const String repairAll = 'All';
+  static const String repairNoTicketNumber = 'No Ticket No';
+  static const String repairNoDate = 'No date';
+  static const String repairCustomer = 'Customer';
+  static const String repairDevice = 'Device';
+  static const String repairImei = 'IMEI';
+  static const String repairStatus = 'Status';
+  static const String repairServiceEstimate = 'Service Estimate';
+  static const String repairFinalBillLabel = 'Final Bill';
+  static const String repairReceivePayment = 'Receive Payment';
+  static const String repairArchiveTicket = 'Archive Ticket';
+  static const String repairNextStatus = 'Next status';
+  static const String repairStatusNote = 'Status note optional';
+  static const String repairUpdating = 'Updating...';
+  static const String repairUpdateStatus = 'Update Status';
+  static const String repairStatusUpdating =
+      'Status update ho raha hai, please wait...';
+  static const String repairStatusLocked =
+      'Is ticket ka status ab change nahi ho sakta.';
+  static const String repairStatusUpdateFailed =
+      'Status update nahi ho saka. Koi record change nahi hua.';
+  static const String repairReceivePaymentTitle = 'Receive Repair Payment';
+  static const String repairAmount = 'Amount';
+  static const String repairMethod = 'Method';
+  static const String repairReceivingAccount = 'Receiving Account';
+  static const String repairCompatibleAccountRequired =
+      'Create a compatible account first.';
+  static const String repairPaymentNote = 'Note optional';
+  static const String repairReceivingPayment = 'Receiving Payment...';
+  static const String repairPaymentReceived = 'Payment received';
+  static const String repairReceiving = 'Receiving...';
+  static const String repairReceive = 'Receive';
+  static const String repairPaymentFailed = 'Payment receive nahi ho saki';
+  static const String repairCancelRefundTitle = 'Cancel & refund repair';
+  static const String repairRefundAccount = 'Refund from account / wallet';
+  static const String repairRefundAccountRequired =
+      'Customer refund ke liye valid account select karein.';
+  static const String repairRefundBalanceLow =
+      'Selected account mein customer refund ke liye balance kam hai.';
+  static const String repairRefundBalanceUnavailable =
+      'Kisi active account mein refund ke liye sufficient balance nahi hai.';
+  static const String repairCancelPermissionDenied =
+      'Aap ke paas repair cancel karne ki permission nahi hai.';
+  static const String repairCancelFailed =
+      'Repair cancel nahi ho saki. Records change nahi huay; dobara try karein.';
+  static const String repairSupplierPaidPartBlocked =
+      'Supplier ko paid part pehle resolve karein; phir repair cancel hogi.';
+  static const String repairRefundAndCancel = 'Refund & Cancel';
+  static const String repairArchiveTitle = 'Archive ticket?';
+  static const String repairArchiveMessage =
+      'Ticket list se hide ho ga. Financial history, payments, parts aur reversal records delete nahi honge.';
+  static const String repairArchive = 'Archive';
+  static const String repairRefundConfirmation =
+      'Confirm karne par refund ledger, account balance, used inventory parts, supplier payable aur repair profit ek atomic transaction mein reverse honge.';
+
+  static String repairTicketCreated(String ticketNumber) =>
+      'Repair ticket $ticketNumber created';
+  static String repairProductLabel(
+    String name,
+    String? sku,
+    bool imeiTracked,
+  ) =>
+      '$name${sku?.isNotEmpty == true ? ' ($sku)' : ''}'
+      '${imeiTracked ? ' • IMEI' : ''}';
+  static String repairMoney(double amount) => 'Rs ${amount.toStringAsFixed(0)}';
+  static String repairServiceEstimateAmount(double amount) =>
+      'Service est. Rs ${amount.toStringAsFixed(0)}';
+  static String repairStatusUpdated(String status) => 'Status $status ho gaya';
+  static String repairStatusEmpty(String status) =>
+      '$status status mein koi repair ticket nahi hai.';
+  static String repairAccountBalance(String name, double amount) =>
+      '$name • Rs ${amount.toStringAsFixed(0)}';
+  static String repairRemaining(double amount) =>
+      'Remaining Rs ${amount.toStringAsFixed(0)}';
+  static String repairAmountRange(double remaining) =>
+      'Enter an amount between Rs 1 and Rs ${remaining.toStringAsFixed(0)}.';
+  static String repairAccountsLoadFailed(Object error) =>
+      'Receiving accounts load nahi ho sake: $error';
+  static String repairRefundAmount(double paid) =>
+      'Customer ko Rs ${paid.toStringAsFixed(0)} refund karna zaroori hai.';
+  static String repairStockAvailable(String name, int stock) =>
+      '$name ka available stock $stock hai.';
+  static String repairCustomerTotal(double amount) =>
+      'Customer total: Rs ${amount.toStringAsFixed(0)}';
+  static String repairPartsCustomerPrice(double amount) =>
+      'Parts customer price: Rs ${amount.toStringAsFixed(0)}';
+  static String repairPartsCost(double amount) =>
+      'Parts cost: Rs ${amount.toStringAsFixed(0)}';
+  static String repairGrossProfit(double amount) =>
+      'Gross profit: Rs ${amount.toStringAsFixed(0)}';
+  static String repairInventorySummary(int stock, double cost, String? sku) =>
+      'Stock $stock • Cost Rs ${cost.toStringAsFixed(0)}'
+      '${sku?.isNotEmpty == true ? ' • SKU $sku' : ''}';
+  static String repairMatchingItems(int count) =>
+      '$count matching items${count == 50 ? ' (top results)' : ''}';
+  static String repairSku(String sku) => 'SKU $sku';
+  static String repairCost(double amount) =>
+      'Cost Rs ${amount.toStringAsFixed(0)}';
+  static String repairStock(int stock) => 'Stock $stock';
+  static String repairImeiValue(String imei) => 'IMEI: $imei';
+  static String repairDeviceName(String brand, String model) => '$brand $model';
+  static String repairDetailLabel(String label) => '$label: ';
+  static String repairDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    return '$day-$month-${date.year}';
+  }
 }
