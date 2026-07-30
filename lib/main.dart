@@ -110,7 +110,9 @@ class _MobileShopAppState extends ConsumerState<MobileShopApp> {
   Widget build(BuildContext context) {
     ref.watch(authListenerProvider);
     ref.watch(permissionRealtimeRefreshProvider);
-    ref.watch(permissionSafetyRefreshProvider);
+    // Temporarily disabled: this schedules a permission refresh 30 seconds
+    // after startup/resume and can make the current screen appear to reload.
+    // ref.watch(permissionSafetyRefreshProvider);
     ref.watch(tenantAccessRealtimeProvider);
     ref.watch(tenantAccessSafetyRefreshProvider);
     ref.watch(mobileServiceAutoSyncProvider);
