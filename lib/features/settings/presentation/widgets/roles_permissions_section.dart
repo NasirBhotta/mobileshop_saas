@@ -48,7 +48,7 @@ class RolesPermissionsSection extends ConsumerWidget {
                       ),
                       SizedBox(height: 3),
                       Text(
-                        'Team access aur responsibilities manage karein',
+                        'General roles set karein; branch access in defaults ko inherit karta hai',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 12,
@@ -333,6 +333,7 @@ class RolesPermissionsSection extends ConsumerWidget {
                                                       data,
                                                       user,
                                                       branch,
+                                                      selected[branch.id]!,
                                                     ),
                                         icon: const Icon(
                                           Icons.tune_rounded,
@@ -365,7 +366,10 @@ class RolesPermissionsSection extends ConsumerWidget {
     RoleManagementData data,
     ManagedUserRole user,
     ManagedBranch branch,
+    String roleId,
   ) async {
+    final inheritedPermissions =
+        data.roleById(roleId)?.permissionKeys ?? const <String>{};
     final selected = Map<String, bool>.from(
       data.branchOverrides(user.userId, branch.id),
     );
@@ -375,14 +379,14 @@ class RolesPermissionsSection extends ConsumerWidget {
           (dialogContext) => StatefulBuilder(
             builder:
                 (context, setState) => AlertDialog(
-                  title: Text('${branch.name} permission overrides'),
+                  title: Text('${branch.name} effective permissions'),
                   content: SizedBox(
                     width: 600,
                     child: SingleChildScrollView(
                       child: Column(
                         children: [
                           const Text(
-                            'Inherit role default rakhein, ya sirf is user aur branch ke liye allow/deny karein.',
+                            'General role permissions yahan automatically inherit hoti hain. Sirf is user aur branch ke liye zarurat par Allow ya Deny override karein.',
                           ),
                           const SizedBox(height: 10),
                           for (final entry in data.permissionsByModule.entries)
@@ -406,16 +410,22 @@ class RolesPermissionsSection extends ConsumerWidget {
                                                     ? 'allow'
                                                     : 'deny'
                                                 : 'inherit',
-                                        items: const [
+                                        items: [
                                           DropdownMenuItem(
                                             value: 'inherit',
-                                            child: Text('Inherit role'),
+                                            child: Text(
+                                              inheritedPermissions.contains(
+                                                    permission.key,
+                                                  )
+                                                  ? 'Inherit (Allowed)'
+                                                  : 'Inherit (Denied)',
+                                            ),
                                           ),
-                                          DropdownMenuItem(
+                                          const DropdownMenuItem(
                                             value: 'allow',
                                             child: Text('Allow'),
                                           ),
-                                          DropdownMenuItem(
+                                          const DropdownMenuItem(
                                             value: 'deny',
                                             child: Text('Deny'),
                                           ),
@@ -635,7 +645,7 @@ class _RoleTile extends StatelessWidget {
                 OutlinedButton.icon(
                   onPressed: busy ? null : onPermissions,
                   icon: const Icon(Icons.tune_rounded, size: 17),
-                  label: const Text('Permissions'),
+                  label: const Text('Base Permissions'),
                 ),
                 OutlinedButton.icon(
                   onPressed: busy ? null : onToggle,

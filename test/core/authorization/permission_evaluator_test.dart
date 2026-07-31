@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/core/authorization/permission_evaluator.dart';
 
@@ -121,6 +123,34 @@ void main() {
         expect(messages, hasLength(1));
       },
     );
+
+    test('concurrent permission checks share one assignment load', () async {
+      final loadStarted = Completer<void>();
+      final releaseLoad = Completer<void>();
+      final dataSource = _FakePermissionDataSource(
+        assignments: [
+          _assignment('cashier', {'first', 'second', 'third', 'fourth'}),
+        ],
+        onLoad: () async {
+          loadStarted.complete();
+          await releaseLoad.future;
+        },
+      );
+      final evaluator = PermissionEvaluator(dataSource: dataSource);
+
+      final results = Future.wait([
+        evaluator.can('first'),
+        evaluator.can('second'),
+        evaluator.can('third'),
+        evaluator.can('fourth'),
+      ]);
+      await loadStarted.future;
+
+      expect(dataSource.loadCount, 1);
+      releaseLoad.complete();
+      expect((await results).every((result) => result.isAllowed), isTrue);
+      expect(dataSource.loadCount, 1);
+    });
   });
 }
 
@@ -144,9 +174,10 @@ class _FakePermissionDataSource implements PermissionDataSource {
   String? userId;
   String? tenantId;
   List<PermissionRoleAssignment> assignments;
+  final Future<void> Function()? onLoad;
   int loadCount = 0;
 
-  _FakePermissionDataSource({this.assignments = const []})
+  _FakePermissionDataSource({this.assignments = const [], this.onLoad})
     : userId = 'owner-user',
       tenantId = 'tenant-1';
 
@@ -162,6 +193,7 @@ class _FakePermissionDataSource implements PermissionDataSource {
     required String tenantId,
   }) async {
     loadCount++;
+    await onLoad?.call();
     return assignments;
   }
 }

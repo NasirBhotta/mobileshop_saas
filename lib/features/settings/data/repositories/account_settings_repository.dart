@@ -75,7 +75,16 @@ class AccountSettingsRepository {
   }
 
   Future<AccountSettingsData> loadSettings({bool refreshTenant = false}) async {
-    unawaited(syncOfflineMutations());
+    final user = _client.auth.currentUser;
+    if (user == null) throw Exception('User not logged in');
+    unawaited(
+      syncOfflineMutations(userId: user.id).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        debugPrint('Account settings background sync failed: $error');
+      }),
+    );
 
     final profile = await _loadProfile();
     final tenantId = profile['tenant_id'] as String?;
@@ -249,9 +258,11 @@ class AccountSettingsRepository {
     }
   }
 
-  Future<void> syncOfflineMutations() async {
-    final userId = _currentUser.id;
-    final mutations = await OfflineStore.loadMutations(userId);
+  Future<void> syncOfflineMutations({String? userId}) async {
+    final effectiveUserId = userId ?? _client.auth.currentUser?.id;
+    if (effectiveUserId == null) return;
+
+    final mutations = await OfflineStore.loadMutations(effectiveUserId);
     if (mutations.isEmpty) return;
 
     final remaining = <OfflineMutation>[];
@@ -304,7 +315,7 @@ class AccountSettingsRepository {
     }
 
     await OfflineStore.saveMutationSyncResult(
-      userId: userId,
+      userId: effectiveUserId,
       snapshot: mutations,
       remaining: remaining,
     );

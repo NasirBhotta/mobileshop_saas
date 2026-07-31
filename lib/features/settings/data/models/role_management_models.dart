@@ -253,6 +253,14 @@ class RoleManagementData {
   int assignmentCount(String roleId) =>
       users.where((user) => user.roleId == roleId).length;
 
+  ManagedRole? roleById(String? roleId) {
+    if (roleId == null) return null;
+    for (final role in roles) {
+      if (role.id == roleId) return role;
+    }
+    return null;
+  }
+
   String? branchRoleId(String userId, String branchId) {
     for (final assignment in branchRoles) {
       if (assignment.userId == userId && assignment.branchId == branchId) {
@@ -267,6 +275,21 @@ class RoleManagementData {
       if (override.userId == userId && override.branchId == branchId)
         override.permissionKey: override.isAllowed,
   };
+
+  Set<String> inheritedBranchPermissions(String userId, String branchId) =>
+      roleById(branchRoleId(userId, branchId))?.permissionKeys ?? const {};
+
+  Set<String> effectiveBranchPermissions(String userId, String branchId) {
+    final effective = <String>{...inheritedBranchPermissions(userId, branchId)};
+    for (final entry in branchOverrides(userId, branchId).entries) {
+      if (entry.value) {
+        effective.add(entry.key);
+      } else {
+        effective.remove(entry.key);
+      }
+    }
+    return effective;
+  }
 }
 
 abstract final class RoleManagementRules {

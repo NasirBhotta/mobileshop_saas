@@ -104,6 +104,7 @@ class PermissionEvaluator {
   final PermissionDataSource _dataSource;
   final void Function(String message) _shadowLogger;
   final Map<_PermissionCacheKey, _PermissionCacheEntry> _cache = {};
+  final Map<_PermissionCacheKey, Future<_PermissionCacheEntry>> _inFlight = {};
   final Map<String, String> _lastTenantByUser = {};
 
   PermissionEvaluator({
@@ -154,21 +155,21 @@ class PermissionEvaluator {
     var entry = _cache[cacheKey];
     if (entry == null) {
       fromCache = false;
-      final assignments = await _dataSource.loadRoleAssignments(
-        userId: userId,
-        tenantId: tenantId,
-      );
-      final activeAssignments = assignments.where(
-        (assignment) => assignment.isEffective,
-      );
-      entry = _PermissionCacheEntry(
-        hasActiveAssignment: activeAssignments.isNotEmpty,
-        permissionKeys: {
-          for (final assignment in activeAssignments)
-            ...assignment.permissionKeys,
-        },
-      );
-      _cache[cacheKey] = entry;
+      var load = _inFlight[cacheKey];
+      if (load == null) {
+        load = _loadEntry(userId: userId, tenantId: tenantId);
+        _inFlight[cacheKey] = load;
+      }
+      try {
+        entry = await load;
+        if (identical(_inFlight[cacheKey], load)) {
+          _cache[cacheKey] = entry;
+        }
+      } finally {
+        if (identical(_inFlight[cacheKey], load)) {
+          _inFlight.remove(cacheKey);
+        }
+      }
     }
 
     if (!entry.hasActiveAssignment) {
@@ -229,17 +230,41 @@ class PermissionEvaluator {
     required String userId,
     required String tenantId,
   }) {
-    _cache.remove(_PermissionCacheKey(userId, tenantId));
+    final key = _PermissionCacheKey(userId, tenantId);
+    _cache.remove(key);
+    _inFlight.remove(key);
   }
 
   void invalidateForUser(String userId) {
     _cache.removeWhere((key, _) => key.userId == userId);
+    _inFlight.removeWhere((key, _) => key.userId == userId);
     _lastTenantByUser.remove(userId);
   }
 
   void invalidateAll() {
     _cache.clear();
+    _inFlight.clear();
     _lastTenantByUser.clear();
+  }
+
+  Future<_PermissionCacheEntry> _loadEntry({
+    required String userId,
+    required String tenantId,
+  }) async {
+    final assignments = await _dataSource.loadRoleAssignments(
+      userId: userId,
+      tenantId: tenantId,
+    );
+    final activeAssignments = assignments.where(
+      (assignment) => assignment.isEffective,
+    );
+    return _PermissionCacheEntry(
+      hasActiveAssignment: activeAssignments.isNotEmpty,
+      permissionKeys: {
+        for (final assignment in activeAssignments)
+          ...assignment.permissionKeys,
+      },
+    );
   }
 }
 

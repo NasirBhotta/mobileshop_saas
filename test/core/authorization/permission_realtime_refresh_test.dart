@@ -14,6 +14,8 @@ void main() {
     expect(provider, contains("'roles'"));
     expect(provider, contains("'role_permissions'"));
     expect(provider, contains("'user_role_assignments'"));
+    expect(provider, contains("'user_branch_role_assignments'"));
+    expect(provider, contains("'user_branch_permission_overrides'"));
     expect(provider, contains('PostgresChangeEvent.all'));
     expect(main, contains('ref.watch(permissionRealtimeRefreshProvider)'));
   });
@@ -36,5 +38,20 @@ void main() {
       );
     }
     expect(migration, contains('alter publication supabase_realtime'));
+
+    final branchMigration =
+        File(
+          'supabase/migrations/20260726000400_enable_branch_permission_realtime.sql',
+        ).readAsStringSync();
+    for (final table in const [
+      'user_branch_role_assignments',
+      'user_branch_permission_overrides',
+    ]) {
+      expect(branchMigration, contains("'$table'"));
+      expect(
+        branchMigration,
+        contains('alter table public.$table replica identity full'),
+      );
+    }
   });
 }

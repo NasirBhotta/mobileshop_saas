@@ -105,7 +105,8 @@ void main() {
     expect(source, contains("child: Text('No access')"));
     expect(source, contains('repository.setUserBranchRole('));
     expect(source, contains("'Customize permissions'"));
-    expect(source, contains("child: Text('Inherit role')"));
+    expect(source, contains("'Inherit (Allowed)'"));
+    expect(source, contains("'Inherit (Denied)'"));
     expect(source, contains("child: Text('Allow')"));
     expect(source, contains("child: Text('Deny')"));
     expect(source, isNot(contains('branchPermissionShadowProvider')));
