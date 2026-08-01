@@ -56,6 +56,97 @@ class AccountsLocalStore {
     return AccountModel.fromMap(rows.first);
   }
 
+  static Future<bool> accountNameExists({
+    required String branchId,
+    required String name,
+    String? excludingAccountId,
+  }) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT id, name
+      FROM accounts
+      WHERE branch_id = ?
+      ''',
+      [branchId],
+    );
+    final normalized = _normalizeName(name);
+    return rows.any(
+      (row) =>
+          row['id'] != excludingAccountId &&
+          _normalizeName(row['name']?.toString() ?? '') == normalized,
+    );
+  }
+
+  static Future<void> removeAccount(String accountId) async {
+    await LocalDatabase.execute('DELETE FROM accounts WHERE id = ?', [
+      accountId,
+    ]);
+  }
+
+  static Future<List<AccountModel>> deactivateSafeDuplicateCashAccounts(
+    String branchId,
+  ) async {
+    final rows = await LocalDatabase.select(
+      'SELECT * FROM accounts WHERE branch_id = ? AND is_active = 1',
+      [branchId],
+    );
+    final matches =
+        rows
+            .map(AccountModel.fromMap)
+            .where((account) => _normalizeName(account.name) == 'cash in shop')
+            .toList();
+    if (matches.length < 2) return const [];
+
+    matches.sort((left, right) {
+      if (left.isDefault != right.isDefault) return left.isDefault ? -1 : 1;
+      final created = (left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+          .compareTo(right.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0));
+      return created != 0 ? created : left.id.compareTo(right.id);
+    });
+
+    final deactivated = <AccountModel>[];
+    for (final duplicate in matches.skip(1)) {
+      if (duplicate.currentBalance.abs() >= 0.01) continue;
+      final ledgerRows = await LocalDatabase.select(
+        'SELECT 1 FROM account_transactions WHERE account_id = ? LIMIT 1',
+        [duplicate.id],
+      );
+      if (ledgerRows.isNotEmpty) continue;
+
+      final idPrefix =
+          duplicate.id.length <= 8
+              ? duplicate.id
+              : duplicate.id.substring(0, 8);
+      final archived = duplicate.copyWith(
+        name: '${duplicate.name.trim()} (Archived $idPrefix)',
+        isDefault: false,
+        isActive: false,
+        updatedAt: DateTime.now(),
+      );
+      await saveAccount(archived);
+      deactivated.add(archived);
+    }
+    return deactivated;
+  }
+
+  static Future<void> retainOnlyRemoteActiveAccounts({
+    required String branchId,
+    required Set<String> activeAccountIds,
+  }) async {
+    if (activeAccountIds.isEmpty) {
+      await LocalDatabase.execute(
+        'UPDATE accounts SET is_active = 0 WHERE branch_id = ?',
+        [branchId],
+      );
+      return;
+    }
+    final placeholders = List.filled(activeAccountIds.length, '?').join(', ');
+    await LocalDatabase.execute(
+      'UPDATE accounts SET is_active = 0 WHERE branch_id = ? AND id NOT IN ($placeholders)',
+      [branchId, ...activeAccountIds],
+    );
+  }
+
   static Future<void> saveTransaction(
     AccountTransactionModel transaction,
   ) async {
@@ -460,5 +551,9 @@ class AccountsLocalStore {
   static double _number(Object? value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static String _normalizeName(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
   }
 }

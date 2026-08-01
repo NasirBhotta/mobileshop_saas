@@ -76,6 +76,91 @@ void main() {
     );
   });
 
+  test(
+    'account names are matched across case, spacing, and inactive rows',
+    () async {
+      const inactiveId = 'ledger-inactive-duplicate-name';
+      await AccountsLocalStore.saveAccount(
+        const AccountModel(
+          id: inactiveId,
+          tenantId: _tenantId,
+          branchId: _branchId,
+          name: '  Reserve   Wallet  ',
+          isActive: false,
+        ),
+      );
+      try {
+        expect(
+          await AccountsLocalStore.accountNameExists(
+            branchId: _branchId,
+            name: 'reserve wallet',
+          ),
+          isTrue,
+        );
+        expect(
+          await AccountsLocalStore.accountNameExists(
+            branchId: _branchId,
+            name: 'RESERVE     WALLET',
+            excludingAccountId: inactiveId,
+          ),
+          isFalse,
+        );
+      } finally {
+        await LocalDatabase.deleteRowById(table: 'accounts', id: inactiveId);
+      }
+    },
+  );
+
+  test('safe cash cleanup hides only an empty duplicate', () async {
+    const keeperId = 'cash-cleanup-keeper';
+    const emptyDuplicateId = 'cash-cleanup-empty';
+    const fundedDuplicateId = 'cash-cleanup-funded';
+    final accounts = [
+      const AccountModel(
+        id: keeperId,
+        tenantId: _tenantId,
+        branchId: _branchId,
+        name: 'Cash in Shop',
+        isDefault: true,
+      ),
+      const AccountModel(
+        id: emptyDuplicateId,
+        tenantId: _tenantId,
+        branchId: _branchId,
+        name: ' cash   IN shop ',
+      ),
+      const AccountModel(
+        id: fundedDuplicateId,
+        tenantId: _tenantId,
+        branchId: _branchId,
+        name: 'CASH IN SHOP',
+        currentBalance: 50,
+      ),
+    ];
+    for (final account in accounts) {
+      await AccountsLocalStore.saveAccount(account);
+    }
+    try {
+      final cleaned =
+          await AccountsLocalStore.deactivateSafeDuplicateCashAccounts(
+            _branchId,
+          );
+      expect(cleaned.map((account) => account.id), [emptyDuplicateId]);
+      expect(
+        (await AccountsLocalStore.loadAccountById(emptyDuplicateId))!.isActive,
+        isFalse,
+      );
+      expect(
+        (await AccountsLocalStore.loadAccountById(fundedDuplicateId))!.isActive,
+        isTrue,
+      );
+    } finally {
+      for (final account in accounts) {
+        await LocalDatabase.deleteRowById(table: 'accounts', id: account.id);
+      }
+    }
+  });
+
   tearDownAll(() async {
     await LocalDatabase.deleteRows(
       table: 'account_transactions',

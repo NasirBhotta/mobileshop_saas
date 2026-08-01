@@ -33,16 +33,23 @@ void showPaymentSheet(BuildContext context, WidgetRef ref) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    enableDrag: true,
     backgroundColor: AppColors.surface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     builder:
-        (sheetContext) => ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.9,
-          ),
-          child: PaymentMethodSheet(ref: ref),
+        (sheetContext) => DraggableScrollableSheet(
+          initialChildSize: 0.8,
+          minChildSize: 0.45,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return PaymentMethodSheet(
+              ref: ref,
+              scrollController: scrollController,
+            );
+          },
         ),
   );
 }
@@ -50,11 +57,13 @@ void showPaymentSheet(BuildContext context, WidgetRef ref) {
 class PaymentMethodSheet extends ConsumerStatefulWidget {
   final WidgetRef ref;
   final bool showHandle;
+  final ScrollController? scrollController;
 
   const PaymentMethodSheet({
     super.key,
     required this.ref,
     this.showHandle = true,
+    this.scrollController,
   });
 
   @override
@@ -157,6 +166,7 @@ class _PaymentMethodSheetState extends ConsumerState<PaymentMethodSheet> {
     return SafeArea(
       top: false,
       child: SingleChildScrollView(
+        controller: widget.scrollController,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: EdgeInsets.fromLTRB(
           20,

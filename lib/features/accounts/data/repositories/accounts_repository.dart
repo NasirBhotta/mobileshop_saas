@@ -21,6 +21,15 @@ class AccountPermissionDeniedException implements Exception {
   String toString() => 'Account permission is required: $permissionKey';
 }
 
+class DuplicateAccountNameException implements Exception {
+  final String name;
+
+  const DuplicateAccountNameException(this.name);
+
+  @override
+  String toString() => 'An account named "$name" already exists.';
+}
+
 class AccountsRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
 
@@ -108,6 +117,33 @@ class AccountsRepository {
     await _requirePermission('account.account.view');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
+
+    var canCleanDuplicates = false;
+    try {
+      await _requirePermission('account.account.update');
+      canCleanDuplicates = true;
+    } catch (_) {}
+    if (canCleanDuplicates) {
+      final safeDuplicates =
+          await AccountsLocalStore.deactivateSafeDuplicateCashAccounts(
+            branchId,
+          );
+      for (final duplicate in safeDuplicates) {
+        try {
+          await _client
+              .from('accounts')
+              .upsert(duplicate.toMap())
+              .timeout(_networkTimeout);
+        } catch (error) {
+          await OfflineStore.enqueueMutation(
+            userId: _currentUser.id,
+            type: 'upsert_account',
+            payload: duplicate.toMap(),
+          );
+          debugPrint('Safe duplicate account cleanup queued offline: $error');
+        }
+      }
+    }
 
     final cached = await AccountsLocalStore.loadAccounts(branchId);
     if (cached.isNotEmpty) {
@@ -205,13 +241,20 @@ class AccountsRepository {
     await _requirePermission('account.account.create');
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
+    final cleanName = name.trim();
+    if (await AccountsLocalStore.accountNameExists(
+      branchId: branchId,
+      name: cleanName,
+    )) {
+      throw DuplicateAccountNameException(cleanName);
+    }
     final now = DateTime.now();
 
     final account = AccountModel(
       id: const Uuid().v4(),
       tenantId: tenantId,
       branchId: branchId,
-      name: name.trim(),
+      name: cleanName,
       type: type,
       openingBalance: openingBalance,
       currentBalance: openingBalance,
@@ -229,6 +272,10 @@ class AccountsRepository {
           .upsert(account.toMap())
           .timeout(_networkTimeout);
     } catch (e) {
+      if (_isDuplicateNameError(e)) {
+        await AccountsLocalStore.removeAccount(account.id);
+        throw DuplicateAccountNameException(cleanName);
+      }
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
         type: 'upsert_account',
@@ -238,6 +285,93 @@ class AccountsRepository {
     }
 
     return account;
+  }
+
+  Future<AccountModel> updateAccount({
+    required String accountId,
+    required String name,
+    required AccountType type,
+    String? note,
+  }) async {
+    await _entitlements.require('accounts.core');
+    await _requirePermission('account.account.update');
+    final existing = await AccountsLocalStore.loadAccountById(accountId);
+    if (existing == null || !existing.isActive) {
+      throw Exception('Account not found.');
+    }
+    final cleanName = name.trim();
+    if (await AccountsLocalStore.accountNameExists(
+      branchId: existing.branchId,
+      name: cleanName,
+      excludingAccountId: accountId,
+    )) {
+      throw DuplicateAccountNameException(cleanName);
+    }
+    final updated = AccountModel(
+      id: existing.id,
+      tenantId: existing.tenantId,
+      branchId: existing.branchId,
+      name: cleanName,
+      type: existing.isDefault ? existing.type : type,
+      openingBalance: existing.openingBalance,
+      currentBalance: existing.currentBalance,
+      isDefault: existing.isDefault,
+      isActive: existing.isActive,
+      note: _clean(note),
+      createdBy: existing.createdBy,
+      createdAt: existing.createdAt,
+      updatedAt: DateTime.now(),
+    );
+    await AccountsLocalStore.saveAccount(updated);
+    await _upsertAccountOrQueue(updated, rollback: existing);
+    return updated;
+  }
+
+  Future<void> deactivateAccount(String accountId) async {
+    await _entitlements.require('accounts.core');
+    await _requirePermission('account.account.update');
+    final existing = await AccountsLocalStore.loadAccountById(accountId);
+    if (existing == null || !existing.isActive) {
+      throw Exception('Account not found.');
+    }
+    if (existing.isDefault) {
+      throw Exception('Default account cannot be deleted.');
+    }
+    final updated = existing.copyWith(
+      isActive: false,
+      updatedAt: DateTime.now(),
+    );
+    await AccountsLocalStore.saveAccount(updated);
+    await _upsertAccountOrQueue(updated, rollback: existing);
+  }
+
+  Future<void> _upsertAccountOrQueue(
+    AccountModel account, {
+    required AccountModel rollback,
+  }) async {
+    try {
+      await _client
+          .from('accounts')
+          .upsert(account.toMap())
+          .timeout(_networkTimeout);
+    } catch (e) {
+      if (_isDuplicateNameError(e)) {
+        await AccountsLocalStore.saveAccount(rollback);
+        throw DuplicateAccountNameException(account.name);
+      }
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'upsert_account',
+        payload: account.toMap(),
+      );
+      debugPrint('Account update saved offline: $e');
+    }
+  }
+
+  bool _isDuplicateNameError(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('account_name_exists') ||
+        message.contains('uq_accounts_branch_normalized_name');
   }
 
   Future<AccountTransactionModel> recordTransaction({
@@ -468,6 +602,10 @@ class AccountsRepository {
     for (final account in accounts) {
       await AccountsLocalStore.saveAccount(account);
     }
+    await AccountsLocalStore.retainOnlyRemoteActiveAccounts(
+      branchId: branchId,
+      activeAccountIds: accounts.map((account) => account.id).toSet(),
+    );
     return accounts;
   }
 
