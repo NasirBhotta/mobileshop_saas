@@ -796,10 +796,28 @@ class LocalDatabase {
         gross_profit REAL NOT NULL,
         reversal_of_event_id TEXT,
         occurred_at TEXT NOT NULL,
+        effective_at TEXT NOT NULL,
         created_by TEXT NOT NULL,
         created_at TEXT NOT NULL,
         UNIQUE(tenant_id, branch_id, source_event_key)
       )
+    ''');
+    await _addColumnIfMissing(
+      table: 'repair_financial_events',
+      column: 'effective_at',
+      definition: 'TEXT',
+    );
+    await _db.customStatement('''
+      UPDATE repair_financial_events
+      SET effective_at = COALESCE(
+        (
+          SELECT original.effective_at
+          FROM repair_financial_events original
+          WHERE original.id = repair_financial_events.reversal_of_event_id
+        ),
+        occurred_at
+      )
+      WHERE effective_at IS NULL OR effective_at = ''
     ''');
 
     // ════════════════════════════════════════

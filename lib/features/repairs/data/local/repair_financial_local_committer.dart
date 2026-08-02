@@ -337,6 +337,8 @@ class RepairFinancialLocalCommitter {
           otherDirectCost: -(event['other_direct_cost'] as num).toDouble(),
           profit: -(event['gross_profit'] as num).toDouble(),
           reversalOf: event['id'] as String,
+          effectiveAt:
+              (event['effective_at'] ?? event['occurred_at']).toString(),
         );
       }
       await LocalDatabase.execute(
@@ -376,15 +378,17 @@ class RepairFinancialLocalCommitter {
     required double otherDirectCost,
     required double profit,
     String? reversalOf,
+    String? effectiveAt,
   }) async {
+    final occurredAt = _now();
     await LocalDatabase.execute(
       '''
       INSERT INTO repair_financial_events(
         id, tenant_id, branch_id, ticket_id, event_type, source_event_key,
         revenue_amount, inventory_cost, direct_parts_cost, commission_cost,
         other_direct_cost, gross_profit, reversal_of_event_id,
-        occurred_at, created_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        occurred_at, effective_at, created_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         id,
@@ -400,9 +404,10 @@ class RepairFinancialLocalCommitter {
         otherDirectCost,
         profit,
         reversalOf,
-        _now(),
+        occurredAt,
+        effectiveAt ?? occurredAt,
         userId,
-        _now(),
+        occurredAt,
       ],
     );
   }

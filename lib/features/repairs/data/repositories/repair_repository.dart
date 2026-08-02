@@ -473,9 +473,9 @@ class RepairRepository {
             id, tenant_id, branch_id, ticket_id, event_type,
             source_event_key, revenue_amount, inventory_cost,
             direct_parts_cost, commission_cost, other_direct_cost,
-            gross_profit, reversal_of_event_id, occurred_at,
+            gross_profit, reversal_of_event_id, occurred_at, effective_at,
             created_by, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             revenue_amount = excluded.revenue_amount,
             inventory_cost = excluded.inventory_cost,
@@ -484,7 +484,8 @@ class RepairRepository {
             other_direct_cost = excluded.other_direct_cost,
             gross_profit = excluded.gross_profit,
             reversal_of_event_id = excluded.reversal_of_event_id,
-            occurred_at = excluded.occurred_at
+            occurred_at = excluded.occurred_at,
+            effective_at = excluded.effective_at
           ''',
           [
             event['id'],
@@ -501,6 +502,7 @@ class RepairRepository {
             event['gross_profit'],
             event['reversal_of_event_id'],
             event['occurred_at'],
+            event['effective_at'] ?? event['occurred_at'],
             event['created_by'],
             event['created_at'],
           ],

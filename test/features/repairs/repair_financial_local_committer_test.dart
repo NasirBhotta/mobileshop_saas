@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/core/local/local_database.dart';
 import 'package:mobileshop_saas/features/repairs/data/local/repair_financial_local_committer.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
+import 'package:mobileshop_saas/features/reports/data/local/business_report_local_store.dart';
 
 const _pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
 
@@ -172,6 +173,54 @@ void main() {
       hasLength(2),
     );
   });
+
+  test(
+    'prior-day cancellation restates completion day without changing audit day',
+    () async {
+      await RepairFinancialLocalCommitter.complete(
+        ticket: ticket,
+        eventId: 'completion-1',
+        userId: 'owner',
+        customerCharge: 3500,
+      );
+      await LocalDatabase.execute('''
+        UPDATE repair_financial_events
+        SET occurred_at = '2026-08-01T11:26:11.000Z',
+            effective_at = '2026-08-01T11:26:11.000Z'
+        WHERE id = 'completion-1'
+        ''');
+
+      await RepairFinancialLocalCommitter.cancel(
+        ticket: ticket,
+        eventId: 'reversal-1',
+        userId: 'owner',
+      );
+
+      final events = await LocalDatabase.select(
+        'SELECT * FROM repair_financial_events ORDER BY event_type',
+      );
+      final reversal = events.singleWhere(
+        (row) => row['event_type'] == 'reversal',
+      );
+      expect(reversal['effective_at'], '2026-08-01T11:26:11.000Z');
+      expect(reversal['occurred_at'], isNot(reversal['effective_at']));
+
+      final august1Profit = await BusinessReportLocalStore.loadGrossProfit(
+        tenantId: 'tenant-1',
+        branchId: 'branch-1',
+        dateFrom: DateTime(2026, 8, 1),
+        dateTo: DateTime(2026, 8, 1),
+      );
+      final august2Profit = await BusinessReportLocalStore.loadGrossProfit(
+        tenantId: 'tenant-1',
+        branchId: 'branch-1',
+        dateFrom: DateTime(2026, 8, 2),
+        dateTo: DateTime(2026, 8, 2),
+      );
+      expect(august1Profit, 0);
+      expect(august2Profit, 0);
+    },
+  );
 
   test('supplier-paid direct part blocks unsafe cancellation', () async {
     await _part(
