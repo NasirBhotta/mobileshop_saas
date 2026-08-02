@@ -1,0 +1,60 @@
+name: Build NIZAAM APK
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - develop
+
+jobs:
+  build-apk:
+    name: Build Android Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout develop branch
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run code generation
+        run: |
+          if grep -q "build_runner" pubspec.yaml; then
+            dart run build_runner build --delete-conflicting-outputs
+          else
+            echo "build_runner not found; skipping code generation."
+          fi
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          mkdir -p release
+          cp build/app/outputs/flutter-apk/app-release.apk release/NIZAAM-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NIZAAM-release-apk
+          path: release/NIZAAM-release.apk
+          if-no-files-found: error
+          retention-days: 14
