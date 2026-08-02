@@ -41,6 +41,7 @@ class _RepairCompletionDialogState
   final _commission = TextEditingController(text: '0');
   final _otherCost = TextEditingController(text: '0');
   final List<_PartDraft> _parts = [];
+  final List<_PartDraft> _retiredParts = [];
   bool _advanced = false;
   bool _saving = false;
   bool _chargeManuallyEdited = false;
@@ -58,6 +59,9 @@ class _RepairCompletionDialogState
   @override
   void dispose() {
     for (final draft in _parts) {
+      draft.dispose();
+    }
+    for (final draft in _retiredParts) {
       draft.dispose();
     }
     _charge.dispose();
@@ -111,8 +115,7 @@ class _RepairCompletionDialogState
                   onChanged: _partOrChargeComponentChanged,
                   onRemove: () {
                     setState(() {
-                      _parts[index].dispose();
-                      _parts.removeAt(index);
+                      _retiredParts.add(_parts.removeAt(index));
                     });
                     _syncSuggestedCharge();
                   },
@@ -571,145 +574,138 @@ class _InventoryProductPicker extends StatelessWidget {
 Future<ProductModel?> _showInventoryProductSearch(
   BuildContext context,
   List<ProductModel> products,
-) async {
-  final search = TextEditingController();
-  var query = '';
-  final result = await showDialog<ProductModel>(
+) {
+  return showDialog<ProductModel>(
     context: context,
-    builder:
-        (dialogContext) => StatefulBuilder(
-          builder: (context, setDialogState) {
-            final matches = _searchRepairInventoryProducts(products, query);
-            return Dialog(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: 620,
-                  maxHeight: 620,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              AppStrings.repairSearchInventoryPart,
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: AppStrings.repairClose,
-                            onPressed: () => Navigator.pop(dialogContext),
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: search,
-                        autofocus: true,
-                        textInputAction: TextInputAction.search,
-                        decoration: InputDecoration(
-                          hintText: AppStrings.repairProductSearchHint,
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          suffixIcon:
-                              query.isEmpty
-                                  ? null
-                                  : IconButton(
-                                    tooltip: AppStrings.repairClearSearch,
-                                    onPressed: () {
-                                      search.clear();
-                                      setDialogState(() => query = '');
-                                    },
-                                    icon: const Icon(Icons.clear_rounded),
-                                  ),
-                          border: const OutlineInputBorder(),
-                        ),
-                        onChanged:
-                            (value) => setDialogState(() => query = value),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        query.trim().isEmpty
-                            ? AppStrings.repairSearchInventoryPrompt
-                            : AppStrings.repairMatchingItems(matches.length),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black54,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Expanded(
-                        child:
-                            query.trim().isEmpty
-                                ? const Center(
-                                  child: Text(
-                                    AppStrings.repairTypeInventoryPrompt,
-                                  ),
-                                )
-                                : matches.isEmpty
-                                ? const Center(
-                                  child: Text(
-                                    AppStrings.repairNoInventoryMatch,
-                                  ),
-                                )
-                                : ListView.separated(
-                                  itemCount: matches.length,
-                                  separatorBuilder:
-                                      (_, _) => const Divider(height: 1),
-                                  itemBuilder: (context, index) {
-                                    final product = matches[index];
-                                    return ListTile(
-                                      leading: const Icon(
-                                        Icons.inventory_2_outlined,
-                                      ),
-                                      title: Text(product.name),
-                                      subtitle: Text(
-                                        [
-                                          if (product.sku?.isNotEmpty == true)
-                                            AppStrings.repairSku(product.sku!),
-                                          if (product
-                                                  .categoryName
-                                                  ?.isNotEmpty ==
-                                              true)
-                                            product.categoryName!,
-                                          AppStrings.repairCost(
-                                            product.costPrice,
-                                          ),
-                                        ].join(
-                                          AppStrings.customerDetailSeparator,
-                                        ),
-                                      ),
-                                      trailing: Text(
-                                        AppStrings.repairStock(product.stock),
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      onTap:
-                                          () => Navigator.pop(
-                                            dialogContext,
-                                            product,
-                                          ),
-                                    );
-                                  },
-                                ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
+    builder: (_) => _InventoryProductSearchDialog(products: products),
   );
-  search.dispose();
-  return result;
+}
+
+class _InventoryProductSearchDialog extends StatefulWidget {
+  final List<ProductModel> products;
+
+  const _InventoryProductSearchDialog({required this.products});
+
+  @override
+  State<_InventoryProductSearchDialog> createState() =>
+      _InventoryProductSearchDialogState();
+}
+
+class _InventoryProductSearchDialogState
+    extends State<_InventoryProductSearchDialog> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final matches = _searchRepairInventoryProducts(widget.products, _query);
+    return Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620, maxHeight: 620),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      AppStrings.repairSearchInventoryPart,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: AppStrings.repairClose,
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _search,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: AppStrings.repairProductSearchHint,
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon:
+                      _query.isEmpty
+                          ? null
+                          : IconButton(
+                            tooltip: AppStrings.repairClearSearch,
+                            onPressed: () {
+                              _search.clear();
+                              setState(() => _query = '');
+                            },
+                            icon: const Icon(Icons.clear_rounded),
+                          ),
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: (value) => setState(() => _query = value),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _query.trim().isEmpty
+                    ? AppStrings.repairSearchInventoryPrompt
+                    : AppStrings.repairMatchingItems(matches.length),
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child:
+                    _query.trim().isEmpty
+                        ? const Center(
+                          child: Text(AppStrings.repairTypeInventoryPrompt),
+                        )
+                        : matches.isEmpty
+                        ? const Center(
+                          child: Text(AppStrings.repairNoInventoryMatch),
+                        )
+                        : ListView.separated(
+                          itemCount: matches.length,
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final product = matches[index];
+                            return ListTile(
+                              leading: const Icon(Icons.inventory_2_outlined),
+                              title: Text(product.name),
+                              subtitle: Text(
+                                [
+                                  if (product.sku?.isNotEmpty == true)
+                                    AppStrings.repairSku(product.sku!),
+                                  if (product.categoryName?.isNotEmpty == true)
+                                    product.categoryName!,
+                                  AppStrings.repairCost(product.costPrice),
+                                ].join(AppStrings.customerDetailSeparator),
+                              ),
+                              trailing: Text(
+                                AppStrings.repairStock(product.stock),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              onTap: () => Navigator.pop(context, product),
+                            );
+                          },
+                        ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 List<ProductModel> _searchRepairInventoryProducts(

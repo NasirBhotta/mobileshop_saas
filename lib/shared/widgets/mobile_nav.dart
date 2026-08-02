@@ -163,161 +163,167 @@ class MobileNav extends ConsumerWidget {
           (sheetContext) => SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    leading: const Icon(
-                      Icons.people_rounded,
-                      color: AppColors.primary,
-                    ),
-                    title: const Text(
-                      AppStrings.navCustomers,
-                      style: TextStyle(color: AppColors.primary),
-                    ),
-                    trailing:
-                        enabled['customers.access']!
-                            ? null
-                            : const Icon(Icons.lock_outline_rounded),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      ref.read(navigationLoadingProvider.notifier).showFor();
-                      context.go('/customers');
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(
-                      Icons.local_shipping_rounded,
-                      color: AppColors.primary,
-                    ),
-                    title: const Text(
-                      AppStrings.navSuppliers,
-                      style: TextStyle(color: AppColors.primary),
-                    ),
-                    trailing:
-                        enabled['suppliers.access']!
-                            ? null
-                            : const Icon(Icons.lock_outline_rounded),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      ref.read(navigationLoadingProvider.notifier).showFor();
-                      context.go('/suppliers');
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(
-                      Icons.receipt_long_rounded,
-                      color: AppColors.primary,
-                    ),
-                    title: const Text(
-                      AppStrings.navExpenses,
-                      style: TextStyle(color: AppColors.primary),
-                    ),
-                    trailing:
-                        enabled['expenses.access']!
-                            ? null
-                            : const Icon(Icons.lock_outline_rounded),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      ref.read(navigationLoadingProvider.notifier).showFor();
-                      context.go('/expenses');
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(
-                      Icons.account_balance_wallet_rounded,
-                      color: AppColors.primary,
-                    ),
-                    title: const Text(
-                      AppStrings.navAccounts,
-                      style: TextStyle(color: AppColors.primary),
-                    ),
-                    trailing:
-                        enabled['accounts.access']!
-                            ? null
-                            : const Icon(Icons.lock_outline_rounded),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      ref.read(navigationLoadingProvider.notifier).showFor();
-                      context.go('/accounts');
-                    },
-                  ),
-                  if (showMobileServices)
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     ListTile(
                       leading: const Icon(
-                        Icons.swap_horiz_rounded,
+                        Icons.people_rounded,
                         color: AppColors.primary,
                       ),
                       title: const Text(
-                        AppStrings.navMobileServices,
+                        AppStrings.navCustomers,
                         style: TextStyle(color: AppColors.primary),
                       ),
                       trailing:
-                          enabled['mobile_services.access']!
+                          enabled['customers.access']!
                               ? null
                               : const Icon(Icons.lock_outline_rounded),
                       onTap: () {
                         Navigator.of(sheetContext).pop();
                         ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.go('/mobile-services');
+                        context.go('/customers');
                       },
                     ),
-                  ListTile(
-                    leading: const Icon(
-                      Icons.insights_rounded,
-                      color: AppColors.primary,
-                    ),
-                    title: const Text(
-                      AppStrings.navReports,
-                      style: TextStyle(color: AppColors.primary),
-                    ),
-                    trailing:
-                        enabled['reports.access']!
-                            ? null
-                            : const Icon(Icons.lock_outline_rounded),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      ref.read(navigationLoadingProvider.notifier).showFor();
-                      context.go('/reports');
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(
-                      Icons.settings_rounded,
-                      color: AppColors.primary,
-                    ),
-                    title: const Text(
-                      AppStrings.navSettings,
-                      style: TextStyle(color: AppColors.primary),
-                    ),
-                    trailing:
-                        enabled['settings.access']!
-                            ? null
-                            : const Icon(Icons.lock_outline_rounded),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      ref.read(navigationLoadingProvider.notifier).showFor();
-                      context.go('/settings');
-                    },
-                  ),
-                  if (hasMultipleBranches)
                     ListTile(
                       leading: const Icon(
-                        Icons.storefront_rounded,
+                        Icons.local_shipping_rounded,
                         color: AppColors.primary,
                       ),
                       title: const Text(
-                        'Switch Branch',
+                        AppStrings.navSuppliers,
                         style: TextStyle(color: AppColors.primary),
                       ),
+                      trailing:
+                          enabled['suppliers.access']!
+                              ? null
+                              : const Icon(Icons.lock_outline_rounded),
                       onTap: () {
                         Navigator.of(sheetContext).pop();
                         ref.read(navigationLoadingProvider.notifier).showFor();
-                        context.go('/select-branch');
+                        context.go('/suppliers');
                       },
                     ),
-                  SizedBox(height: 10),
-                ],
+                    ListTile(
+                      leading: const Icon(
+                        Icons.receipt_long_rounded,
+                        color: AppColors.primary,
+                      ),
+                      title: const Text(
+                        AppStrings.navExpenses,
+                        style: TextStyle(color: AppColors.primary),
+                      ),
+                      trailing:
+                          enabled['expenses.access']!
+                              ? null
+                              : const Icon(Icons.lock_outline_rounded),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        ref.read(navigationLoadingProvider.notifier).showFor();
+                        context.go('/expenses');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.account_balance_wallet_rounded,
+                        color: AppColors.primary,
+                      ),
+                      title: const Text(
+                        AppStrings.navAccounts,
+                        style: TextStyle(color: AppColors.primary),
+                      ),
+                      trailing:
+                          enabled['accounts.access']!
+                              ? null
+                              : const Icon(Icons.lock_outline_rounded),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        ref.read(navigationLoadingProvider.notifier).showFor();
+                        context.go('/accounts');
+                      },
+                    ),
+                    if (showMobileServices)
+                      ListTile(
+                        leading: const Icon(
+                          Icons.swap_horiz_rounded,
+                          color: AppColors.primary,
+                        ),
+                        title: const Text(
+                          AppStrings.navMobileServices,
+                          style: TextStyle(color: AppColors.primary),
+                        ),
+                        trailing:
+                            enabled['mobile_services.access']!
+                                ? null
+                                : const Icon(Icons.lock_outline_rounded),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          ref
+                              .read(navigationLoadingProvider.notifier)
+                              .showFor();
+                          context.go('/mobile-services');
+                        },
+                      ),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.insights_rounded,
+                        color: AppColors.primary,
+                      ),
+                      title: const Text(
+                        AppStrings.navReports,
+                        style: TextStyle(color: AppColors.primary),
+                      ),
+                      trailing:
+                          enabled['reports.access']!
+                              ? null
+                              : const Icon(Icons.lock_outline_rounded),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        ref.read(navigationLoadingProvider.notifier).showFor();
+                        context.go('/reports');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.settings_rounded,
+                        color: AppColors.primary,
+                      ),
+                      title: const Text(
+                        AppStrings.navSettings,
+                        style: TextStyle(color: AppColors.primary),
+                      ),
+                      trailing:
+                          enabled['settings.access']!
+                              ? null
+                              : const Icon(Icons.lock_outline_rounded),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        ref.read(navigationLoadingProvider.notifier).showFor();
+                        context.go('/settings');
+                      },
+                    ),
+                    if (hasMultipleBranches)
+                      ListTile(
+                        leading: const Icon(
+                          Icons.storefront_rounded,
+                          color: AppColors.primary,
+                        ),
+                        title: const Text(
+                          'Switch Branch',
+                          style: TextStyle(color: AppColors.primary),
+                        ),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          ref
+                              .read(navigationLoadingProvider.notifier)
+                              .showFor();
+                          context.go('/select-branch');
+                        },
+                      ),
+                    SizedBox(height: 10),
+                  ],
+                ),
               ),
             ),
           ),

@@ -16,5 +16,8 @@ void main() {
     expect(source, contains('tokens.every(searchable.contains)'));
     expect(source, contains('matches.take(50).toList()'));
     expect(source, contains('qty > product.stock'));
+    expect(source, contains('class _InventoryProductSearchDialog extends StatefulWidget'));
+    expect(source, contains('_search.dispose()'));
+    expect(source, contains('_retiredParts.add(_parts.removeAt(index))'));
   });
 }
