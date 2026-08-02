@@ -508,6 +508,49 @@ class RepairRepository {
           ],
         );
       }
+      final returnRows = await _client
+          .from('repair_part_returns')
+          .select()
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
+          .order('returned_at');
+      for (final row in returnRows as List) {
+        final returnedPart = Map<String, dynamic>.from(row as Map);
+        await LocalDatabase.execute(
+          '''
+          INSERT INTO repair_part_returns(
+            part_id, tenant_id, branch_id, ticket_id, reversal_event_id,
+            source_type, product_id, supplier_id, settlement_type, name,
+            quantity, unit_cost_snapshot, unit_sale_price_snapshot,
+            returned_by, returned_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(part_id) DO UPDATE SET
+            reversal_event_id = excluded.reversal_event_id,
+            quantity = excluded.quantity,
+            unit_cost_snapshot = excluded.unit_cost_snapshot,
+            unit_sale_price_snapshot = excluded.unit_sale_price_snapshot,
+            returned_by = excluded.returned_by,
+            returned_at = excluded.returned_at
+          ''',
+          [
+            returnedPart['part_id'],
+            returnedPart['tenant_id'],
+            returnedPart['branch_id'],
+            returnedPart['ticket_id'],
+            returnedPart['reversal_event_id'],
+            returnedPart['source_type'],
+            returnedPart['product_id'],
+            returnedPart['supplier_id'],
+            returnedPart['settlement_type'],
+            returnedPart['name'],
+            returnedPart['quantity'],
+            returnedPart['unit_cost_snapshot'],
+            returnedPart['unit_sale_price_snapshot'],
+            returnedPart['returned_by'],
+            returnedPart['returned_at'],
+          ],
+        );
+      }
     } catch (_) {
       // Ticket refresh must still work offline or against an older schema.
     }
@@ -868,6 +911,7 @@ class RepairRepository {
         refundAccountId: refundAccountId,
         refundLedgerTransactionId: refundLedgerTransactionId,
         enforceRefundBalance: false,
+        enforceSupplierBalance: false,
       );
     }
     final updated = ticket.copyWith(

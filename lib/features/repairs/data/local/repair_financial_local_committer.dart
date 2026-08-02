@@ -162,6 +162,7 @@ class RepairFinancialLocalCommitter {
     String? refundAccountId,
     String? refundLedgerTransactionId,
     bool enforceRefundBalance = true,
+    bool enforceSupplierBalance = true,
   }) {
     return LocalDatabase.runInTransaction(() async {
       final ticketRows = await LocalDatabase.select(
@@ -268,6 +269,39 @@ class RepairFinancialLocalCommitter {
           [ticket.id],
         );
         for (final part in parts) {
+          final existingReturn = await LocalDatabase.select(
+            'SELECT 1 FROM repair_part_returns WHERE part_id = ? LIMIT 1',
+            [part['id']],
+          );
+          if (existingReturn.isNotEmpty) continue;
+          final returnedAt = _now();
+          await LocalDatabase.execute(
+            '''
+            INSERT INTO repair_part_returns(
+              part_id, tenant_id, branch_id, ticket_id, reversal_event_id,
+              source_type, product_id, supplier_id, settlement_type, name,
+              quantity, unit_cost_snapshot, unit_sale_price_snapshot,
+              returned_by, returned_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            [
+              part['id'],
+              ticket.tenantId,
+              ticket.branchId,
+              ticket.id,
+              eventId,
+              part['source_type'],
+              part['product_id'],
+              part['supplier_id'],
+              part['settlement_type'],
+              part['name'],
+              part['quantity'],
+              part['unit_cost_snapshot'],
+              part['unit_sale_price'],
+              userId,
+              returnedAt,
+            ],
+          );
           if (part['source_type'] == 'inventory') {
             await LocalDatabase.execute(
               '''
@@ -290,33 +324,36 @@ class RepairFinancialLocalCommitter {
               'SELECT outstanding_balance FROM suppliers WHERE id = ? LIMIT 1',
               [supplierId],
             );
-            if (supplier.isEmpty ||
-                (supplier.single['outstanding_balance'] as num).toDouble() <
-                    amount) {
+            if (enforceSupplierBalance &&
+                (supplier.isEmpty ||
+                    (supplier.single['outstanding_balance'] as num).toDouble() <
+                        amount)) {
               throw StateError(
                 'Resolve paid supplier amount before repair cancellation.',
               );
             }
-            await _postSupplierEntry(
-              id: 'repair-direct-reversal-${part['id']}',
-              ticket: ticket,
-              supplierId: supplierId,
-              userId: userId,
-              type: 'credit_note',
-              direction: 'decrease',
-              amount: amount,
-              sourceKey: 'repair:direct-part-reversal:${part['id']}',
-              referenceId: part['id'] as String,
-              description: 'Cancelled direct repair part',
-            );
-            await LocalDatabase.execute(
-              '''
-              UPDATE suppliers SET outstanding_balance =
-                outstanding_balance - ?,
-                updated_at = ? WHERE id = ?
-              ''',
-              [amount, _now(), supplierId],
-            );
+            if (supplier.isNotEmpty) {
+              await _postSupplierEntry(
+                id: 'repair-direct-reversal-${part['id']}',
+                ticket: ticket,
+                supplierId: supplierId,
+                userId: userId,
+                type: 'credit_note',
+                direction: 'decrease',
+                amount: amount,
+                sourceKey: 'repair:direct-part-reversal:${part['id']}',
+                referenceId: part['id'] as String,
+                description: 'Cancelled direct repair part',
+              );
+              await LocalDatabase.execute(
+                '''
+                UPDATE suppliers SET outstanding_balance =
+                  outstanding_balance - ?,
+                  updated_at = ? WHERE id = ?
+                ''',
+                [amount, _now(), supplierId],
+              );
+            }
           }
           await LocalDatabase.execute(
             "UPDATE repair_parts SET state = 'reversed', reversed_at = ?, updated_at = ? WHERE id = ?",

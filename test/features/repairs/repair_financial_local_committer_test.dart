@@ -37,6 +37,7 @@ void main() {
 
   setUp(() async {
     await LocalDatabase.execute('DELETE FROM repair_payment_refunds');
+    await LocalDatabase.execute('DELETE FROM repair_part_returns');
     await LocalDatabase.execute('DELETE FROM repair_financial_events');
     await LocalDatabase.execute('DELETE FROM repair_parts');
     await LocalDatabase.execute('DELETE FROM repair_payments');
@@ -162,6 +163,26 @@ void main() {
     expect((totals.single['revenue'] as num).toDouble(), 0);
     expect((totals.single['cost'] as num).toDouble(), 0);
     expect((totals.single['profit'] as num).toDouble(), 0);
+    final returns = await LocalDatabase.select(
+      'SELECT * FROM repair_part_returns ORDER BY part_id',
+    );
+    expect(returns, hasLength(2));
+    expect(
+      (returns.firstWhere(
+                (row) => row['part_id'] == 'inventory-part',
+              )['unit_cost_snapshot']
+              as num)
+          .toDouble(),
+      5000,
+    );
+    expect(
+      (returns.firstWhere(
+                (row) => row['part_id'] == 'inventory-part',
+              )['unit_sale_price_snapshot']
+              as num)
+          .toDouble(),
+      8000,
+    );
     final supplier = await LocalDatabase.select(
       "SELECT outstanding_balance FROM suppliers WHERE id = 'supplier-1'",
     );
@@ -260,6 +281,50 @@ void main() {
       isEmpty,
     );
   });
+
+  test(
+    'authoritative remote cancellation is not rejected by stale supplier cache',
+    () async {
+      await _part(
+        id: 'supplier-part',
+        source: 'direct_purchase',
+        cost: 1000,
+        sale: 1500,
+        settlementType: 'supplier_payable',
+        supplierId: 'supplier-1',
+      );
+      await RepairFinancialLocalCommitter.complete(
+        ticket: ticket,
+        eventId: 'completion-1',
+        userId: 'owner',
+        customerCharge: 2000,
+      );
+      await LocalDatabase.execute(
+        "DELETE FROM suppliers WHERE id = 'supplier-1'",
+      );
+
+      await RepairFinancialLocalCommitter.cancel(
+        ticket: ticket,
+        eventId: 'reversal-1',
+        userId: 'owner',
+        enforceSupplierBalance: false,
+      );
+
+      final status = await LocalDatabase.select(
+        "SELECT status FROM repair_tickets WHERE id = 'ticket-1'",
+      );
+      final returned = await LocalDatabase.select(
+        "SELECT * FROM repair_part_returns WHERE part_id = 'supplier-part'",
+      );
+      expect(status.single['status'], 'cancelled');
+      expect(returned, hasLength(1));
+      expect((returned.single['unit_cost_snapshot'] as num).toDouble(), 1000);
+      expect(
+        (returned.single['unit_sale_price_snapshot'] as num).toDouble(),
+        1500,
+      );
+    },
+  );
 
   test(
     'paid cancellation refunds account and reverses repair atomically',
