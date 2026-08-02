@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,7 +7,6 @@ import 'package:mobileshop_saas/features/inventory/data/models/product_model.dar
 import 'package:mobileshop_saas/features/inventory/presentation/widgets/category_filter_bar.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/widgets/product_card.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/widgets/sort_bottom_sheet.dart';
-import 'package:mobileshop_saas/shared/widgets/search_bar_field.dart';
 
 import '../../../../core/authorization/branch_permission_shadow_provider.dart';
 import '../../../../core/authorization/permission_locked_screen.dart';
@@ -17,35 +18,80 @@ import '../../../../shared/providers/navigation_loading_provider.dart';
 import '../../../settings/presentation/widgets/account_menu_button.dart';
 import '../providers/inventory_provider.dart';
 
-class InventoryScreen extends ConsumerWidget {
+class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<InventoryScreen> createState() => _InventoryScreenState();
+}
+
+class _InventoryScreenState extends ConsumerState<InventoryScreen> {
+  bool _initialInventoryResolved = false;
+
+  @override
+  Widget build(BuildContext context) {
     final access = ref.watch(
       branchAwarePermissionProvider('inventory.product.view'),
     );
 
-    return access.when(
-      loading:
-          () => const Scaffold(
-            backgroundColor: AppColors.background,
-            body: Center(child: CircularProgressIndicator()),
+    if (access.isLoading && !access.hasValue) {
+      return const _InventoryInitialLoader();
+    }
+    if (access.hasError || access.value != true) {
+      return const PermissionLockedScreen(
+        moduleName: 'Inventory',
+        accountAction: AccountMenuButton(),
+      );
+    }
+
+    if (!_initialInventoryResolved) {
+      final categoriesState = ref.watch(categoriesProvider);
+      final productsState = ref.watch(
+        inventoryProductsProvider(
+          InventoryProductsRequest(
+            query: ref.read(searchQueryProvider).trim(),
+            categoryId: ref.read(selectedCategoryProvider),
+            sortOption: ref.read(sortOptionProvider),
+            limit: 100,
           ),
-      error:
-          (_, _) => const PermissionLockedScreen(
-            moduleName: 'Inventory',
-            accountAction: AccountMenuButton(),
-          ),
-      data:
-          (isAllowed) =>
-              isAllowed
-                  ? _InventoryBody()
-                  : const PermissionLockedScreen(
-                    moduleName: 'Inventory',
-                    accountAction: AccountMenuButton(),
-                  ),
+        ),
+      );
+      final isResolving = <AsyncValue<Object?>>[
+        categoriesState,
+        productsState,
+      ].any((state) => state.isLoading && !state.hasValue);
+      if (isResolving) return const _InventoryInitialLoader();
+      _initialInventoryResolved = true;
+    }
+
+    return _InventoryBody();
+  }
+}
+
+class _InventoryInitialLoader extends StatelessWidget {
+  const _InventoryInitialLoader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(child: Center(child: CircularProgressIndicator())),
     );
+  }
+}
+
+class _InventoryProductsStateBuilder extends ConsumerWidget {
+  final InventoryProductsRequest request;
+  final Widget Function(AsyncValue<List<ProductModel>>) builder;
+
+  const _InventoryProductsStateBuilder({
+    required this.request,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return builder(ref.watch(inventoryProductsProvider(request)));
   }
 }
 
@@ -74,11 +120,56 @@ class _InventoryBody extends ConsumerStatefulWidget {
 
 class _InventoryBodyState extends ConsumerState<_InventoryBody> {
   static const _pageSize = 100;
+  static const _searchDelay = Duration(milliseconds: 300);
 
   final Set<String> _selectedProductIds = {};
+  late final TextEditingController _searchController;
+  late final FocusNode _searchFocusNode;
+  late final ValueNotifier<String> _committedSearchQuery;
+  Timer? _searchDebounce;
+  List<ProductModel>? _lastVisibleProducts;
+  bool _initialProductsResolved = false;
   int _visibleLimit = _pageSize;
 
   bool get _isSelectionMode => _selectedProductIds.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController(
+      text: ref.read(searchQueryProvider),
+    );
+    _searchFocusNode = FocusNode(debugLabel: 'inventory-search');
+    _committedSearchQuery = ValueNotifier(_searchController.text.trim());
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _committedSearchQuery.dispose();
+    _searchFocusNode.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(_searchDelay, () {
+      if (!mounted) return;
+      if (_visibleLimit != _pageSize) _resetPaging();
+      final query = value.trim();
+      _committedSearchQuery.value = query;
+      ref.read(searchQueryProvider.notifier).state = query;
+    });
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    _resetPaging();
+    _committedSearchQuery.value = '';
+    ref.read(searchQueryProvider.notifier).state = '';
+  }
 
   void _toggleSelection(String productId, bool selected) {
     setState(() {
@@ -140,6 +231,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     ref
       ..invalidate(allProductsProvider)
       ..invalidate(categoriesProvider)
+      ..invalidate(inventoryProductsPageProvider)
       ..invalidate(inventoryProductsProvider);
 
     await Future.wait([
@@ -152,15 +244,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
   Widget build(BuildContext context) {
     final categoriesState = ref.watch(categoriesProvider);
     final selectedCategory = ref.watch(selectedCategoryProvider);
-    final searchQuery = ref.watch(searchQueryProvider);
     final sortOption = ref.watch(sortOptionProvider);
-    final productsRequest = InventoryProductsRequest(
-      query: searchQuery,
-      categoryId: selectedCategory,
-      sortOption: sortOption,
-      limit: _visibleLimit,
-    );
-    final productsState = ref.watch(inventoryProductsProvider(productsRequest));
     final isUpdating = ref.watch(productControllerProvider).isLoading;
     final isDesktop = Responsive.isDesktop(context);
     final isTablet = Responsive.isTablet(context);
@@ -183,9 +267,30 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
       branchAwarePermissionProvider('inventory.stock.adjust'),
     );
 
+    AsyncValue<List<ProductModel>>? initialProductsState;
+    if (!_initialProductsResolved) {
+      final state = ref.watch(
+        inventoryProductsProvider(
+          InventoryProductsRequest(
+            query: _committedSearchQuery.value,
+            categoryId: selectedCategory,
+            sortOption: sortOption,
+            limit: _pageSize,
+          ),
+        ),
+      );
+      initialProductsState = state;
+      if (state.hasValue || state.hasError) {
+        _initialProductsResolved = true;
+        if (state.hasValue) {
+          _lastVisibleProducts = state.value;
+        }
+      }
+    }
+
     final initialDependencies = <AsyncValue<Object?>>[
       categoriesState,
-      productsState,
+      if (initialProductsState != null) initialProductsState,
     ];
     final isInitialLoad = initialDependencies.any(
       (dependency) => dependency.isLoading && !dependency.hasValue,
@@ -298,12 +403,55 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: SizedBox(
                 height: 45,
-                child: SearchBarField(
-                  hint: AppStrings.searchProducts,
-                  onChanged: (query) {
-                    _resetPaging();
-                    ref.read(searchQueryProvider.notifier).state = query;
-                  },
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  onChanged: _onSearchChanged,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: AppStrings.searchProducts,
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: AppColors.textHint,
+                      size: 20,
+                    ),
+                    suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _searchController,
+                      builder:
+                          (context, value, _) =>
+                              value.text.isEmpty
+                                  ? const SizedBox.shrink()
+                                  : IconButton(
+                                    onPressed: _clearSearch,
+                                    icon: const Icon(
+                                      Icons.close_rounded,
+                                      size: 18,
+                                      color: AppColors.textHint,
+                                    ),
+                                  ),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 5,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.surfaceVariant,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(
+                        color: AppColors.primary,
+                        width: 2,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -325,139 +473,175 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
 
             // ── Products List ──
             Expanded(
-              child: productsState.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (error, _) => Center(child: Text(error.toString())),
-                data: (products) {
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    child: Text(
-                      '${products.length} ${AppStrings.filterResults}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textSecondary,
+              child: ValueListenableBuilder<String>(
+                valueListenable: _committedSearchQuery,
+                builder:
+                    (context, query, _) => _InventoryProductsStateBuilder(
+                      request: InventoryProductsRequest(
+                        query: query,
+                        categoryId: selectedCategory,
+                        sortOption: sortOption,
+                        limit: _visibleLimit,
                       ),
-                    ),
-                  );
-                  if (products.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.inventory_2_outlined,
-                            size: 64,
-                            color: AppColors.textHint,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            AppStrings.inventoryEmpty,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            AppStrings.inventoryEmptyDesc,
-                            style: TextStyle(color: AppColors.textHint),
-                          ),
-                          if (canCreate) ...[
-                            const SizedBox(height: 24),
-                            FilledButton.icon(
-                              onPressed: () {
-                                ref
-                                    .read(navigationLoadingProvider.notifier)
-                                    .showFor();
-                                context.push('/inventory/add');
-                              },
-                              icon: const Icon(Icons.add_rounded),
-                              label: Text(AppStrings.inventoryAddProduct),
-                            ),
-                          ],
-                        ],
-                      ),
-                    );
-                  }
+                      builder: (productsState) {
+                        final visibleProductsState =
+                            productsState.isLoading &&
+                                    _lastVisibleProducts != null
+                                ? AsyncValue<List<ProductModel>>.data(
+                                  _lastVisibleProducts!,
+                                )
+                                : productsState;
+                        return visibleProductsState.when(
+                          loading:
+                              () => const Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                          error:
+                              (error, _) =>
+                                  Center(child: Text(error.toString())),
+                          data: (products) {
+                            _lastVisibleProducts = products;
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 4,
+                              ),
+                              child: Text(
+                                '${products.length} ${AppStrings.filterResults}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            );
+                            if (products.isEmpty) {
+                              return Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.inventory_2_outlined,
+                                      size: 64,
+                                      color: AppColors.textHint,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    const Text(
+                                      AppStrings.inventoryEmpty,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      AppStrings.inventoryEmptyDesc,
+                                      style: TextStyle(
+                                        color: AppColors.textHint,
+                                      ),
+                                    ),
+                                    if (canCreate) ...[
+                                      const SizedBox(height: 24),
+                                      FilledButton.icon(
+                                        onPressed: () {
+                                          ref
+                                              .read(
+                                                navigationLoadingProvider
+                                                    .notifier,
+                                              )
+                                              .showFor();
+                                          context.push('/inventory/add');
+                                        },
+                                        icon: const Icon(Icons.add_rounded),
+                                        label: Text(
+                                          AppStrings.inventoryAddProduct,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              );
+                            }
 
-                  return RefreshIndicator(
-                    onRefresh: _refreshInventory,
-                    child:
-                        isDesktop
-                            ? GridView.builder(
-                              padding: const EdgeInsets.all(16),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 4,
-                                    mainAxisSpacing: 8,
-                                    crossAxisSpacing: 8,
-                                    childAspectRatio: 3.5,
-                                  ),
-                              itemCount: _itemCount(products),
-                              itemBuilder: (context, index) {
-                                if (index == products.length) {
-                                  return _LoadMoreTile(
-                                    compact: true,
-                                    onPressed: _loadMore,
-                                  );
-                                }
-                                return _buildProductCard(
-                                  context,
-                                  products[index],
-                                  canUpdate: canUpdate,
-                                  canAdjustStock: canAdjustStock,
-                                );
-                              },
-                            )
-                            : isTablet
-                            ? GridView.builder(
-                              padding: const EdgeInsets.all(16),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    mainAxisSpacing: 8,
-                                    crossAxisSpacing: 8,
-                                    childAspectRatio: 3.5,
-                                  ),
-                              itemCount: _itemCount(products),
-                              itemBuilder: (context, index) {
-                                if (index == products.length) {
-                                  return _LoadMoreTile(
-                                    compact: true,
-                                    onPressed: _loadMore,
-                                  );
-                                }
-                                return _buildProductCard(
-                                  context,
-                                  products[index],
-                                  canUpdate: canUpdate,
-                                  canAdjustStock: canAdjustStock,
-                                );
-                              },
-                            )
-                            : ListView.separated(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: _itemCount(products),
-                              separatorBuilder:
-                                  (_, _) => const SizedBox(height: 8),
-                              itemBuilder: (context, index) {
-                                if (index == products.length) {
-                                  return _LoadMoreTile(onPressed: _loadMore);
-                                }
-                                return _buildProductCard(
-                                  context,
-                                  products[index],
-                                  canUpdate: canUpdate,
-                                  canAdjustStock: canAdjustStock,
-                                );
-                              },
-                            ),
-                  );
-                },
+                            return RefreshIndicator(
+                              onRefresh: _refreshInventory,
+                              child:
+                                  isDesktop
+                                      ? GridView.builder(
+                                        padding: const EdgeInsets.all(16),
+                                        gridDelegate:
+                                            SliverGridDelegateWithFixedCrossAxisCount(
+                                              crossAxisCount: 4,
+                                              mainAxisSpacing: 8,
+                                              crossAxisSpacing: 8,
+                                              childAspectRatio: 3.5,
+                                            ),
+                                        itemCount: _itemCount(products),
+                                        itemBuilder: (context, index) {
+                                          if (index == products.length) {
+                                            return _LoadMoreTile(
+                                              compact: true,
+                                              onPressed: _loadMore,
+                                            );
+                                          }
+                                          return _buildProductCard(
+                                            context,
+                                            products[index],
+                                            canUpdate: canUpdate,
+                                            canAdjustStock: canAdjustStock,
+                                          );
+                                        },
+                                      )
+                                      : isTablet
+                                      ? GridView.builder(
+                                        padding: const EdgeInsets.all(16),
+                                        gridDelegate:
+                                            SliverGridDelegateWithFixedCrossAxisCount(
+                                              crossAxisCount: 2,
+                                              mainAxisSpacing: 8,
+                                              crossAxisSpacing: 8,
+                                              childAspectRatio: 3.5,
+                                            ),
+                                        itemCount: _itemCount(products),
+                                        itemBuilder: (context, index) {
+                                          if (index == products.length) {
+                                            return _LoadMoreTile(
+                                              compact: true,
+                                              onPressed: _loadMore,
+                                            );
+                                          }
+                                          return _buildProductCard(
+                                            context,
+                                            products[index],
+                                            canUpdate: canUpdate,
+                                            canAdjustStock: canAdjustStock,
+                                          );
+                                        },
+                                      )
+                                      : ListView.separated(
+                                        padding: const EdgeInsets.all(16),
+                                        itemCount: _itemCount(products),
+                                        separatorBuilder:
+                                            (_, _) => const SizedBox(height: 8),
+                                        itemBuilder: (context, index) {
+                                          if (index == products.length) {
+                                            return _LoadMoreTile(
+                                              onPressed: _loadMore,
+                                            );
+                                          }
+                                          return _buildProductCard(
+                                            context,
+                                            products[index],
+                                            canUpdate: canUpdate,
+                                            canAdjustStock: canAdjustStock,
+                                          );
+                                        },
+                                      ),
+                            );
+                          },
+                        );
+                      },
+                    ),
               ),
             ),
           ],

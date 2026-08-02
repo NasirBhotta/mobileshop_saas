@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/core/tenant_access/tenant_access_provider.dart';
 import 'package:mobileshop_saas/features/onboarding/data/models/shop_setup_model.dart';
 import 'package:mobileshop_saas/features/onboarding/data/repositories/setup_flow_repository.dart';
+import 'package:mobileshop_saas/features/accounts/presentation/providers/accounts_provider.dart';
+import 'package:mobileshop_saas/features/dashboard/presentation/providers/dashboard_preferences_provider.dart';
 import 'package:mobileshop_saas/features/settings/data/repositories/account_settings_repository.dart';
 
 final accountSettingsRepositoryProvider = Provider<AccountSettingsRepository>((
@@ -71,11 +73,17 @@ class AccountSettingsController extends StateNotifier<AsyncValue<void>> {
   }
 
   Future<bool> selectBranch(String branchId) async {
-    return _run(() {
+    final saved = await _run(() {
       return _ref
           .read(accountSettingsRepositoryProvider)
           .selectBranch(branchId);
     });
+    if (saved) {
+      _ref.invalidate(selectedBranchIdProvider);
+      _ref.invalidate(accountsProvider);
+      _ref.invalidate(dashboardPreferencesProvider);
+    }
+    return saved;
   }
 
   Future<bool> sync() async {

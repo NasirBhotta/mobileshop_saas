@@ -312,7 +312,10 @@ class AccountsRepository {
       tenantId: existing.tenantId,
       branchId: existing.branchId,
       name: cleanName,
-      type: existing.isDefault ? existing.type : type,
+      type:
+          existing.isDefault || _isSystemCashAccount(existing)
+              ? existing.type
+              : type,
       openingBalance: existing.openingBalance,
       currentBalance: existing.currentBalance,
       isDefault: existing.isDefault,
@@ -334,8 +337,12 @@ class AccountsRepository {
     if (existing == null || !existing.isActive) {
       throw Exception('Account not found.');
     }
-    if (existing.isDefault) {
-      throw Exception('Default account cannot be deleted.');
+    if (existing.isDefault || _isSystemCashAccount(existing)) {
+      throw Exception(
+        _isSystemCashAccount(existing)
+            ? 'Cash in Shop system account cannot be deleted.'
+            : 'Default account cannot be deleted.',
+      );
     }
     final updated = existing.copyWith(
       isActive: false,
@@ -343,6 +350,46 @@ class AccountsRepository {
     );
     await AccountsLocalStore.saveAccount(updated);
     await _upsertAccountOrQueue(updated, rollback: existing);
+  }
+
+  Future<void> setDefaultCashAccount(String accountId) async {
+    await _entitlements.require('accounts.core');
+    await _requirePermission('account.account.update');
+    final account = await AccountsLocalStore.loadAccountById(accountId);
+    if (account == null || !account.isActive) {
+      throw Exception('Account not found.');
+    }
+    if (account.type != AccountType.cash) {
+      throw Exception('Only a cash account can be the default cash account.');
+    }
+    if (account.isDefault) return;
+
+    await AccountsLocalStore.setDefaultAccount(
+      branchId: account.branchId,
+      accountId: account.id,
+    );
+    final payload = {
+      'account_id': account.id,
+      'tenant_id': account.tenantId,
+      'branch_id': account.branchId,
+    };
+    try {
+      await _setDefaultAccountRemote(payload).timeout(_networkTimeout);
+    } catch (error) {
+      await OfflineStore.enqueueMutation(
+        userId: _currentUser.id,
+        type: 'set_default_account',
+        payload: payload,
+      );
+      debugPrint('Default cash account change queued offline: $error');
+    }
+  }
+
+  Future<void> _setDefaultAccountRemote(Map<String, dynamic> payload) async {
+    await _client.rpc(
+      'set_default_cash_account',
+      params: {'p_account_id': payload['account_id']},
+    );
   }
 
   Future<void> _upsertAccountOrQueue(
@@ -508,6 +555,9 @@ class AccountsRepository {
         switch (mutation.type) {
           case 'upsert_account':
             await _client.from('accounts').upsert(mutation.payload);
+            break;
+          case 'set_default_account':
+            await _setDefaultAccountRemote(mutation.payload);
             break;
           case 'record_account_transaction':
             await _recordTransactionRemote(
@@ -744,4 +794,7 @@ class AccountsRepository {
     if (trimmed == null || trimmed.isEmpty) return null;
     return trimmed;
   }
+
+  bool _isSystemCashAccount(AccountModel account) =>
+      account.name.trim().toLowerCase() == 'cash in shop';
 }

@@ -438,7 +438,9 @@ class _AccountTile extends ConsumerWidget {
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 Text(
-                  account.type.label,
+                  account.isDefault
+                      ? '${account.type.label} • Default for sales'
+                      : account.type.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,
@@ -458,6 +460,8 @@ class _AccountTile extends ConsumerWidget {
             onSelected: (action) {
               if (action == 'edit') {
                 _showAccountDialog(context, ref, account: account);
+              } else if (action == 'make_default') {
+                _setDefaultCashAccount(context, ref, account);
               } else if (action == 'delete') {
                 _showDeleteAccountDialog(context, ref, account);
               }
@@ -472,7 +476,16 @@ class _AccountTile extends ConsumerWidget {
                       title: Text('Edit'),
                     ),
                   ),
-                  if (!account.isDefault)
+                  if (!account.isDefault && account.type == AccountType.cash)
+                    const PopupMenuItem(
+                      value: 'make_default',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.star_outline_rounded),
+                        title: Text('Use as default for sales'),
+                      ),
+                    ),
+                  if (!account.isDefault && !_isSystemCashAccount(account))
                     const PopupMenuItem(
                       value: 'delete',
                       child: ListTile(
@@ -701,7 +714,10 @@ Future<void> _showAccountDialog(
                               )
                               .toList(),
                       onChanged:
-                          saving || account?.isDefault == true
+                          saving ||
+                                  account?.isDefault == true ||
+                                  (account != null &&
+                                      _isSystemCashAccount(account))
                               ? null
                               : (value) {
                                 if (value != null) setState(() => type = value);
@@ -801,6 +817,49 @@ Future<void> _showAccountDialog(
       );
     },
   );
+}
+
+Future<void> _setDefaultCashAccount(
+  BuildContext context,
+  WidgetRef ref,
+  AccountModel account,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder:
+        (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.star_rounded, color: AppColors.warning),
+          title: const Text('Change default sales account?'),
+          content: Text(
+            '${account.name} will be selected automatically for future cash sales in this branch. Existing balances and ledger entries will not change.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Make Default'),
+            ),
+          ],
+        ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  final ok = await ref
+      .read(accountControllerProvider.notifier)
+      .setDefaultCashAccount(account.id);
+  if (!context.mounted) return;
+  if (!ok) {
+    _showAccountActionError(context, ref);
+    return;
+  }
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(content: Text('${account.name} is now default for cash sales.')),
+    );
 }
 
 Future<void> _showDeleteAccountDialog(
@@ -1179,6 +1238,9 @@ IconData _iconForType(AccountType type) {
       return Icons.account_balance_wallet_rounded;
   }
 }
+
+bool _isSystemCashAccount(AccountModel account) =>
+    account.name.trim().toLowerCase() == 'cash in shop';
 
 String _money(double value) {
   return 'Rs ${value.toStringAsFixed(0)}';

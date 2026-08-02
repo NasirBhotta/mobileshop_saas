@@ -10,8 +10,11 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../../../core/extensions/repair_ticket_ext.dart';
+import '../../../accounts/data/models/account_models.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
 import '../../../repairs/data/models/repair_ticket_model.dart';
 import '../../../settings/presentation/widgets/account_menu_button.dart';
+import '../providers/dashboard_preferences_provider.dart';
 import '../providers/dashboard_provider.dart';
 import '../widgets/quick_action_button.dart';
 import '../widgets/stat_card.dart';
@@ -274,7 +277,7 @@ class _DashboardHeader extends StatelessWidget {
   }
 }
 
-class _TodaySnapshot extends StatelessWidget {
+class _TodaySnapshot extends ConsumerWidget {
   final DashboardStats? stats;
   final bool isLoading;
   final bool compact;
@@ -286,12 +289,55 @@ class _TodaySnapshot extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final cash = _moneyOrLoading(stats?.cashInShop, isLoading);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sales = _moneyOrLoading(stats?.todaySalesTotal, isLoading);
     final profit = _moneyOrLoading(stats?.totalProfit, isLoading);
     final outstanding = _moneyOrLoading(stats?.totalOutstanding, isLoading);
     final activeRepairs =
         isLoading ? '...' : (stats?.activeRepairCount ?? 0).toString();
+    final accounts =
+        ref.watch(accountsProvider).value ?? const <AccountModel>[];
+    final selectedIds =
+        ref.watch(dashboardPreferencesProvider).value?.accountIds ?? const [];
+    final selectedAccounts = <AccountModel>[];
+    if (selectedIds.isNotEmpty) {
+      for (final id in selectedIds) {
+        final matches = accounts.where((account) => account.id == id);
+        if (matches.isNotEmpty) selectedAccounts.add(matches.first);
+      }
+    }
+    if (selectedAccounts.isEmpty) {
+      selectedAccounts.addAll(
+        accounts.where((account) => account.isDefault).take(1),
+      );
+    }
+    final metrics = <_SnapshotMetric>[
+      _SnapshotMetric(
+        icon: Icons.stacked_line_chart_rounded,
+        label: compact ? 'Today profit' : 'Today gross profit',
+        value: profit,
+        color: AppColors.secondaryLight,
+      ),
+      for (final account in selectedAccounts.take(2))
+        _SnapshotMetric(
+          icon: _accountIcon(account.type),
+          label: account.name,
+          value: _moneyOrLoading(account.currentBalance, false),
+          color: const Color(0xFFFFE29A),
+        ),
+      _SnapshotMetric(
+        icon: Icons.account_balance_wallet_rounded,
+        label: compact ? 'Udhar' : 'Total udhar',
+        value: outstanding,
+        color: const Color(0xFFFFB4A8),
+      ),
+      _SnapshotMetric(
+        icon: Icons.build_rounded,
+        label: compact ? 'Repairs' : 'Active repairs',
+        value: activeRepairs,
+        color: const Color(0xFF9FD9FF),
+      ),
+    ];
 
     return Container(
       width: double.infinity,
@@ -340,74 +386,43 @@ class _TodaySnapshot extends StatelessWidget {
           ),
           Padding(
             padding: EdgeInsets.all(compact ? 18 : 22),
-            child:
-                compact
-                    ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SnapshotMainValue(
+                  label: 'Today Sales',
+                  value: sales,
+                  icon: Icons.point_of_sale_rounded,
+                ),
+                const SizedBox(height: 16),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final columns = compact ? 2 : metrics.length.clamp(1, 5);
+                    final gap = compact ? 8.0 : 10.0;
+                    final width =
+                        (constraints.maxWidth - (gap * (columns - 1))) /
+                        columns;
+                    return Wrap(
+                      spacing: gap,
+                      runSpacing: gap,
                       children: [
-                        _SnapshotMainValue(value: cash),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _SnapshotPill(
-                                icon: Icons.stacked_line_chart_rounded,
-                                label: 'Today profit',
-                                value: profit,
-                                color: AppColors.secondaryLight,
-                                compact: true,
-                              ),
+                        for (final metric in metrics)
+                          SizedBox(
+                            width: width,
+                            child: _SnapshotPill(
+                              icon: metric.icon,
+                              label: metric.label,
+                              value: metric.value,
+                              color: metric.color,
+                              compact: compact,
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _SnapshotPill(
-                                icon: Icons.account_balance_wallet_rounded,
-                                label: 'Udhar',
-                                value: outstanding,
-                                color: const Color(0xFFFFB4A8),
-                                compact: true,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _SnapshotPill(
-                                icon: Icons.build_rounded,
-                                label: 'Repairs',
-                                value: activeRepairs,
-                                color: const Color(0xFF9FD9FF),
-                                compact: true,
-                              ),
-                            ),
-                          ],
-                        ),
+                          ),
                       ],
-                    )
-                    : Row(
-                      children: [
-                        Expanded(child: _SnapshotMainValue(value: cash)),
-                        const SizedBox(width: 18),
-                        _SnapshotPill(
-                          icon: Icons.stacked_line_chart_rounded,
-                          label: 'Today gross profit',
-                          value: profit,
-                          color: AppColors.secondaryLight,
-                        ),
-                        const SizedBox(width: 10),
-                        _SnapshotPill(
-                          icon: Icons.account_balance_wallet_rounded,
-                          label: 'Total udhar',
-                          value: outstanding,
-                          color: const Color(0xFFFFB4A8),
-                        ),
-                        const SizedBox(width: 10),
-                        _SnapshotPill(
-                          icon: Icons.build_rounded,
-                          label: 'Active repairs',
-                          value: activeRepairs,
-                          color: const Color(0xFF9FD9FF),
-                        ),
-                      ],
-                    ),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -416,9 +431,15 @@ class _TodaySnapshot extends StatelessWidget {
 }
 
 class _SnapshotMainValue extends StatelessWidget {
+  final String label;
   final String value;
+  final IconData icon;
 
-  const _SnapshotMainValue({required this.value});
+  const _SnapshotMainValue({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -433,16 +454,12 @@ class _SnapshotMainValue extends StatelessWidget {
                 color: Colors.white.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(11),
               ),
-              child: const Icon(
-                Icons.payments_rounded,
-                color: Colors.white,
-                size: 18,
-              ),
+              child: Icon(icon, color: Colors.white, size: 18),
             ),
             const SizedBox(width: 10),
-            const Expanded(
+            Expanded(
               child: Text(
-                'Cash in Shop',
+                label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -472,6 +489,35 @@ class _SnapshotMainValue extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _SnapshotMetric {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _SnapshotMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+}
+
+IconData _accountIcon(AccountType type) {
+  switch (type) {
+    case AccountType.cash:
+      return Icons.payments_rounded;
+    case AccountType.bank:
+      return Icons.account_balance_rounded;
+    case AccountType.mobileWallet:
+      return Icons.phone_android_rounded;
+    case AccountType.card:
+      return Icons.credit_card_rounded;
+    case AccountType.other:
+      return Icons.account_balance_wallet_rounded;
   }
 }
 

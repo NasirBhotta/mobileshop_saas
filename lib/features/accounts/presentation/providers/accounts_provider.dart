@@ -135,6 +135,26 @@ class AccountController extends StateNotifier<AsyncValue<void>> {
     }
   }
 
+  Future<bool> setDefaultCashAccount(String accountId) async {
+    state = const AsyncLoading();
+    try {
+      await _requireAccount(
+        _ref,
+        'accounts.core',
+        permissionKey: 'account.account.update',
+      );
+      await _ref
+          .read(accountsRepositoryProvider)
+          .setDefaultCashAccount(accountId);
+      state = const AsyncData(null);
+      _invalidate();
+      return true;
+    } catch (e, st) {
+      state = AsyncError(e, st);
+      return false;
+    }
+  }
+
   Future<bool> recordTransaction({
     required String accountId,
     required AccountTransactionDirection direction,

@@ -56,6 +56,26 @@ class AccountsLocalStore {
     return AccountModel.fromMap(rows.first);
   }
 
+  static Future<void> setDefaultAccount({
+    required String branchId,
+    required String accountId,
+  }) async {
+    await LocalDatabase.runInTransaction(() async {
+      await LocalDatabase.execute(
+        'UPDATE accounts SET is_default = 0 WHERE branch_id = ?',
+        [branchId],
+      );
+      await LocalDatabase.execute(
+        '''
+        UPDATE accounts
+        SET is_default = 1, updated_at = ?
+        WHERE id = ? AND branch_id = ? AND is_active = 1
+        ''',
+        [DateTime.now().toIso8601String(), accountId, branchId],
+      );
+    });
+  }
+
   static Future<bool> accountNameExists({
     required String branchId,
     required String name,
