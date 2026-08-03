@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/core/constants/app_colors.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
+import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
+import 'package:mobileshop_saas/features/accounts/presentation/providers/accounts_provider.dart';
+import 'package:mobileshop_saas/features/dashboard/presentation/providers/dashboard_preferences_provider.dart';
 import 'package:mobileshop_saas/features/onboarding/data/models/shop_setup_model.dart';
 import 'package:mobileshop_saas/features/settings/data/repositories/account_settings_repository.dart';
 import 'package:mobileshop_saas/features/settings/presentation/providers/account_settings_provider.dart';
@@ -96,6 +99,8 @@ class _SettingsContent extends ConsumerWidget {
             const SizedBox(height: 12),
             _ShopSection(settings: settings, saving: saving),
             const SizedBox(height: 12),
+            _DashboardSummarySection(key: ValueKey(settings.selectedBranchId)),
+            const SizedBox(height: 12),
             _PlanBillingSection(settings: settings),
             const SizedBox(height: 12),
             const _SecuritySection(),
@@ -163,6 +168,155 @@ class _SettingsContent extends ConsumerWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _DashboardSummarySection extends ConsumerStatefulWidget {
+  const _DashboardSummarySection({super.key});
+
+  @override
+  ConsumerState<_DashboardSummarySection> createState() =>
+      _DashboardSummarySectionState();
+}
+
+class _DashboardSummarySectionState
+    extends ConsumerState<_DashboardSummarySection> {
+  final Set<String> _selectedIds = {};
+  bool _initialized = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accountsState = ref.watch(accountsProvider);
+    final preferencesState = ref.watch(dashboardPreferencesProvider);
+    final controllerState = ref.watch(dashboardPreferencesControllerProvider);
+    final accounts = accountsState.value ?? const <AccountModel>[];
+
+    if (!_initialized &&
+        preferencesState.hasValue &&
+        accountsState.hasValue) {
+      final savedIds = preferencesState.value!.accountIds;
+      _selectedIds.addAll(
+        savedIds.isNotEmpty
+            ? savedIds
+            : accounts
+                .where((account) => account.isDefault)
+                .map((account) => account.id)
+                .take(1),
+      );
+      _initialized = true;
+    }
+
+    final loading =
+        (accountsState.isLoading && !accountsState.hasValue) ||
+        (preferencesState.isLoading && !preferencesState.hasValue);
+    final saving = controllerState.isLoading;
+
+    return _SettingsCard(
+      title: 'Dashboard summary',
+      subtitle:
+          'Select up to 2 accounts for this branch. Sales, profit, udhar and repairs remain fixed.',
+      icon: Icons.dashboard_customize_rounded,
+      child:
+          loading
+              ? const Center(child: CircularProgressIndicator())
+              : accounts.isEmpty
+              ? const Text('No active accounts available in this branch.')
+              : Column(
+                children: [
+                  for (final account in accounts)
+                    CheckboxListTile(
+                      value: _selectedIds.contains(account.id),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.trailing,
+                      title: Text(account.name),
+                      subtitle: Text(
+                        '${account.type.label} • Rs ${account.currentBalance.toStringAsFixed(0)}',
+                      ),
+                      onChanged:
+                          saving
+                              ? null
+                              : (selected) {
+                                final atLimit =
+                                    selected == true &&
+                                    _selectedIds.length >= 2 &&
+                                    !_selectedIds.contains(account.id);
+                                if (atLimit) {
+                                  ScaffoldMessenger.of(context)
+                                    ..hideCurrentSnackBar()
+                                    ..showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Maximum 2 accounts select kar sakte hain.',
+                                        ),
+                                      ),
+                                    );
+                                  return;
+                                }
+                                setState(() {
+                                  if (selected == true) {
+                                    _selectedIds.add(account.id);
+                                  } else {
+                                    _selectedIds.remove(account.id);
+                                  }
+                                });
+                              },
+                    ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed:
+                          saving || _selectedIds.isEmpty
+                              ? null
+                              : () async {
+                                final ok = await ref
+                                    .read(
+                                      dashboardPreferencesControllerProvider
+                                          .notifier,
+                                    )
+                                    .save(_selectedIds.toList());
+                                if (!context.mounted) return;
+                                final error =
+                                    ref
+                                        .read(
+                                          dashboardPreferencesControllerProvider,
+                                        )
+                                        .error;
+                                ScaffoldMessenger.of(context)
+                                  ..hideCurrentSnackBar()
+                                  ..showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        ok
+                                            ? 'Dashboard accounts updated.'
+                                            : (error?.toString() ??
+                                                    'Could not save dashboard accounts.')
+                                                .replaceFirst(
+                                                  'Exception: ',
+                                                  '',
+                                                ),
+                                      ),
+                                    ),
+                                  );
+                              },
+                      icon:
+                          saving
+                              ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                              : const Icon(Icons.dashboard_customize_rounded),
+                      label: Text(saving ? 'Saving...' : 'Save Dashboard'),
+                    ),
+                  ),
+                ],
+              ),
     );
   }
 }

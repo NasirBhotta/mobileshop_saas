@@ -530,7 +530,7 @@ class InventoryRepository {
     if (normalizedQuery != null && normalizedQuery.isNotEmpty) {
       final escaped = _escapePostgrestPattern(normalizedQuery);
       query = query.or(
-        'name.ilike.$escaped%,sku.ilike.$escaped%,barcode.ilike.$escaped%',
+        'name.ilike.%$escaped%,sku.ilike.%$escaped%,barcode.ilike.%$escaped%',
       );
     }
 
@@ -633,6 +633,7 @@ class InventoryRepository {
     ProductSortOption sortOption = ProductSortOption.nameAZ,
     int limit = 50,
     int offset = 0,
+    bool preferRemote = false,
   }) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
@@ -646,7 +647,7 @@ class InventoryRepository {
       limit: limit,
       offset: offset,
     );
-    if (localProducts.isNotEmpty) {
+    if (!preferRemote && localProducts.isNotEmpty) {
       unawaited(syncOfflineMutations());
       return localProducts;
     }

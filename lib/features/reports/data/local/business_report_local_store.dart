@@ -813,7 +813,7 @@ class BusinessReportLocalStore {
       FROM repair_financial_events
       WHERE tenant_id = ?
         $branchSql
-        AND substr(occurred_at, 1, 10) BETWEEN ? AND ?
+        AND substr(effective_at, 1, 10) BETWEEN ? AND ?
       ''',
       [
         tenantId,
@@ -861,7 +861,7 @@ class BusinessReportLocalStore {
       GROUP BY expense_date
       ''', args);
     final repairRows = await LocalDatabase.select('''
-      SELECT substr(occurred_at, 1, 10) AS date,
+      SELECT substr(effective_at, 1, 10) AS date,
         COALESCE(SUM(revenue_amount), 0) AS total,
         COALESCE(SUM(
           inventory_cost + direct_parts_cost +
@@ -870,8 +870,8 @@ class BusinessReportLocalStore {
       FROM repair_financial_events
       WHERE tenant_id = ?
         $branchSql
-        AND substr(occurred_at, 1, 10) BETWEEN ? AND ?
-      GROUP BY substr(occurred_at, 1, 10)
+        AND substr(effective_at, 1, 10) BETWEEN ? AND ?
+      GROUP BY substr(effective_at, 1, 10)
       ''', args);
 
     var confirmed = 0.0;

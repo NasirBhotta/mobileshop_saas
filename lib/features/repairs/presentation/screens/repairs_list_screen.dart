@@ -579,6 +579,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                         helperText: AppStrings.repairRemaining(remaining),
                       ),
                     ),
+                    SizedBox(height: 10),
                     DropdownButtonFormField<PaymentMethod>(
                       initialValue: method,
                       decoration: const InputDecoration(
@@ -605,6 +606,8 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                 });
                               },
                     ),
+
+                    SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       initialValue: effectiveAccountId,
                       isExpanded: true,
@@ -630,6 +633,7 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                               : (value) =>
                                   setDialogState(() => accountId = value),
                     ),
+                    SizedBox(height: 10),
                     TextField(
                       controller: noteController,
                       enabled: !isReceiving,

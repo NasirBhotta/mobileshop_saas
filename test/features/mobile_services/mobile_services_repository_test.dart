@@ -101,6 +101,14 @@ void main() {
     expect(remote.voidRpcCalls, 1);
   });
 
+  test('restore uses the atomic provider lifecycle RPC', () async {
+    await repository.restoreProvider('provider-1');
+
+    expect(remote.lastFunctionName, 'restore_mobile_service_provider');
+    expect(remote.lastParams, {'p_provider_id': 'provider-1'});
+    expect(remote.voidRpcCalls, 1);
+  });
+
   test('report JSON is converted to a typed summary', () async {
     remote.mapResult = {
       'transaction_count': 3,

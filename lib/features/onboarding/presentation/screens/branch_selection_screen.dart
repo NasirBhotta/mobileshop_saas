@@ -36,7 +36,6 @@ class _BranchSelectionScreenState extends ConsumerState<BranchSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint("BranchSelectionScreen BUILD");
     final userId = Supabase.instance.client.auth.currentUser?.id;
     final branchesState =
         userId == null
@@ -139,6 +138,7 @@ class _BranchSelectionScreenState extends ConsumerState<BranchSelectionScreen> {
     if (user == null || branchId == null) return;
 
     setState(() => _selectingBranchId = branchId);
+    var navigated = false;
     try {
       await ref
           .read(setupFlowRepositoryProvider)
@@ -161,6 +161,7 @@ class _BranchSelectionScreenState extends ConsumerState<BranchSelectionScreen> {
 
       if (context.mounted) {
         ref.read(navigationLoadingProvider.notifier).showFor();
+        navigated = true;
         context.go('/dashboard');
       }
     } catch (error) {
@@ -170,7 +171,7 @@ class _BranchSelectionScreenState extends ConsumerState<BranchSelectionScreen> {
         ).showSnackBar(SnackBar(content: Text(friendlySetupError(error))));
       }
     } finally {
-      if (mounted) {
+      if (mounted && !navigated) {
         setState(() => _selectingBranchId = null);
       }
     }

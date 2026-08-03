@@ -53,7 +53,7 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
     try {
       final products = await ref
           .read(inventoryRepositoryProvider)
-          .searchProducts(query: code, limit: 20);
+          .searchProducts(query: code, limit: 20, preferRemote: true);
       final normalized = code.toLowerCase();
       final matches = products.where(
         (product) =>

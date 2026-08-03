@@ -6,6 +6,7 @@ import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
+import '../../../accounts/data/models/account_models.dart';
 import '../../../accounts/presentation/providers/accounts_provider.dart';
 import '../../domain/pos_payment_account_policy.dart';
 import '../providers/pos_provider.dart';
@@ -13,17 +14,39 @@ import 'cart_item_tile.dart';
 import 'customer_attach_sheet.dart';
 import 'payment_method_sheet.dart';
 
-class CartPanel extends ConsumerWidget {
+class CartPanel extends ConsumerStatefulWidget {
   const CartPanel({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CartPanel> createState() => _CartPanelState();
+}
+
+class _CartPanelState extends ConsumerState<CartPanel> {
+  static const _quickPaymentMethods = <PaymentMethod>[
+    PaymentMethod.cash,
+    PaymentMethod.easypaisa,
+    PaymentMethod.jazzcash,
+    PaymentMethod.card,
+  ];
+
+  PaymentMethod _quickPaymentMethod = PaymentMethod.cash;
+  String? _quickAccountId;
+
+  @override
+  Widget build(BuildContext context) {
     final cart = ref.watch(cartProvider);
     final checkoutState = ref.watch(checkoutControllerProvider);
     final isLoading = checkoutState.isLoading;
     final checkoutEnabled = isEntitledActionVisible(
       ref.watch(featureEntitlementProvider('pos.checkout')).value,
     );
+    final accountsState = ref.watch(accountsProvider);
+    final accounts = accountsState.value ?? const <AccountModel>[];
+    final quickAccounts = PosPaymentAccountPolicy.compatibleAccounts(
+      _quickPaymentMethod,
+      accounts,
+    );
+    final quickAccount = _effectiveQuickAccount(quickAccounts);
 
     if (cart.isEmpty) {
       return Center(
@@ -149,6 +172,25 @@ class CartPanel extends ConsumerWidget {
               const SizedBox(height: 12),
 
               // Payment section
+              if (cart.payments.isEmpty && checkoutEnabled) ...[
+                _QuickPaymentDestination(
+                  method: _quickPaymentMethod,
+                  methods: _quickPaymentMethods,
+                  accounts: quickAccounts,
+                  selectedAccountId: quickAccount?.id,
+                  isLoading: accountsState.isLoading && !accountsState.hasValue,
+                  onMethodChanged: (method) {
+                    setState(() {
+                      _quickPaymentMethod = method;
+                      _quickAccountId = null;
+                    });
+                  },
+                  onAccountChanged:
+                      (accountId) =>
+                          setState(() => _quickAccountId = accountId),
+                ),
+                const SizedBox(height: 10),
+              ],
               _PaymentSummary(cart: cart),
               const SizedBox(height: 12),
 
@@ -161,7 +203,12 @@ class CartPanel extends ConsumerWidget {
                         isLoading
                             ? null
                             : cart.payments.isEmpty
-                            ? () => _handleCashCheckout(context, ref)
+                            ? () => _handleQuickCheckout(
+                              context,
+                              ref,
+                              method: _quickPaymentMethod,
+                              accountId: quickAccount?.id,
+                            )
                             : cart.isPaymentComplete
                             ? () => _handleCheckout(context, ref)
                             : () => showPaymentSheet(context, ref),
@@ -184,7 +231,7 @@ class CartPanel extends ConsumerWidget {
                             )
                             : Text(
                               cart.payments.isEmpty
-                                  ? 'Cash Sale — ₨${cart.total.toStringAsFixed(0)}'
+                                  ? '${_quickPaymentMethod.label} Sale — ₨${cart.total.toStringAsFixed(0)}'
                                   : cart.isPaymentComplete
                                   ? AppStrings.checkoutButton
                                   : AppStrings.paymentIncomplete,
@@ -233,16 +280,33 @@ class CartPanel extends ConsumerWidget {
     }
   }
 
-  Future<void> _handleCashCheckout(BuildContext context, WidgetRef ref) async {
-    try {
-      final accounts = await ref.read(accountsProvider.future);
-      if (!context.mounted) return;
+  AccountModel? _effectiveQuickAccount(List<AccountModel> accounts) {
+    if (accounts.isEmpty) return null;
+    final selected = _quickAccountId;
+    if (selected != null) {
+      for (final account in accounts) {
+        if (account.id == selected) return account;
+      }
+    }
+    final suggested = PosPaymentAccountPolicy.suggestedAccount(
+      _quickPaymentMethod,
+      accounts,
+    );
+    if (suggested != null) return suggested;
+    for (final account in accounts) {
+      if (account.name.trim().toLowerCase() == 'cash in shop') return account;
+    }
+    return accounts.first;
+  }
 
-      final cashAccount = PosPaymentAccountPolicy.suggestedAccount(
-        PaymentMethod.cash,
-        accounts,
-      );
-      if (cashAccount == null) {
+  Future<void> _handleQuickCheckout(
+    BuildContext context,
+    WidgetRef ref, {
+    required PaymentMethod method,
+    required String? accountId,
+  }) async {
+    try {
+      if (accountId == null) {
         showPaymentSheet(context, ref);
         return;
       }
@@ -250,11 +314,7 @@ class CartPanel extends ConsumerWidget {
       final cart = ref.read(cartProvider);
       ref
           .read(cartProvider.notifier)
-          .setPayment(
-            PaymentMethod.cash,
-            cart.total,
-            accountId: cashAccount.id,
-          );
+          .setPayment(method, cart.total, accountId: accountId);
       await _handleCheckout(context, ref);
     } catch (_) {
       if (context.mounted) showPaymentSheet(context, ref);
@@ -271,6 +331,134 @@ class CartPanel extends ConsumerWidget {
 }
 
 // ── Total Row ────────────────────────────────────────
+class _QuickPaymentDestination extends StatelessWidget {
+  final PaymentMethod method;
+  final List<PaymentMethod> methods;
+  final List<AccountModel> accounts;
+  final String? selectedAccountId;
+  final bool isLoading;
+  final ValueChanged<PaymentMethod> onMethodChanged;
+  final ValueChanged<String?> onAccountChanged;
+
+  const _QuickPaymentDestination({
+    required this.method,
+    required this.methods,
+    required this.accounts,
+    required this.selectedAccountId,
+    required this.isLoading,
+    required this.onMethodChanged,
+    required this.onAccountChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final decoration = InputDecoration(
+      isDense: true,
+      filled: true,
+      fillColor: AppColors.surfaceVariant,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.border),
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(
+              Icons.account_balance_wallet_outlined,
+              size: 16,
+              color: AppColors.textSecondary,
+            ),
+            SizedBox(width: 6),
+            Text(
+              'Receive payment in',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        Row(
+          children: [
+            SizedBox(
+              width: 126,
+              child: DropdownButtonFormField<PaymentMethod>(
+                initialValue: method,
+                isExpanded: true,
+                decoration: decoration,
+                items:
+                    methods
+                        .map(
+                          (item) => DropdownMenuItem(
+                            value: item,
+                            child: Text(
+                              item.label,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                onChanged:
+                    (value) => value == null ? null : onMethodChanged(value),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child:
+                  isLoading
+                      ? Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceVariant,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        alignment: Alignment.center,
+                        child: const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                      : DropdownButtonFormField<String>(
+                        initialValue: selectedAccountId,
+                        isExpanded: true,
+                        decoration: decoration.copyWith(
+                          hintText:
+                              accounts.isEmpty
+                                  ? 'No compatible account'
+                                  : 'Select account',
+                        ),
+                        items:
+                            accounts
+                                .map(
+                                  (account) => DropdownMenuItem(
+                                    value: account.id,
+                                    child: Text(
+                                      account.name,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: accounts.isEmpty ? null : onAccountChanged,
+                      ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _TotalRow extends StatelessWidget {
   final String label;
   final double value;

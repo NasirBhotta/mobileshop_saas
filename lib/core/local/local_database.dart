@@ -36,6 +36,7 @@ class LocalDatabase {
     'repair_status_logs',
     'repair_payments',
     'repair_parts',
+    'repair_part_returns',
     'repair_financial_events',
     'suppliers',
     'supplier_products',
@@ -75,6 +76,7 @@ class LocalDatabase {
     'repair_status_logs',
     'repair_payments',
     'repair_financial_events',
+    'repair_part_returns',
     'repair_parts',
     'repair_tickets',
     'inventory_units',
@@ -781,6 +783,26 @@ class LocalDatabase {
       definition: "TEXT NOT NULL DEFAULT 'already_recorded'",
     );
     await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS repair_part_returns (
+        part_id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        ticket_id TEXT NOT NULL,
+        reversal_event_id TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        product_id TEXT,
+        supplier_id TEXT,
+        settlement_type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_cost_snapshot REAL NOT NULL,
+        unit_sale_price_snapshot REAL NOT NULL,
+        returned_by TEXT NOT NULL,
+        returned_at TEXT NOT NULL,
+        UNIQUE(ticket_id, part_id)
+      )
+    ''');
+    await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS repair_financial_events (
         id TEXT PRIMARY KEY,
         tenant_id TEXT NOT NULL,
@@ -796,10 +818,28 @@ class LocalDatabase {
         gross_profit REAL NOT NULL,
         reversal_of_event_id TEXT,
         occurred_at TEXT NOT NULL,
+        effective_at TEXT NOT NULL,
         created_by TEXT NOT NULL,
         created_at TEXT NOT NULL,
         UNIQUE(tenant_id, branch_id, source_event_key)
       )
+    ''');
+    await _addColumnIfMissing(
+      table: 'repair_financial_events',
+      column: 'effective_at',
+      definition: 'TEXT',
+    );
+    await _db.customStatement('''
+      UPDATE repair_financial_events
+      SET effective_at = COALESCE(
+        (
+          SELECT original.effective_at
+          FROM repair_financial_events original
+          WHERE original.id = repair_financial_events.reversal_of_event_id
+        ),
+        occurred_at
+      )
+      WHERE effective_at IS NULL OR effective_at = ''
     ''');
 
     // ════════════════════════════════════════

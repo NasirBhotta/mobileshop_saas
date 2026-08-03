@@ -42,6 +42,7 @@ class RoleManagementController extends StateNotifier<AsyncValue<void>> {
     try {
       await action(_ref.read(roleManagementRepositoryProvider));
       state = const AsyncData(null);
+      _ref.read(permissionRevisionProvider.notifier).refresh();
       _ref.invalidate(roleManagementProvider);
       _ref.invalidate(roleManagementAccessProvider);
       return true;

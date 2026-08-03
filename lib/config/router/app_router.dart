@@ -106,7 +106,6 @@ final authRouterRefreshProvider = Provider<AuthRouterRefresh>((ref) {
 });
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  ref.watch(entitlementRealtimeRefreshProvider);
   final authRouterRefresh = ref.watch(authRouterRefreshProvider);
   final tenantAccessRefresh = ref.watch(tenantAccessRefreshProvider);
   final entitlementRouterRefresh = ref.watch(entitlementRouterRefreshProvider);

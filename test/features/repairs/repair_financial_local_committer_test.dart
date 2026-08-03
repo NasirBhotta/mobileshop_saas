@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/core/local/local_database.dart';
 import 'package:mobileshop_saas/features/repairs/data/local/repair_financial_local_committer.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
+import 'package:mobileshop_saas/features/reports/data/local/business_report_local_store.dart';
 
 const _pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
 
@@ -36,6 +37,7 @@ void main() {
 
   setUp(() async {
     await LocalDatabase.execute('DELETE FROM repair_payment_refunds');
+    await LocalDatabase.execute('DELETE FROM repair_part_returns');
     await LocalDatabase.execute('DELETE FROM repair_financial_events');
     await LocalDatabase.execute('DELETE FROM repair_parts');
     await LocalDatabase.execute('DELETE FROM repair_payments');
@@ -161,6 +163,26 @@ void main() {
     expect((totals.single['revenue'] as num).toDouble(), 0);
     expect((totals.single['cost'] as num).toDouble(), 0);
     expect((totals.single['profit'] as num).toDouble(), 0);
+    final returns = await LocalDatabase.select(
+      'SELECT * FROM repair_part_returns ORDER BY part_id',
+    );
+    expect(returns, hasLength(2));
+    expect(
+      (returns.firstWhere(
+                (row) => row['part_id'] == 'inventory-part',
+              )['unit_cost_snapshot']
+              as num)
+          .toDouble(),
+      5000,
+    );
+    expect(
+      (returns.firstWhere(
+                (row) => row['part_id'] == 'inventory-part',
+              )['unit_sale_price_snapshot']
+              as num)
+          .toDouble(),
+      8000,
+    );
     final supplier = await LocalDatabase.select(
       "SELECT outstanding_balance FROM suppliers WHERE id = 'supplier-1'",
     );
@@ -172,6 +194,54 @@ void main() {
       hasLength(2),
     );
   });
+
+  test(
+    'prior-day cancellation restates completion day without changing audit day',
+    () async {
+      await RepairFinancialLocalCommitter.complete(
+        ticket: ticket,
+        eventId: 'completion-1',
+        userId: 'owner',
+        customerCharge: 3500,
+      );
+      await LocalDatabase.execute('''
+        UPDATE repair_financial_events
+        SET occurred_at = '2026-08-01T11:26:11.000Z',
+            effective_at = '2026-08-01T11:26:11.000Z'
+        WHERE id = 'completion-1'
+        ''');
+
+      await RepairFinancialLocalCommitter.cancel(
+        ticket: ticket,
+        eventId: 'reversal-1',
+        userId: 'owner',
+      );
+
+      final events = await LocalDatabase.select(
+        'SELECT * FROM repair_financial_events ORDER BY event_type',
+      );
+      final reversal = events.singleWhere(
+        (row) => row['event_type'] == 'reversal',
+      );
+      expect(reversal['effective_at'], '2026-08-01T11:26:11.000Z');
+      expect(reversal['occurred_at'], isNot(reversal['effective_at']));
+
+      final august1Profit = await BusinessReportLocalStore.loadGrossProfit(
+        tenantId: 'tenant-1',
+        branchId: 'branch-1',
+        dateFrom: DateTime(2026, 8, 1),
+        dateTo: DateTime(2026, 8, 1),
+      );
+      final august2Profit = await BusinessReportLocalStore.loadGrossProfit(
+        tenantId: 'tenant-1',
+        branchId: 'branch-1',
+        dateFrom: DateTime(2026, 8, 2),
+        dateTo: DateTime(2026, 8, 2),
+      );
+      expect(august1Profit, 0);
+      expect(august2Profit, 0);
+    },
+  );
 
   test('supplier-paid direct part blocks unsafe cancellation', () async {
     await _part(
@@ -211,6 +281,50 @@ void main() {
       isEmpty,
     );
   });
+
+  test(
+    'authoritative remote cancellation is not rejected by stale supplier cache',
+    () async {
+      await _part(
+        id: 'supplier-part',
+        source: 'direct_purchase',
+        cost: 1000,
+        sale: 1500,
+        settlementType: 'supplier_payable',
+        supplierId: 'supplier-1',
+      );
+      await RepairFinancialLocalCommitter.complete(
+        ticket: ticket,
+        eventId: 'completion-1',
+        userId: 'owner',
+        customerCharge: 2000,
+      );
+      await LocalDatabase.execute(
+        "DELETE FROM suppliers WHERE id = 'supplier-1'",
+      );
+
+      await RepairFinancialLocalCommitter.cancel(
+        ticket: ticket,
+        eventId: 'reversal-1',
+        userId: 'owner',
+        enforceSupplierBalance: false,
+      );
+
+      final status = await LocalDatabase.select(
+        "SELECT status FROM repair_tickets WHERE id = 'ticket-1'",
+      );
+      final returned = await LocalDatabase.select(
+        "SELECT * FROM repair_part_returns WHERE part_id = 'supplier-part'",
+      );
+      expect(status.single['status'], 'cancelled');
+      expect(returned, hasLength(1));
+      expect((returned.single['unit_cost_snapshot'] as num).toDouble(), 1000);
+      expect(
+        (returned.single['unit_sale_price_snapshot'] as num).toDouble(),
+        1500,
+      );
+    },
+  );
 
   test(
     'paid cancellation refunds account and reverses repair atomically',

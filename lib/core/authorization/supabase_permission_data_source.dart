@@ -98,7 +98,7 @@ class SupabasePermissionDataSource implements PermissionDataSource {
           .add(permission['key'] as String);
     }
 
-    return [
+    final roleAssignments = [
       for (final assignment in assignmentRows)
         if (roleById[assignment['role_id'] as String] case final role?)
           PermissionRoleAssignment(
@@ -109,6 +109,8 @@ class SupabasePermissionDataSource implements PermissionDataSource {
             permissionKeys: permissionsByRole[role['id'] as String] ?? const {},
           ),
     ];
+
+    return roleAssignments;
   }
 
   DateTime? _dateTime(Object? value) =>

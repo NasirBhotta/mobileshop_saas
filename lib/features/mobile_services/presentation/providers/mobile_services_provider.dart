@@ -417,7 +417,18 @@ class MobileServiceSettingsController extends StateNotifier<AsyncValue<void>> {
       await _ref
           .read(mobileServicesRepositoryProvider)
           .restoreProvider(providerId);
-      _ref.invalidate(mobileServiceProvidersProvider);
+      try {
+        await _ref
+            .read(accountsRepositoryProvider)
+            .refreshCurrentAccountsCache();
+      } catch (_) {
+        // The restore is authoritative. A cache refresh failure must not turn
+        // a successful atomic server restore into a misleading UI failure.
+      }
+      _ref
+        ..invalidate(mobileServiceProvidersProvider)
+        ..invalidate(mobileServiceChargeRulesProvider)
+        ..invalidate(accountsProvider);
     });
   }
 

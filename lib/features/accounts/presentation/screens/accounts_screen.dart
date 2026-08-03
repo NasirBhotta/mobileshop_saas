@@ -409,13 +409,13 @@ class _AccountsPanel extends StatelessWidget {
   }
 }
 
-class _AccountTile extends StatelessWidget {
+class _AccountTile extends ConsumerWidget {
   final AccountModel account;
 
   const _AccountTile({required this.account});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -438,7 +438,9 @@ class _AccountTile extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 Text(
-                  account.type.label,
+                  account.isDefault
+                      ? '${account.type.label} • Default for sales'
+                      : account.type.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,
@@ -452,6 +454,53 @@ class _AccountTile extends StatelessWidget {
             style: Theme.of(
               context,
             ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Account actions',
+            onSelected: (action) {
+              if (action == 'edit') {
+                _showAccountDialog(context, ref, account: account);
+              } else if (action == 'make_default') {
+                _setDefaultCashAccount(context, ref, account);
+              } else if (action == 'delete') {
+                _showDeleteAccountDialog(context, ref, account);
+              }
+            },
+            itemBuilder:
+                (context) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('Edit'),
+                    ),
+                  ),
+                  if (!account.isDefault && account.type == AccountType.cash)
+                    const PopupMenuItem(
+                      value: 'make_default',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.star_outline_rounded),
+                        title: Text('Use as default for sales'),
+                      ),
+                    ),
+                  if (!account.isDefault && !_isSystemCashAccount(account))
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          Icons.delete_outline_rounded,
+                          color: AppColors.error,
+                        ),
+                        title: Text(
+                          'Delete',
+                          style: TextStyle(color: AppColors.error),
+                        ),
+                      ),
+                    ),
+                ],
           ),
         ],
       ),
@@ -619,135 +668,240 @@ class _EmptyLine extends StatelessWidget {
   }
 }
 
-Future<void> _showAccountDialog(BuildContext context, WidgetRef ref) async {
-  final nameController = TextEditingController();
+Future<void> _showAccountDialog(
+  BuildContext context,
+  WidgetRef ref, {
+  AccountModel? account,
+}) async {
+  final editing = account != null;
+  final nameController = TextEditingController(text: account?.name ?? '');
   final balanceController = TextEditingController(text: '0');
-  final noteController = TextEditingController();
-  var type = AccountType.cash;
+  final noteController = TextEditingController(text: account?.note ?? '');
+  var type = account?.type ?? AccountType.cash;
   var saving = false;
 
   await showDialog<void>(
     context: context,
     builder: (dialogContext) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          return AlertDialog(
-            title: const Text('Add Account'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nameController,
-                    enabled: !saving,
-                    decoration: const InputDecoration(
-                      labelText: 'Account name',
+      return _ControllerDisposalBoundary(
+        controllers: [nameController, balanceController, noteController],
+        child: StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text(editing ? 'Edit Account' : 'Add Account'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: 'Account name',
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<AccountType>(
-                    initialValue: type,
-                    decoration: const InputDecoration(labelText: 'Type'),
-                    items:
-                        AccountType.values
-                            .map(
-                              (item) => DropdownMenuItem(
-                                value: item,
-                                child: Text(item.label),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<AccountType>(
+                      initialValue: type,
+                      decoration: const InputDecoration(labelText: 'Type'),
+                      items:
+                          AccountType.values
+                              .map(
+                                (item) => DropdownMenuItem(
+                                  value: item,
+                                  child: Text(item.label),
+                                ),
+                              )
+                              .toList(),
+                      onChanged:
+                          saving ||
+                                  account?.isDefault == true ||
+                                  (account != null &&
+                                      _isSystemCashAccount(account))
+                              ? null
+                              : (value) {
+                                if (value != null) setState(() => type = value);
+                              },
+                    ),
+                    if (!editing) ...[
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: balanceController,
+                        enabled: !saving,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Opening balance',
+                          prefixText: 'Rs ',
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: noteController,
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: 'Note optional',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed:
+                      saving ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed:
+                      saving
+                          ? null
+                          : () async {
+                            final name = nameController.text.trim();
+                            if (name.isEmpty) return;
+                            final balance =
+                                double.tryParse(
+                                  balanceController.text.trim(),
+                                ) ??
+                                0;
+                            setState(() => saving = true);
+                            final controller = ref.read(
+                              accountControllerProvider.notifier,
+                            );
+                            final ok =
+                                editing
+                                    ? await controller.updateAccount(
+                                      accountId: account.id,
+                                      name: name,
+                                      type: type,
+                                      note: noteController.text,
+                                    )
+                                    : await controller.createAccount(
+                                      name: name,
+                                      type: type,
+                                      openingBalance: balance,
+                                      note: noteController.text,
+                                    );
+                            if (ok && dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            } else if (dialogContext.mounted) {
+                              setState(() => saving = false);
+                              _showAccountActionError(dialogContext, ref);
+                            }
+                          },
+                  child:
+                      saving
+                          ? const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
                               ),
-                            )
-                            .toList(),
-                    onChanged:
-                        saving
-                            ? null
-                            : (value) {
-                              if (value != null) setState(() => type = value);
-                            },
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: balanceController,
-                    enabled: !saving,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Opening balance',
-                      prefixText: 'Rs ',
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: noteController,
-                    enabled: !saving,
-                    decoration: const InputDecoration(
-                      labelText: 'Note optional',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed:
-                    saving ? null : () => Navigator.of(dialogContext).pop(),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed:
-                    saving
-                        ? null
-                        : () async {
-                          final name = nameController.text.trim();
-                          if (name.isEmpty) return;
-                          final balance =
-                              double.tryParse(balanceController.text.trim()) ??
-                              0;
-                          setState(() => saving = true);
-                          final ok = await ref
-                              .read(accountControllerProvider.notifier)
-                              .createAccount(
-                                name: name,
-                                type: type,
-                                openingBalance: balance,
-                                note: noteController.text,
-                              );
-                          if (ok && dialogContext.mounted) {
-                            Navigator.of(dialogContext).pop();
-                          } else if (dialogContext.mounted) {
-                            setState(() => saving = false);
-                            _showAccountActionError(dialogContext, ref);
-                          }
-                        },
-                child:
-                    saving
-                        ? const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            ),
-                            SizedBox(width: 8),
-                            Text('Saving...'),
-                          ],
-                        )
-                        : const Text('Save'),
-              ),
-            ],
-          );
-        },
+                              SizedBox(width: 8),
+                              Text('Saving...'),
+                            ],
+                          )
+                          : Text(editing ? 'Update' : 'Save'),
+                ),
+              ],
+            );
+          },
+        ),
       );
     },
   );
+}
 
-  nameController.dispose();
-  balanceController.dispose();
-  noteController.dispose();
+Future<void> _setDefaultCashAccount(
+  BuildContext context,
+  WidgetRef ref,
+  AccountModel account,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder:
+        (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.star_rounded, color: AppColors.warning),
+          title: const Text('Change default sales account?'),
+          content: Text(
+            '${account.name} will be selected automatically for future cash sales in this branch. Existing balances and ledger entries will not change.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Make Default'),
+            ),
+          ],
+        ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  final ok = await ref
+      .read(accountControllerProvider.notifier)
+      .setDefaultCashAccount(account.id);
+  if (!context.mounted) return;
+  if (!ok) {
+    _showAccountActionError(context, ref);
+    return;
+  }
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(content: Text('${account.name} is now default for cash sales.')),
+    );
+}
+
+Future<void> _showDeleteAccountDialog(
+  BuildContext context,
+  WidgetRef ref,
+  AccountModel account,
+) async {
+  final hasBalance = account.currentBalance.abs() >= 0.01;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder:
+        (dialogContext) => AlertDialog(
+          icon: const Icon(
+            Icons.warning_amber_rounded,
+            color: AppColors.warning,
+            size: 36,
+          ),
+          title: Text('Delete ${account.name}?'),
+          content: Text(
+            hasBalance
+                ? 'This account has a balance of ${_money(account.currentBalance)}. It may also be linked to payments and ledger entries. Deleting will hide the account but preserve its financial history.'
+                : 'This account may be linked to payments and ledger entries. Deleting will hide the account but preserve its financial history.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete Account'),
+            ),
+          ],
+        ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  final ok = await ref
+      .read(accountControllerProvider.notifier)
+      .deleteAccount(account.id);
+  if (!ok && context.mounted) _showAccountActionError(context, ref);
 }
 
 Future<void> _showEntryDialog(
@@ -764,125 +918,129 @@ Future<void> _showEntryDialog(
   await showDialog<void>(
     context: context,
     builder: (dialogContext) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          return AlertDialog(
-            title: const Text('Add Ledger Entry'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: accountId,
-                    decoration: const InputDecoration(labelText: 'Account'),
-                    items:
-                        accounts
-                            .map(
-                              (account) => DropdownMenuItem(
-                                value: account.id,
-                                child: Text(account.name),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: (value) {
-                      if (value != null) setState(() => accountId = value);
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  SegmentedButton<AccountTransactionDirection>(
-                    segments:
-                        AccountTransactionDirection.values
-                            .map(
-                              (item) => ButtonSegment(
-                                value: item,
-                                label: Text(item.label),
-                              ),
-                            )
-                            .toList(),
-                    selected: {direction},
-                    onSelectionChanged: (values) {
-                      final selected = values.first;
-                      setState(() {
-                        direction = selected;
-                        type =
-                            selected == AccountTransactionDirection.moneyIn
-                                ? AccountTransactionType.other
-                                : AccountTransactionType.expense;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<AccountTransactionType>(
-                    initialValue: type,
-                    decoration: const InputDecoration(labelText: 'Entry type'),
-                    items:
-                        _entryTypes(direction)
-                            .map(
-                              (item) => DropdownMenuItem(
-                                value: item,
-                                child: Text(item.label),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: (value) {
-                      if (value != null) setState(() => type = value);
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: amountController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+      return _ControllerDisposalBoundary(
+        controllers: [amountController, noteController],
+        child: StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Add Ledger Entry'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      initialValue: accountId,
+                      decoration: const InputDecoration(labelText: 'Account'),
+                      items:
+                          accounts
+                              .map(
+                                (account) => DropdownMenuItem(
+                                  value: account.id,
+                                  child: Text(account.name),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: (value) {
+                        if (value != null) setState(() => accountId = value);
+                      },
                     ),
-                    decoration: const InputDecoration(
-                      labelText: 'Amount',
-                      prefixText: 'Rs ',
+                    const SizedBox(height: 10),
+                    SegmentedButton<AccountTransactionDirection>(
+                      segments:
+                          AccountTransactionDirection.values
+                              .map(
+                                (item) => ButtonSegment(
+                                  value: item,
+                                  label: Text(item.label),
+                                ),
+                              )
+                              .toList(),
+                      selected: {direction},
+                      onSelectionChanged: (values) {
+                        final selected = values.first;
+                        setState(() {
+                          direction = selected;
+                          type =
+                              selected == AccountTransactionDirection.moneyIn
+                                  ? AccountTransactionType.other
+                                  : AccountTransactionType.expense;
+                        });
+                      },
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: noteController,
-                    decoration: const InputDecoration(labelText: 'Description'),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<AccountTransactionType>(
+                      initialValue: type,
+                      decoration: const InputDecoration(
+                        labelText: 'Entry type',
+                      ),
+                      items:
+                          _entryTypes(direction)
+                              .map(
+                                (item) => DropdownMenuItem(
+                                  value: item,
+                                  child: Text(item.label),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: (value) {
+                        if (value != null) setState(() => type = value);
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: amountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Amount',
+                        prefixText: 'Rs ',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: noteController,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () async {
-                  final amount =
-                      double.tryParse(amountController.text.trim()) ?? 0;
-                  if (amount <= 0) return;
-                  final ok = await ref
-                      .read(accountControllerProvider.notifier)
-                      .recordTransaction(
-                        accountId: accountId,
-                        direction: direction,
-                        type: type,
-                        amount: amount,
-                        description: noteController.text,
-                      );
-                  if (ok && dialogContext.mounted) {
-                    Navigator.of(dialogContext).pop();
-                  } else if (dialogContext.mounted) {
-                    _showAccountActionError(dialogContext, ref);
-                  }
-                },
-                child: const Text('Save'),
-              ),
-            ],
-          );
-        },
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final amount =
+                        double.tryParse(amountController.text.trim()) ?? 0;
+                    if (amount <= 0) return;
+                    final ok = await ref
+                        .read(accountControllerProvider.notifier)
+                        .recordTransaction(
+                          accountId: accountId,
+                          direction: direction,
+                          type: type,
+                          amount: amount,
+                          description: noteController.text,
+                        );
+                    if (ok && dialogContext.mounted) {
+                      Navigator.of(dialogContext).pop();
+                    } else if (dialogContext.mounted) {
+                      _showAccountActionError(dialogContext, ref);
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        ),
       );
     },
   );
-
-  amountController.dispose();
-  noteController.dispose();
 }
 
 Future<void> _showTransferDialog(
@@ -898,103 +1056,131 @@ Future<void> _showTransferDialog(
   await showDialog<void>(
     context: context,
     builder: (dialogContext) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          return AlertDialog(
-            title: const Text('Transfer Funds'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: fromAccountId,
-                    decoration: const InputDecoration(labelText: 'From'),
-                    items: _accountItems(accounts),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setState(() {
-                        fromAccountId = value;
-                        if (toAccountId == fromAccountId) {
-                          toAccountId =
-                              accounts.firstWhere((e) => e.id != value).id;
-                        }
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: toAccountId,
-                    decoration: const InputDecoration(labelText: 'To'),
-                    items:
-                        accounts
-                            .where((account) => account.id != fromAccountId)
-                            .map(
-                              (account) => DropdownMenuItem(
-                                value: account.id,
-                                child: Text(account.name),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: (value) {
-                      if (value != null) setState(() => toAccountId = value);
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: amountController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+      return _ControllerDisposalBoundary(
+        controllers: [amountController, noteController],
+        child: StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Transfer Funds'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      initialValue: fromAccountId,
+                      decoration: const InputDecoration(labelText: 'From'),
+                      items: _accountItems(accounts),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() {
+                          fromAccountId = value;
+                          if (toAccountId == fromAccountId) {
+                            toAccountId =
+                                accounts.firstWhere((e) => e.id != value).id;
+                          }
+                        });
+                      },
                     ),
-                    decoration: const InputDecoration(
-                      labelText: 'Amount',
-                      prefixText: 'Rs ',
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      initialValue: toAccountId,
+                      decoration: const InputDecoration(labelText: 'To'),
+                      items:
+                          accounts
+                              .where((account) => account.id != fromAccountId)
+                              .map(
+                                (account) => DropdownMenuItem(
+                                  value: account.id,
+                                  child: Text(account.name),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: (value) {
+                        if (value != null) setState(() => toAccountId = value);
+                      },
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: noteController,
-                    decoration: const InputDecoration(
-                      labelText: 'Note optional',
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: amountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Amount',
+                        prefixText: 'Rs ',
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: noteController,
+                      decoration: const InputDecoration(
+                        labelText: 'Note optional',
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () async {
-                  final amount =
-                      double.tryParse(amountController.text.trim()) ?? 0;
-                  if (amount <= 0) return;
-                  final ok = await ref
-                      .read(accountControllerProvider.notifier)
-                      .transfer(
-                        fromAccountId: fromAccountId,
-                        toAccountId: toAccountId,
-                        amount: amount,
-                        description: noteController.text,
-                      );
-                  if (ok && dialogContext.mounted) {
-                    Navigator.of(dialogContext).pop();
-                  } else if (dialogContext.mounted) {
-                    _showAccountActionError(dialogContext, ref);
-                  }
-                },
-                child: const Text('Transfer'),
-              ),
-            ],
-          );
-        },
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final amount =
+                        double.tryParse(amountController.text.trim()) ?? 0;
+                    if (amount <= 0) return;
+                    final ok = await ref
+                        .read(accountControllerProvider.notifier)
+                        .transfer(
+                          fromAccountId: fromAccountId,
+                          toAccountId: toAccountId,
+                          amount: amount,
+                          description: noteController.text,
+                        );
+                    if (ok && dialogContext.mounted) {
+                      Navigator.of(dialogContext).pop();
+                    } else if (dialogContext.mounted) {
+                      _showAccountActionError(dialogContext, ref);
+                    }
+                  },
+                  child: const Text('Transfer'),
+                ),
+              ],
+            );
+          },
+        ),
       );
     },
   );
+}
 
-  amountController.dispose();
-  noteController.dispose();
+class _ControllerDisposalBoundary extends StatefulWidget {
+  final List<TextEditingController> controllers;
+  final Widget child;
+
+  const _ControllerDisposalBoundary({
+    required this.controllers,
+    required this.child,
+  });
+
+  @override
+  State<_ControllerDisposalBoundary> createState() =>
+      _ControllerDisposalBoundaryState();
+}
+
+class _ControllerDisposalBoundaryState
+    extends State<_ControllerDisposalBoundary> {
+  @override
+  Widget build(BuildContext context) => widget.child;
+
+  @override
+  void dispose() {
+    for (final controller in widget.controllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
 }
 
 void _showAccountActionError(BuildContext context, WidgetRef ref) {
@@ -1052,6 +1238,9 @@ IconData _iconForType(AccountType type) {
       return Icons.account_balance_wallet_rounded;
   }
 }
+
+bool _isSystemCashAccount(AccountModel account) =>
+    account.name.trim().toLowerCase() == 'cash in shop';
 
 String _money(double value) {
   return 'Rs ${value.toStringAsFixed(0)}';

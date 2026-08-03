@@ -91,6 +91,56 @@ void main() {
     expect(data.assignmentCount('owner-role'), 0);
   });
 
+  test('branch permissions inherit role defaults and apply overrides', () {
+    const branchData = RoleManagementData(
+      tenantId: 'tenant-1',
+      roles: [
+        ManagedRole(
+          id: 'manager',
+          code: 'manager',
+          name: 'Manager',
+          description: null,
+          isSystem: true,
+          isActive: true,
+          permissionKeys: {'inherited.keep', 'inherited.deny'},
+        ),
+      ],
+      permissions: [],
+      users: [],
+      branches: [],
+      branchRoles: [
+        ManagedUserBranchRole(
+          userId: 'staff-1',
+          branchId: 'branch-1',
+          roleId: 'manager',
+        ),
+      ],
+      branchPermissionOverrides: [
+        ManagedUserBranchPermissionOverride(
+          userId: 'staff-1',
+          branchId: 'branch-1',
+          permissionKey: 'inherited.deny',
+          isAllowed: false,
+        ),
+        ManagedUserBranchPermissionOverride(
+          userId: 'staff-1',
+          branchId: 'branch-1',
+          permissionKey: 'override.allow',
+          isAllowed: true,
+        ),
+      ],
+    );
+
+    expect(branchData.inheritedBranchPermissions('staff-1', 'branch-1'), {
+      'inherited.keep',
+      'inherited.deny',
+    });
+    expect(branchData.effectiveBranchPermissions('staff-1', 'branch-1'), {
+      'inherited.keep',
+      'override.allow',
+    });
+  });
+
   test(
     'role-management snapshot is restored as offline read-only data',
     () async {

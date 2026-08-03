@@ -14,6 +14,7 @@ import 'config/theme/app_theme.dart';
 import 'core/authorization/permission_provider.dart';
 import 'core/constants/app_colors.dart';
 import 'core/constants/app_strings.dart';
+import 'core/entitlements/entitlement_provider.dart';
 import 'core/local/local_database.dart';
 import 'core/tenant_access/tenant_access_provider.dart';
 
@@ -110,6 +111,7 @@ class _MobileShopAppState extends ConsumerState<MobileShopApp> {
   Widget build(BuildContext context) {
     ref.watch(authListenerProvider);
     ref.watch(permissionRealtimeRefreshProvider);
+    ref.watch(entitlementRealtimeRefreshProvider);
     // Temporarily disabled: this schedules a permission refresh 30 seconds
     // after startup/resume and can make the current screen appear to reload.
     // ref.watch(permissionSafetyRefreshProvider);

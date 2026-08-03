@@ -26,6 +26,7 @@ class StaffInvitationException implements Exception {
 
 class RoleManagementRepository {
   static const _staffInviteTimeout = Duration(seconds: 30);
+  static const _roleManagementLoadTimeout = Duration(seconds: 5);
   final SupabaseClient _client;
   final PermissionEvaluator _permissions;
 
@@ -43,7 +44,9 @@ class RoleManagementRepository {
     if (tenantId == null) throw Exception('Tenant not found');
 
     try {
-      final data = await _loadRemote(tenantId).timeout(Network.networkTimeout);
+      final data = await _loadRemote(
+        tenantId,
+      ).timeout(_roleManagementLoadTimeout);
       await RoleManagementCache.save(data);
       return data;
     } catch (error) {
@@ -70,7 +73,7 @@ class RoleManagementRepository {
   }
 
   Future<RoleManagementData> _loadRemote(String tenantId) async {
-    final results = await Future.wait([
+    final results = await Future.wait<dynamic>([
       _client
           .from('roles')
           .select('id, code, name, description, is_system, is_active')
@@ -84,11 +87,7 @@ class RoleManagementRepository {
           .order('module')
           .order('name'),
       _client.from('role_permissions').select('role_id, permission_id'),
-      _client
-          .from('users')
-          .select('id, full_name, email')
-          .eq('tenant_id', tenantId)
-          .order('full_name'),
+      _client.rpc('list_role_management_users'),
       _client
           .from('user_role_assignments')
           .select('user_id, role_id')

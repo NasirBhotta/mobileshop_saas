@@ -191,7 +191,7 @@ class InventoryProductsRequest {
   int get hashCode => Object.hash(query, categoryId, sortOption, limit, offset);
 }
 
-final inventoryProductsProvider =
+final inventoryProductsPageProvider =
     FutureProvider.family<List<ProductModel>, InventoryProductsRequest>((
       ref,
       request,
@@ -206,6 +206,36 @@ final inventoryProductsProvider =
             limit: request.limit,
             offset: request.offset,
           );
+    });
+
+final inventoryProductsProvider =
+    FutureProvider.family<List<ProductModel>, InventoryProductsRequest>((
+      ref,
+      request,
+    ) async {
+      const pageSize = 100;
+      final requestedLimit = request.limit < 1 ? 1 : request.limit;
+      final products = <ProductModel>[];
+
+      while (products.length < requestedLimit) {
+        final remaining = requestedLimit - products.length;
+        final currentPageSize = remaining > pageSize ? pageSize : remaining;
+        final pageRequest = InventoryProductsRequest(
+          query: request.query,
+          categoryId: request.categoryId,
+          sortOption: request.sortOption,
+          limit: currentPageSize,
+          offset: request.offset + products.length,
+        );
+        final page = await ref.watch(
+          inventoryProductsPageProvider(pageRequest).future,
+        );
+        products.addAll(page);
+
+        if (page.length < currentPageSize) break;
+      }
+
+      return products;
     });
 
 class ProductSearchRequest {
@@ -250,12 +280,14 @@ final productSearchProvider =
             categoryId: request.categoryId,
             limit: request.limit,
             offset: request.offset,
+            preferRemote: true,
           );
     });
 
 void invalidateProductListProviders(Ref ref) {
   ref.invalidate(allProductsProvider);
   ref.invalidate(productsProvider);
+  ref.invalidate(inventoryProductsPageProvider);
   ref.invalidate(inventoryProductsProvider);
   ref.invalidate(productSearchProvider);
 }
