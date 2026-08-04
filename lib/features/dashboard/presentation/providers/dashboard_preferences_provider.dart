@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
 import '../../data/repositories/dashboard_preferences_repository.dart';
 
@@ -11,6 +12,9 @@ final dashboardPreferencesRepositoryProvider =
 
 final dashboardPreferencesProvider =
     FutureProvider.autoDispose<DashboardPreferences>((ref) async {
+      // Recreate this user-scoped request when the authenticated user changes.
+      // The repository cache is also keyed by user, tenant, and branch.
+      ref.watch(authStateProvider);
       final branchId = await ref.watch(selectedBranchIdProvider.future);
       return ref.read(dashboardPreferencesRepositoryProvider).load(branchId);
     });

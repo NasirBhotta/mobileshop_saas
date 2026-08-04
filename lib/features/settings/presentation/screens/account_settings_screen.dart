@@ -183,29 +183,35 @@ class _DashboardSummarySection extends ConsumerStatefulWidget {
 class _DashboardSummarySectionState
     extends ConsumerState<_DashboardSummarySection> {
   final Set<String> _selectedIds = {};
-  bool _initialized = false;
+  String? _initializedScope;
 
   @override
   Widget build(BuildContext context) {
     final accountsState = ref.watch(accountsProvider);
     final preferencesState = ref.watch(dashboardPreferencesProvider);
     final controllerState = ref.watch(dashboardPreferencesControllerProvider);
-    final accounts = accountsState.value ?? const <AccountModel>[];
+    final accounts = (accountsState.value ?? const <AccountModel>[])
+        .where((account) => account.isActive)
+        .toList();
 
-    if (!_initialized &&
-        preferencesState.hasValue &&
-        accountsState.hasValue) {
-      final savedIds = preferencesState.value!.accountIds;
-      _selectedIds.addAll(
-        savedIds.isNotEmpty
-            ? savedIds
-            : accounts
-                .where((account) => account.isDefault)
-                .map((account) => account.id)
-                .take(1),
-      );
-      _initialized = true;
+    final preferences = preferencesState.value;
+    final selectableIds = {for (final account in accounts) account.id};
+    if (preferences != null && accountsState.hasValue) {
+      final scope =
+          '${preferences.userId}:${preferences.tenantId}:${preferences.branchId}';
+      if (_initializedScope != scope) {
+        // Preferences can contain accounts that have since been archived or
+        // removed. Only initialize the form with checkboxes that are actually
+        // rendered for this tenant and branch.
+        _selectedIds
+          ..clear()
+          ..addAll(preferences.accountIds.where(selectableIds.contains));
+        _initializedScope = scope;
+      }
     }
+    final visibleSelectedIds = _selectedIds
+        .where(selectableIds.contains)
+        .toSet();
 
     final loading =
         (accountsState.isLoading && !accountsState.hasValue) ||
@@ -226,7 +232,7 @@ class _DashboardSummarySectionState
                 children: [
                   for (final account in accounts)
                     CheckboxListTile(
-                      value: _selectedIds.contains(account.id),
+                      value: visibleSelectedIds.contains(account.id),
                       contentPadding: EdgeInsets.zero,
                       dense: true,
                       controlAffinity: ListTileControlAffinity.trailing,
@@ -240,8 +246,8 @@ class _DashboardSummarySectionState
                               : (selected) {
                                 final atLimit =
                                     selected == true &&
-                                    _selectedIds.length >= 2 &&
-                                    !_selectedIds.contains(account.id);
+                                    visibleSelectedIds.length >= 2 &&
+                                    !visibleSelectedIds.contains(account.id);
                                 if (atLimit) {
                                   ScaffoldMessenger.of(context)
                                     ..hideCurrentSnackBar()
@@ -255,6 +261,12 @@ class _DashboardSummarySectionState
                                   return;
                                 }
                                 setState(() {
+                                  // Drop stale hidden IDs as soon as the user
+                                  // changes the form, so the next save repairs
+                                  // the persisted preference as well.
+                                  _selectedIds
+                                    ..clear()
+                                    ..addAll(visibleSelectedIds);
                                   if (selected == true) {
                                     _selectedIds.add(account.id);
                                   } else {
@@ -268,7 +280,7 @@ class _DashboardSummarySectionState
                     width: double.infinity,
                     child: FilledButton.icon(
                       onPressed:
-                          saving || _selectedIds.isEmpty
+                          saving || visibleSelectedIds.isEmpty
                               ? null
                               : () async {
                                 final ok = await ref
@@ -276,7 +288,7 @@ class _DashboardSummarySectionState
                                       dashboardPreferencesControllerProvider
                                           .notifier,
                                     )
-                                    .save(_selectedIds.toList());
+                                    .save(visibleSelectedIds.toList());
                                 if (!context.mounted) return;
                                 final error =
                                     ref
