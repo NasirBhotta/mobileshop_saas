@@ -21,7 +21,7 @@ import 'core/tenant_access/tenant_access_provider.dart';
 Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: binding);
-
+  // updated
   try {
     // Complete process initialization behind the native splash. The splash is
     // removed later, only after GoRouter has resolved the required first page.

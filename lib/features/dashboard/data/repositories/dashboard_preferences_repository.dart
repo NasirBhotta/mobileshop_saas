@@ -8,11 +8,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/offline/offline_store.dart';
 
 class DashboardPreferences {
+  final String userId;
   final String tenantId;
   final String branchId;
   final List<String> accountIds;
 
   const DashboardPreferences({
+    required this.userId,
     required this.tenantId,
     required this.branchId,
     this.accountIds = const [],
@@ -47,6 +49,7 @@ class DashboardPreferencesRepository {
           .maybeSingle()
           .timeout(_networkTimeout);
       final preferences = DashboardPreferences(
+        userId: _currentUser.id,
         tenantId: tenantId,
         branchId: branchId,
         accountIds: _accountIds(row?['selected_account_ids']),
@@ -55,7 +58,11 @@ class DashboardPreferencesRepository {
       return preferences;
     } catch (_) {
       return cached ??
-          DashboardPreferences(tenantId: tenantId, branchId: branchId);
+          DashboardPreferences(
+            userId: _currentUser.id,
+            tenantId: tenantId,
+            branchId: branchId,
+          );
     }
   }
 
@@ -69,6 +76,7 @@ class DashboardPreferencesRepository {
     }
     final tenantId = await _tenantId();
     final preferences = DashboardPreferences(
+      userId: _currentUser.id,
       tenantId: tenantId,
       branchId: branchId,
       accountIds: uniqueIds,
@@ -143,6 +151,7 @@ class DashboardPreferencesRepository {
     final raw = prefs.getString(_cacheKey(tenantId, branchId));
     if (raw == null) return null;
     return DashboardPreferences(
+      userId: _currentUser.id,
       tenantId: tenantId,
       branchId: branchId,
       accountIds: _accountIds(jsonDecode(raw)),
