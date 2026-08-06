@@ -99,8 +99,6 @@ class _MobileShopAppState extends ConsumerState<MobileShopApp> {
     if (_handoffStarted) return;
     _handoffStarted = true;
 
-    // Keep the one native splash visible while the resolved destination builds
-    // and starts its providers. Do not insert a second Flutter splash screen.
     Future<void>.delayed(const Duration(seconds: 6), () {
       if (!mounted) return;
       FlutterNativeSplash.remove();
