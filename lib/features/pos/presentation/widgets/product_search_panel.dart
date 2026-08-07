@@ -26,6 +26,7 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
   String _query = '';
   String _debouncedQuery = '';
   bool _resolvingBarcode = false;
+  List<ProductModel>? _lastProducts;
 
   @override
   void dispose() {
@@ -144,6 +145,10 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
         ProductSearchRequest(query: _debouncedQuery, limit: 50),
       ),
     );
+    final visibleProductsAsync =
+        productsAsync.isLoading && _lastProducts != null
+            ? AsyncValue<List<ProductModel>>.data(_lastProducts!)
+            : productsAsync;
 
     return Column(
       children: [
@@ -215,30 +220,11 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
           ),
         ),
         Expanded(
-          child: productsAsync.when(
+          child: visibleProductsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text(e.toString())),
             data: (products) {
-              if (_debouncedQuery.isNotEmpty && _debouncedQuery.length < 2) {
-                return const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.search_rounded,
-                        size: 48,
-                        color: AppColors.textHint,
-                      ),
-                      SizedBox(height: 12),
-                      Text(
-                        'Kam az kam 2 characters type karein',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                    ],
-                  ),
-                );
-              }
-
+              _lastProducts = products;
               if (products.isEmpty) {
                 return RefreshIndicator(
                   onRefresh: _refreshProducts,

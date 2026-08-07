@@ -47,6 +47,8 @@ final selectedRepairStatusFilterProvider = StateProvider<RepairTicketStatus?>((
   return null;
 });
 
+final repairCustomerSearchQueryProvider = StateProvider<String>((ref) => '');
+
 /// Repair tickets list provider.
 ///
 /// Yeh provider selected status filter ko watch karta hai.
@@ -61,8 +63,9 @@ final repairTicketsProvider =
     FutureProvider.autoDispose<List<RepairTicketModel>>((ref) async {
       final repository = ref.read(repairRepositoryProvider);
       final status = ref.watch(selectedRepairStatusFilterProvider);
+      final query = ref.watch(repairCustomerSearchQueryProvider);
 
-      return repository.fetchRepairTickets(status: status);
+      return repository.fetchRepairTickets(status: status, query: query);
     });
 
 final allRepairTicketsProvider =

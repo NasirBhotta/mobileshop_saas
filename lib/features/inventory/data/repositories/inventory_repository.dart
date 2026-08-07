@@ -511,16 +511,24 @@ class InventoryRepository {
     ProductSortOption sortOption = ProductSortOption.nameAZ,
     int? limit,
     int offset = 0,
+    bool lowStockOnly = false,
   }) async {
     var query = _client
-        .from('products')
+        .from(lowStockOnly ? 'inventory_product_catalog' : 'products')
         .select(
-          '*, categories(name, default_reorder_threshold), inventory!inner(quantity, reorder_threshold, branch_id)',
+          lowStockOnly
+              ? '*'
+              : '*, categories(name, default_reorder_threshold), inventory!inner(quantity, reorder_threshold, branch_id)',
         )
         .eq('tenant_id', tenantId)
         .eq('branch_id', branchId)
-        .eq('inventory.branch_id', branchId)
         .eq('is_active', true);
+
+    if (lowStockOnly) {
+      query = query.eq('is_low_stock', true);
+    } else {
+      query = query.eq('inventory.branch_id', branchId);
+    }
 
     if (categoryId != null) {
       query = query.eq('category_id', categoryId);
@@ -534,7 +542,10 @@ class InventoryRepository {
       );
     }
 
-    var ordered = _orderProducts(query, sortOption);
+    var ordered =
+        lowStockOnly
+            ? _orderCatalogProducts(query, sortOption)
+            : _orderProducts(query, sortOption);
     if (limit != null) {
       final safeLimit = limit.clamp(1, 100).toInt();
       final safeOffset = offset < 0 ? 0 : offset;
@@ -627,6 +638,27 @@ class InventoryRepository {
     }
   }
 
+  dynamic _orderCatalogProducts(dynamic query, ProductSortOption sortOption) {
+    switch (sortOption) {
+      case ProductSortOption.nameAZ:
+        return query.order('name', ascending: true);
+      case ProductSortOption.nameZA:
+        return query.order('name');
+      case ProductSortOption.priceLow:
+        return query
+            .order('sale_price', ascending: true)
+            .order('name', ascending: true);
+      case ProductSortOption.priceHigh:
+        return query.order('sale_price').order('name', ascending: true);
+      case ProductSortOption.stockLow:
+        return query
+            .order('stock', ascending: true)
+            .order('name', ascending: true);
+      case ProductSortOption.stockHigh:
+        return query.order('stock').order('name', ascending: true);
+    }
+  }
+
   Future<List<ProductModel>> searchProducts({
     required String query,
     String? categoryId,
@@ -634,6 +666,7 @@ class InventoryRepository {
     int limit = 50,
     int offset = 0,
     bool preferRemote = false,
+    bool lowStockOnly = false,
   }) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
@@ -646,10 +679,17 @@ class InventoryRepository {
       sortOption: sortOption,
       limit: limit,
       offset: offset,
+      lowStockOnly: lowStockOnly,
     );
-    if (!preferRemote && localProducts.isNotEmpty) {
+    if (!preferRemote && !lowStockOnly && localProducts.isNotEmpty) {
       unawaited(syncOfflineMutations());
       return localProducts;
+    }
+
+    if (lowStockOnly && localProducts.isNotEmpty) {
+      // Keep queued stock changes moving, but query the server when available
+      // so a partial local cache cannot hide low-stock products.
+      unawaited(syncOfflineMutations());
     }
 
     try {
@@ -661,6 +701,7 @@ class InventoryRepository {
         sortOption: sortOption,
         limit: limit,
         offset: offset,
+        lowStockOnly: lowStockOnly,
       ).timeout(_networkTimeout);
     } catch (_) {
       return localProducts;

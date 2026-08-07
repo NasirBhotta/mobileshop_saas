@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/gestures.dart' show PointerScrollEvent;
@@ -16,11 +17,86 @@ import 'package:mobileshop_saas/features/pos/domain/pos_payment_account_policy.d
 import '../../data/models/repair_ticket_model.dart';
 import '../widgets/repair_completion_dialog.dart';
 
-class RepairsListScreen extends ConsumerWidget {
-  const RepairsListScreen({super.key});
+class RepairsListScreen extends ConsumerStatefulWidget {
+  final RepairTicketModel? initialTicket;
+  final String? initialTicketId;
+
+  const RepairsListScreen({
+    super.key,
+    this.initialTicket,
+    this.initialTicketId,
+  });
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RepairsListScreen> createState() => _RepairsListScreenState();
+}
+
+class _RepairsListScreenState extends ConsumerState<RepairsListScreen> {
+  String? _openedInitialTicketId;
+  late final TextEditingController _searchController;
+  Timer? _searchDebounce;
+  List<RepairTicketModel>? _lastTickets;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController(
+      text: ref.read(repairCustomerSearchQueryProvider),
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() {});
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      ref.read(repairCustomerSearchQueryProvider.notifier).state = value.trim();
+    });
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    ref.read(repairCustomerSearchQueryProvider.notifier).state = '';
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var initialTicket = widget.initialTicket;
+    final initialTicketId = widget.initialTicketId;
+    if (initialTicket == null && initialTicketId != null) {
+      final allTickets = ref.watch(allRepairTicketsProvider).value;
+      if (allTickets != null) {
+        for (final ticket in allTickets) {
+          if (ticket.id == initialTicketId) {
+            initialTicket = ticket;
+            break;
+          }
+        }
+      }
+    }
+    if (initialTicket != null && _openedInitialTicketId != initialTicket.id) {
+      _openedInitialTicketId = initialTicket.id;
+      final ticketToOpen = initialTicket;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showTicketDetails(context, ref, ticketToOpen);
+      });
+    }
+
     final ticketsAsync = ref.watch(repairTicketsProvider);
+    final visibleTicketsAsync =
+        ticketsAsync.isLoading && _lastTickets != null
+            ? AsyncValue<List<RepairTicketModel>>.data(_lastTickets!)
+            : ticketsAsync;
     final selectedStatus = ref.watch(selectedRepairStatusFilterProvider);
     final syncState = ref.watch(repairSyncControllerProvider);
     return Scaffold(
@@ -57,6 +133,26 @@ class RepairsListScreen extends ConsumerWidget {
       body: SafeArea(
         child: Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              child: TextField(
+                controller: _searchController,
+                onChanged: _onSearchChanged,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: 'Customer name se repair search karein',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon:
+                      _searchController.text.isEmpty
+                          ? null
+                          : IconButton(
+                            onPressed: _clearSearch,
+                            icon: const Icon(Icons.close_rounded),
+                            tooltip: 'Clear search',
+                          ),
+                ),
+              ),
+            ),
             _RepairStatusFilterBar(
               selectedStatus: selectedStatus,
               onChanged: (status) {
@@ -66,7 +162,7 @@ class RepairsListScreen extends ConsumerWidget {
             ),
             const Divider(height: 1),
             Expanded(
-              child: ticketsAsync.when(
+              child: visibleTicketsAsync.when(
                 loading: () {
                   return const Center(child: CircularProgressIndicator());
                 },
@@ -79,6 +175,7 @@ class RepairsListScreen extends ConsumerWidget {
                   );
                 },
                 data: (tickets) {
+                  _lastTickets = tickets;
                   if (tickets.isEmpty) {
                     return RefreshIndicator(
                       onRefresh:
@@ -1045,9 +1142,31 @@ class _RepairStatusFilterBarState extends State<_RepairStatusFilterBar> {
                 for (final status in statuses) ...[
                   FilterChip(
                     selected: widget.selectedStatus == status,
+                    avatar:
+                        status == null
+                            ? null
+                            : Icon(
+                              Icons.circle,
+                              size: 10,
+                              color: _repairStatusColor(status),
+                            ),
                     label: Text(
                       status == null ? AppStrings.repairAll : status.label,
                     ),
+                    selectedColor:
+                        status == null
+                            ? null
+                            : _repairStatusColor(
+                              status,
+                            ).withValues(alpha: 0.16),
+                    side:
+                        status == null
+                            ? null
+                            : BorderSide(
+                              color: _repairStatusColor(
+                                status,
+                              ).withValues(alpha: 0.38),
+                            ),
                     onSelected: (_) => widget.onChanged(status),
                   ),
                   if (status != statuses.last) const SizedBox(width: 8),
@@ -1188,21 +1307,35 @@ class _StatusBadge extends StatelessWidget {
   const _StatusBadge({required this.status});
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final color = _repairStatusColor(status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
+        color: color.withValues(alpha: 0.13),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.38)),
       ),
       child: Text(
         status.label,
-        style: Theme.of(
-          context,
-        ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
+}
+
+Color _repairStatusColor(RepairTicketStatus status) {
+  return switch (status) {
+    RepairTicketStatus.received => const Color(0xFF3E7CB1),
+    RepairTicketStatus.diagnosed => const Color(0xFF7357A5),
+    RepairTicketStatus.inProgress => const Color(0xFFD97706),
+    RepairTicketStatus.waitingPart => const Color(0xFFC18B16),
+    RepairTicketStatus.completed => const Color(0xFF1E9E64),
+    RepairTicketStatus.delivered => const Color(0xFF087F8C),
+    RepairTicketStatus.cancelled => const Color(0xFFD3543F),
+  };
 }
 
 class _EmptyRepairsView extends StatelessWidget {

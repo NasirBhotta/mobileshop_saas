@@ -168,13 +168,15 @@ class InventoryProductsRequest {
   final ProductSortOption sortOption;
   final int limit;
   final int offset;
+  final bool lowStockOnly;
 
   const InventoryProductsRequest({
     required this.query,
     this.categoryId,
     this.sortOption = ProductSortOption.nameAZ,
-    this.limit = 100,
+    this.limit = 50,
     this.offset = 0,
+    this.lowStockOnly = false,
   });
 
   @override
@@ -184,11 +186,13 @@ class InventoryProductsRequest {
         other.categoryId == categoryId &&
         other.sortOption == sortOption &&
         other.limit == limit &&
-        other.offset == offset;
+        other.offset == offset &&
+        other.lowStockOnly == lowStockOnly;
   }
 
   @override
-  int get hashCode => Object.hash(query, categoryId, sortOption, limit, offset);
+  int get hashCode =>
+      Object.hash(query, categoryId, sortOption, limit, offset, lowStockOnly);
 }
 
 final inventoryProductsPageProvider =
@@ -205,6 +209,7 @@ final inventoryProductsPageProvider =
             sortOption: request.sortOption,
             limit: request.limit,
             offset: request.offset,
+            lowStockOnly: request.lowStockOnly,
           );
     });
 
@@ -213,7 +218,7 @@ final inventoryProductsProvider =
       ref,
       request,
     ) async {
-      const pageSize = 100;
+      const pageSize = 50;
       final requestedLimit = request.limit < 1 ? 1 : request.limit;
       final products = <ProductModel>[];
 
@@ -226,6 +231,7 @@ final inventoryProductsProvider =
           sortOption: request.sortOption,
           limit: currentPageSize,
           offset: request.offset + products.length,
+          lowStockOnly: request.lowStockOnly,
         );
         final page = await ref.watch(
           inventoryProductsPageProvider(pageRequest).future,
@@ -271,7 +277,6 @@ final productSearchProvider =
     ) async {
       await ref.watch(selectedBranchIdProvider.future);
       final query = request.query.trim();
-      if (query.isNotEmpty && query.length < 2) return const <ProductModel>[];
 
       return ref
           .read(inventoryRepositoryProvider)

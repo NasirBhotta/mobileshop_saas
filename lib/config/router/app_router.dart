@@ -39,6 +39,7 @@ import 'package:mobileshop_saas/features/pos/presentation/screens/return_screen.
 import 'package:mobileshop_saas/features/pos/presentation/screens/sale_complete_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repair_form_screen.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/screens/repairs_list_screen.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
 import 'package:mobileshop_saas/features/reports/presentation/screens/business_dashboard_report_screen.dart';
 import 'package:mobileshop_saas/features/reports/presentation/screens/business_report_schedule_form_screen.dart';
 import 'package:mobileshop_saas/features/reports/presentation/screens/business_report_schedules_screen.dart';
@@ -366,7 +367,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/inventory',
-            builder: (_, _) => const InventoryScreen(),
+            builder:
+                (_, state) => InventoryScreen(
+                  initialLowStockOnly:
+                      state.uri.queryParameters['stock'] == 'low',
+                ),
           ),
           GoRoute(path: '/pos', builder: (_, _) => const PosScreen()),
           GoRoute(
@@ -387,7 +392,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/repairs',
             builder: (context, state) {
-              return const RepairsListScreen();
+              final ticket = state.extra;
+              return RepairsListScreen(
+                initialTicket: ticket is RepairTicketModel ? ticket : null,
+                initialTicketId: state.uri.queryParameters['ticket'],
+              );
             },
           ),
           GoRoute(
