@@ -289,6 +289,7 @@ class OfflineStore {
     ProductSortOption sortOption = ProductSortOption.nameAZ,
     int limit = 50,
     int offset = 0,
+    bool lowStockOnly = false,
   }) async {
     try {
       final products = await LocalStore.searchProducts(
@@ -298,8 +299,11 @@ class OfflineStore {
         sortOption: sortOption,
         limit: limit,
         offset: offset,
+        lowStockOnly: lowStockOnly,
       );
-      if (products.isNotEmpty || query.trim().isNotEmpty) return products;
+      if (products.isNotEmpty || query.trim().isNotEmpty || lowStockOnly) {
+        return products;
+      }
     } catch (_) {}
 
     final products = await loadProducts(branchId);
@@ -309,6 +313,7 @@ class OfflineStore {
             final categoryMatches =
                 categoryId == null || product.categoryId == categoryId;
             if (!categoryMatches) return false;
+            if (lowStockOnly && !product.isLowStock) return false;
             if (normalizedQuery.isEmpty) return true;
             return product.name.toLowerCase().contains(normalizedQuery) ||
                 (product.sku?.toLowerCase().contains(normalizedQuery) ?? false);
@@ -1041,6 +1046,7 @@ class OfflineStore {
   static Future<List<RepairTicketModel>> loadRepairTickets(
     String branchId, {
     RepairTicketStatus? status,
+    String query = '',
     int limit = 100,
   }) async {
     // Step 1: SQLite se load karo.
@@ -1048,10 +1054,11 @@ class OfflineStore {
       final tickets = await LocalStore.loadRepairTickets(
         branchId,
         status: status,
+        query: query,
         limit: limit,
       );
 
-      if (tickets.isNotEmpty) {
+      if (tickets.isNotEmpty || query.trim().isNotEmpty) {
         return tickets;
       }
     } catch (_) {}
@@ -1071,12 +1078,13 @@ class OfflineStore {
             )
             .toList();
 
-    if (status == null) {
-      return tickets.take(limit).toList();
-    }
-
     return tickets
-        .where((ticket) => ticket.status == status)
+        .where((ticket) {
+          if (status != null && ticket.status != status) return false;
+          final normalizedQuery = query.toLowerCase().trim();
+          return normalizedQuery.isEmpty ||
+              ticket.customerName.toLowerCase().contains(normalizedQuery);
+        })
         .take(limit)
         .toList();
   }

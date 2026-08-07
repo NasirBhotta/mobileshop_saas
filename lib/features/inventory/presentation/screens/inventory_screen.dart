@@ -19,7 +19,9 @@ import '../../../settings/presentation/widgets/account_menu_button.dart';
 import '../providers/inventory_provider.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
-  const InventoryScreen({super.key});
+  final bool initialLowStockOnly;
+
+  const InventoryScreen({super.key, this.initialLowStockOnly = false});
 
   @override
   ConsumerState<InventoryScreen> createState() => _InventoryScreenState();
@@ -52,7 +54,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             query: ref.read(searchQueryProvider).trim(),
             categoryId: ref.read(selectedCategoryProvider),
             sortOption: ref.read(sortOptionProvider),
-            limit: 100,
+            limit: 50,
+            lowStockOnly: widget.initialLowStockOnly,
           ),
         ),
       );
@@ -64,7 +67,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       _initialInventoryResolved = true;
     }
 
-    return _InventoryBody();
+    return _InventoryBody(initialLowStockOnly: widget.initialLowStockOnly);
   }
 }
 
@@ -114,13 +117,17 @@ class _LoadMoreTile extends StatelessWidget {
 }
 
 class _InventoryBody extends ConsumerStatefulWidget {
+  final bool initialLowStockOnly;
+
+  const _InventoryBody({required this.initialLowStockOnly});
+
   @override
   ConsumerState<_InventoryBody> createState() => _InventoryBodyState();
 }
 
 class _InventoryBodyState extends ConsumerState<_InventoryBody> {
-  static const _pageSize = 100;
-  static const _searchDelay = Duration(milliseconds: 300);
+  static const _pageSize = 50;
+  static const _searchDelay = Duration(milliseconds: 250);
 
   final Set<String> _selectedProductIds = {};
   late final TextEditingController _searchController;
@@ -130,6 +137,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
   List<ProductModel>? _lastVisibleProducts;
   bool _initialProductsResolved = false;
   int _visibleLimit = _pageSize;
+  late bool _lowStockOnly;
 
   bool get _isSelectionMode => _selectedProductIds.isNotEmpty;
 
@@ -141,6 +149,16 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     );
     _searchFocusNode = FocusNode(debugLabel: 'inventory-search');
     _committedSearchQuery = ValueNotifier(_searchController.text.trim());
+    _lowStockOnly = widget.initialLowStockOnly;
+  }
+
+  @override
+  void didUpdateWidget(covariant _InventoryBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialLowStockOnly == widget.initialLowStockOnly) return;
+    _lowStockOnly = widget.initialLowStockOnly;
+    _visibleLimit = _pageSize;
+    _lastVisibleProducts = null;
   }
 
   @override
@@ -203,6 +221,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
       categoryId: ref.read(selectedCategoryProvider),
       sortOption: ref.read(sortOptionProvider),
       limit: limit ?? _visibleLimit,
+      lowStockOnly: _lowStockOnly,
     );
   }
 
@@ -276,6 +295,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
             categoryId: selectedCategory,
             sortOption: sortOption,
             limit: _pageSize,
+            lowStockOnly: _lowStockOnly,
           ),
         ),
       );
@@ -456,6 +476,29 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
               ),
             ),
             SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FilterChip(
+                  avatar: Icon(
+                    Icons.warning_amber_rounded,
+                    size: 18,
+                    color: _lowStockOnly ? AppColors.error : AppColors.textHint,
+                  ),
+                  label: const Text('Low stock only'),
+                  selected: _lowStockOnly,
+                  onSelected: (selected) {
+                    setState(() {
+                      _lowStockOnly = selected;
+                      _visibleLimit = _pageSize;
+                      _lastVisibleProducts = null;
+                    });
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
             // ── Category Filter ──
             categoriesState.when(
               loading: () => const SizedBox.shrink(),
@@ -482,6 +525,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                         categoryId: selectedCategory,
                         sortOption: sortOption,
                         limit: _visibleLimit,
+                        lowStockOnly: _lowStockOnly,
                       ),
                       builder: (productsState) {
                         final visibleProductsState =

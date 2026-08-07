@@ -395,6 +395,7 @@ class RepairRepository {
 
   Future<List<RepairTicketModel>> fetchRepairTickets({
     RepairTicketStatus? status,
+    String query = '',
   }) async {
     await _gate.require('repairs.tickets');
     final tenantId = await _currentTenantId();
@@ -403,11 +404,18 @@ class RepairRepository {
     final cachedTickets = await OfflineStore.loadRepairTickets(
       branchId,
       status: status,
+      query: query,
     );
 
     if (cachedTickets.isNotEmpty) {
       unawaited(syncOfflineMutations());
-      unawaited(_refreshRepairTicketsCache(branchId: branchId, status: status));
+      unawaited(
+        _refreshRepairTicketsCache(
+          branchId: branchId,
+          status: status,
+          query: query,
+        ),
+      );
       return cachedTickets;
     }
 
@@ -416,9 +424,14 @@ class RepairRepository {
         tenantId: tenantId,
         branchId: branchId,
         status: status,
+        queryText: query,
       ).timeout(_networkTimeout);
     } catch (_) {
-      return OfflineStore.loadRepairTickets(branchId, status: status);
+      return OfflineStore.loadRepairTickets(
+        branchId,
+        status: status,
+        query: query,
+      );
     }
   }
 
@@ -426,6 +439,7 @@ class RepairRepository {
     required String tenantId,
     required String branchId,
     RepairTicketStatus? status,
+    String queryText = '',
   }) async {
     var query = _client
         .from('repair_tickets')
@@ -436,6 +450,11 @@ class RepairRepository {
 
     if (status != null) {
       query = query.eq('status', status.code);
+    }
+
+    final normalizedQuery = queryText.trim();
+    if (normalizedQuery.isNotEmpty) {
+      query = query.ilike('customer_name', '%$normalizedQuery%');
     }
 
     final data = await query.order('created_at', ascending: false).limit(100);
@@ -559,6 +578,7 @@ class RepairRepository {
   Future<void> _refreshRepairTicketsCache({
     required String branchId,
     RepairTicketStatus? status,
+    String query = '',
   }) async {
     try {
       final tenantId = await _currentTenantId();
@@ -567,6 +587,7 @@ class RepairRepository {
         tenantId: tenantId,
         branchId: branchId,
         status: status,
+        queryText: query,
       ).timeout(_networkTimeout);
     } catch (_) {}
   }

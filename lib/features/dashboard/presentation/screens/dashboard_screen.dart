@@ -885,7 +885,7 @@ class _DashboardAlerts extends StatelessWidget {
           icon: Icons.warning_amber_rounded,
           title: '${stats!.lowStock} low stock items',
           subtitle: 'Inventory review kar lein',
-          route: '/inventory',
+          route: '/inventory?stock=low',
           color: AppColors.error,
         ),
       if (stats!.totalOutstanding > 0)
@@ -982,7 +982,14 @@ class _PriorityRepairTile extends StatelessWidget {
     final color = ready ? AppColors.success : _repairDueColor(ticket);
 
     return InkWell(
-      onTap: () => context.go('/repairs'),
+      onTap:
+          () => context.go(
+            Uri(
+              path: '/repairs',
+              queryParameters: {'ticket': ticket.id},
+            ).toString(),
+            extra: ticket,
+          ),
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: EdgeInsets.symmetric(

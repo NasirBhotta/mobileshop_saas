@@ -176,11 +176,24 @@ class LocalStore {
     ProductSortOption sortOption = ProductSortOption.nameAZ,
     int limit = 50,
     int offset = 0,
+    bool lowStockOnly = false,
   }) async {
     final normalizedQuery = query.trim();
     final safeLimit = limit.clamp(1, 100);
     final safeOffset = offset < 0 ? 0 : offset;
     final categorySql = categoryId == null ? '' : 'AND p.category_id = ?';
+    final lowStockSql =
+        lowStockOnly
+            ? '''
+        AND COALESCE(i.quantity, 0) > 0
+        AND COALESCE(i.quantity, 0) <= COALESCE(
+          NULLIF(i.reorder_threshold, 0),
+          NULLIF(p.reorder_threshold, 0),
+          NULLIF(c.default_reorder_threshold, 0),
+          5
+        )
+      '''
+            : '';
     final args = <Object?>[branchId, if (categoryId != null) categoryId];
 
     var searchSql = '';
@@ -229,6 +242,7 @@ class LocalStore {
       WHERE p.branch_id = ?
         AND COALESCE(p.is_active, 1) = 1
         $categorySql
+        $lowStockSql
         $searchSql
       ORDER BY $orderSql
       LIMIT ? OFFSET ?
@@ -1197,6 +1211,7 @@ class LocalStore {
   static Future<List<RepairTicketModel>> loadRepairTickets(
     String branchId, {
     RepairTicketStatus? status,
+    String query = '',
     int limit = 100,
   }) async {
     // Branch ke repair tickets load karta hai.
@@ -1209,33 +1224,31 @@ class LocalStore {
     //
     // Example:
     // loadRepairTickets(branchId, status: RepairTicketStatus.received)
-    if (status == null) {
-      final rows = await LocalDatabase.select(
-        '''
-        SELECT *
-        FROM repair_tickets
-        WHERE branch_id = ?
-          AND archived_at IS NULL
-        ORDER BY created_at DESC
-        LIMIT ?
-        ''',
-        [branchId, limit],
-      );
-
-      return rows.map(RepairTicketModel.fromMap).toList();
-    }
+    final normalizedQuery = query.trim();
+    final statusSql = status == null ? '' : 'AND status = ?';
+    final searchSql =
+        normalizedQuery.isEmpty
+            ? ''
+            : "AND customer_name LIKE ? ESCAPE '\\' COLLATE NOCASE";
+    final searchPattern = '%${_escapeLike(normalizedQuery)}%';
 
     final rows = await LocalDatabase.select(
       '''
       SELECT *
       FROM repair_tickets
       WHERE branch_id = ?
-        AND status = ?
         AND archived_at IS NULL
+        $statusSql
+        $searchSql
       ORDER BY created_at DESC
       LIMIT ?
       ''',
-      [branchId, status.code, limit],
+      [
+        branchId,
+        if (status != null) status.code,
+        if (normalizedQuery.isNotEmpty) searchPattern,
+        limit,
+      ],
     );
 
     return rows.map(RepairTicketModel.fromMap).toList();
