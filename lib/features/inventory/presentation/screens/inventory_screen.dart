@@ -476,29 +476,38 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
               ),
             ),
             SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: FilterChip(
-                  avatar: Icon(
-                    Icons.warning_amber_rounded,
-                    size: 18,
-                    color: _lowStockOnly ? AppColors.error : AppColors.textHint,
+            Row(
+              children: [
+                Expanded(child: SizedBox.shrink()),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilterChip(
+                      avatar: Icon(
+                        Icons.warning_amber_rounded,
+                        size: 18,
+                        color:
+                            _lowStockOnly
+                                ? AppColors.error
+                                : AppColors.textHint,
+                      ),
+                      label: const Text('Low stock only'),
+                      selected: _lowStockOnly,
+                      onSelected: (selected) {
+                        setState(() {
+                          _lowStockOnly = selected;
+                          _visibleLimit = _pageSize;
+                          _lastVisibleProducts = null;
+                        });
+                      },
+                    ),
                   ),
-                  label: const Text('Low stock only'),
-                  selected: _lowStockOnly,
-                  onSelected: (selected) {
-                    setState(() {
-                      _lowStockOnly = selected;
-                      _visibleLimit = _pageSize;
-                      _lastVisibleProducts = null;
-                    });
-                  },
                 ),
-              ),
+              ],
             ),
             const SizedBox(height: 6),
+
             // ── Category Filter ──
             categoriesState.when(
               loading: () => const SizedBox.shrink(),
