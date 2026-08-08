@@ -29,7 +29,7 @@ class ProductCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isLowStock = product.stock <= 5;
+    final isLowStock = product.isLowStock;
     final isOutOfStock = product.stock == 0;
     final stockAdjustmentsEnabled = isEntitledActionVisible(
       ref

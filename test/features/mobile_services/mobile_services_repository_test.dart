@@ -354,7 +354,11 @@ class _FakeLocal implements MobileServicesLocalDataSource {
   }
 
   @override
-  Future<void> saveProviders(List<MobileServiceProviderModel> providers) async {
+  Future<void> saveProviders(
+    String branchId,
+    List<MobileServiceProviderModel> providers,
+  ) async {
+    lastBranchId = branchId;
     this.providers = providers;
   }
 

@@ -808,6 +808,7 @@ class InventoryRepository {
         productId: product.id,
         branchId: branchId,
         quantity: product.stock,
+        reorderThreshold: product.reorderThreshold,
       );
 
       final savedProduct = await fetchProduct(product.id);
@@ -836,7 +837,9 @@ class InventoryRepository {
     try {
       final data = await _client
           .from('products')
-          .select('*, categories(name), inventory!inner(quantity, branch_id)')
+          .select(
+            '*, categories(name, default_reorder_threshold), inventory!inner(quantity, reorder_threshold, branch_id)',
+          )
           .eq('tenant_id', tenantId)
           .eq('branch_id', branchId)
           .eq('inventory.branch_id', branchId)
@@ -1825,6 +1828,7 @@ class InventoryRepository {
     required String productId,
     required String branchId,
     required int quantity,
+    int? reorderThreshold,
   }) async {
     await _client
         .from('inventory')
@@ -1832,6 +1836,8 @@ class InventoryRepository {
           'branch_id': branchId,
           'product_id': productId,
           'quantity': quantity < 0 ? 0 : quantity,
+          if (reorderThreshold != null)
+            'reorder_threshold': reorderThreshold,
         }, onConflict: 'branch_id,product_id')
         .timeout(_networkTimeout);
   }

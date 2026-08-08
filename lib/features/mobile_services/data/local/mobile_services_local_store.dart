@@ -4,7 +4,10 @@ import 'package:mobileshop_saas/core/local/local_database.dart';
 import 'package:mobileshop_saas/features/mobile_services/data/models/mobile_service_models.dart';
 
 abstract interface class MobileServicesLocalDataSource {
-  Future<void> saveProviders(List<MobileServiceProviderModel> providers);
+  Future<void> saveProviders(
+    String branchId,
+    List<MobileServiceProviderModel> providers,
+  );
 
   Future<List<MobileServiceProviderModel>> loadProviders(String branchId);
 
@@ -34,28 +37,37 @@ class MobileServicesLocalStore implements MobileServicesLocalDataSource {
   const MobileServicesLocalStore();
 
   @override
-  Future<void> saveProviders(List<MobileServiceProviderModel> providers) async {
-    for (final provider in providers) {
+  Future<void> saveProviders(
+    String branchId,
+    List<MobileServiceProviderModel> providers,
+  ) async {
+    await LocalDatabase.runInTransaction(() async {
       await LocalDatabase.execute(
-        '''
+        'UPDATE mobile_service_providers SET is_active = 0 WHERE branch_id = ?',
+        [branchId],
+      );
+      for (final provider in providers) {
+        await LocalDatabase.execute(
+          '''
         INSERT OR REPLACE INTO mobile_service_providers(
           id, tenant_id, branch_id, code, name, is_active,
           payload_json, updated_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''',
-        [
-          provider.id,
-          provider.tenantId,
-          provider.branchId,
-          provider.code.code,
-          provider.name,
-          provider.isActive ? 1 : 0,
-          jsonEncode(provider.toMap()),
-          provider.updatedAt.toIso8601String(),
-        ],
-      );
-    }
+          [
+            provider.id,
+            provider.tenantId,
+            provider.branchId,
+            provider.code.code,
+            provider.name,
+            provider.isActive ? 1 : 0,
+            jsonEncode(provider.toMap()),
+            provider.updatedAt.toIso8601String(),
+          ],
+        );
+      }
+    });
   }
 
   @override

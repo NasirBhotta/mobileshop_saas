@@ -385,7 +385,11 @@ class DashboardCreditCustomer {
   }
 }
 
-Future<void> refreshDashboardData(WidgetRef ref) async {
+final dashboardRefreshProvider = Provider<Future<void> Function()>((ref) {
+  return () => refreshDashboardData(ref);
+});
+
+Future<void> refreshDashboardData(Ref ref) async {
   final inventoryRepository = ref.read(inventoryRepositoryProvider);
   final posRepository = ref.read(posRepositoryProvider);
   final repairRepository = ref.read(repairRepositoryProvider);

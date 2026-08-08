@@ -266,6 +266,8 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     final sortOption = ref.watch(sortOptionProvider);
     final isUpdating = ref.watch(productControllerProvider).isLoading;
     final isDesktop = Responsive.isDesktop(context);
+    final isCompactDesktop = Responsive.isCompactDesktop(context);
+    final isLargeDesktop = Responsive.isLargeDesktop(context);
     final isTablet = Responsive.isTablet(context);
     final csvImportEntitlement = ref.watch(
       featureEntitlementProvider('inventory.csv_import'),
@@ -619,7 +621,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                             return RefreshIndicator(
                               onRefresh: _refreshInventory,
                               child:
-                                  isDesktop
+                                  isLargeDesktop
                                       ? GridView.builder(
                                         padding: const EdgeInsets.all(16),
                                         gridDelegate:
@@ -628,6 +630,32 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                                               mainAxisSpacing: 8,
                                               crossAxisSpacing: 8,
                                               childAspectRatio: 3.5,
+                                            ),
+                                        itemCount: _itemCount(products),
+                                        itemBuilder: (context, index) {
+                                          if (index == products.length) {
+                                            return _LoadMoreTile(
+                                              compact: true,
+                                              onPressed: _loadMore,
+                                            );
+                                          }
+                                          return _buildProductCard(
+                                            context,
+                                            products[index],
+                                            canUpdate: canUpdate,
+                                            canAdjustStock: canAdjustStock,
+                                          );
+                                        },
+                                      )
+                                      : isCompactDesktop
+                                      ? GridView.builder(
+                                        padding: const EdgeInsets.all(16),
+                                        gridDelegate:
+                                            SliverGridDelegateWithFixedCrossAxisCount(
+                                              crossAxisCount: 3,
+                                              mainAxisSpacing: 8,
+                                              crossAxisSpacing: 8,
+                                              childAspectRatio: 2.5,
                                             ),
                                         itemCount: _itemCount(products),
                                         itemBuilder: (context, index) {

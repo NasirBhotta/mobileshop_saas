@@ -38,7 +38,7 @@ class MobileServicesRepository {
           .timeout(Network.networkTimeout);
       final providers = rows.map(MobileServiceProviderModel.fromMap).toList();
       try {
-        await _local.saveProviders(providers);
+        await _local.saveProviders(branchId, providers);
       } catch (_) {}
       return providers;
     } catch (error) {

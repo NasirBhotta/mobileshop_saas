@@ -106,7 +106,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _imeiTracked = p?.imeiTracked ?? false;
 
     _thresholdController = TextEditingController(
-      text: widget.product?.reorderThreshold.toString() ?? '5',
+      text: p?.reorderThreshold.toString() ?? '5',
     );
   }
 
@@ -193,6 +193,15 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     final categoriesState = ref.watch(categoriesProvider);
     final isLoading = ref.watch(productControllerProvider).isLoading;
     final isDesktop = Responsive.isDesktop(context);
+    final editedQuantity = int.tryParse(_quantityController.text);
+    final editedThreshold = int.tryParse(_thresholdController.text);
+    final shouldShowLowStockAlert =
+        _isEdit &&
+        editedQuantity != null &&
+        editedThreshold != null &&
+        editedQuantity > 0 &&
+        editedThreshold > 0 &&
+        editedQuantity <= editedThreshold;
     final imeiTrackingEnabled = isEntitledActionVisible(
       ref.watch(featureEntitlementProvider('inventory.imei_tracking')).value,
     );
@@ -323,23 +332,54 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                     ),
 
                     _FormField(
-                      label: 'Low Stock Alert (Quantity)',
-                      child: TextFormField(
-                        controller: _thresholdController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          hintText: '5',
-                          helperText: 'Jab stock is level pe aaye → alert',
+                        label: 'Low Stock Alert (Quantity)',
+                        child: TextFormField(
+                          controller: _thresholdController,
+                          keyboardType: TextInputType.number,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            hintText: '5',
+                            helperText: 'Jab stock is level pe aaye → alert',
+                          ),
+                          validator: (v) {
+                            final val = int.tryParse(v ?? '');
+                            if (val == null || val < 1) {
+                              return 'Kam az kam 1 hona chahiye';
+                            }
+                            return null;
+                          },
                         ),
-                        validator: (v) {
-                          final val = int.tryParse(v ?? '');
-                          if (val == null || val < 1) {
-                            return 'Kam az kam 1 hona chahiye';
-                          }
-                          return null;
-                        },
-                      ),
                     ),
+                    if (shouldShowLowStockAlert)
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.warning.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.warning),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_rounded,
+                                color: AppColors.warning,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Low stock: only $editedQuantity items remain '
+                                  '(alert level: $editedThreshold).',
+                                  style: const TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
 
                     // ── Prices Row ──
                     Row(
@@ -398,6 +438,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       child: TextFormField(
                         controller: _quantityController,
                         keyboardType: TextInputType.number,
+                        onChanged: _isEdit ? (_) => setState(() {}) : null,
                         decoration: const InputDecoration(
                           hintText: '0',
                           suffixText: 'pcs',

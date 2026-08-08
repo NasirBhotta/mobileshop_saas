@@ -84,13 +84,13 @@ class _SettingsContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final wallets =
-        accounts
-            .where(
-              (account) =>
-                  account.type == AccountType.mobileWallet && account.isActive,
-            )
-            .toList();
+    final walletsById = <String, AccountModel>{};
+    for (final account in accounts) {
+      if (account.type == AccountType.mobileWallet && account.isActive) {
+        walletsById.putIfAbsent(account.id, () => account);
+      }
+    }
+    final wallets = walletsById.values.toList();
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -346,7 +346,12 @@ Future<void> _showProviderDialog(
   final nameController = TextEditingController(
     text: provider?.name ?? code.label,
   );
-  var walletId = provider?.providerAccountId ?? wallets.first.id;
+  final linkedWalletId = provider?.providerAccountId;
+  var walletId =
+      linkedWalletId != null &&
+              wallets.any((wallet) => wallet.id == linkedWalletId)
+          ? linkedWalletId
+          : wallets.first.id;
 
   final submitted = await showDialog<bool>(
     context: context,

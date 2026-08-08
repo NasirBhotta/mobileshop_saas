@@ -78,7 +78,7 @@ class _MobileDashboard extends ConsumerWidget {
       body: SafeArea(
         child: RefreshIndicator(
           color: AppColors.primary,
-          onRefresh: () => refreshDashboardData(ref),
+          onRefresh: ref.read(dashboardRefreshProvider),
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -146,7 +146,7 @@ class _DesktopDashboard extends ConsumerWidget {
       backgroundColor: AppColors.background,
       body: RefreshIndicator(
         color: AppColors.primary,
-        onRefresh: () => refreshDashboardData(ref),
+        onRefresh: ref.read(dashboardRefreshProvider),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
