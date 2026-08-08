@@ -8,6 +8,7 @@ import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/suppliers/data/local/procurement_local_store.dart';
 import 'package:mobileshop_saas/features/suppliers/data/local/supplier_payment_local_committer.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
+import 'package:mobileshop_saas/features/suppliers/data/models/supplier_sales_analytics_models.dart';
 import 'package:mobileshop_saas/features/suppliers/domain/procurement_entitlement_gate.dart';
 import 'package:mobileshop_saas/features/suppliers/domain/supplier_accounting_contract.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -1072,5 +1073,63 @@ class ProcurementRepository {
     final trimmed = value?.trim();
     if (trimmed == null || trimmed.isEmpty) return null;
     return trimmed;
+  }
+
+  Future<SupplierSalesSummary> fetchSupplierSalesSummary(
+    SupplierModel supplier, {
+    required SupplierAnalyticsPeriod period,
+  }) async {
+    await _entitlements.require('procurement.suppliers');
+    final branchId = await _branchId(supplier.tenantId);
+    final rows = await _client.rpc(
+      'supplier_sales_summary',
+      params: {
+        'p_supplier_id': supplier.id,
+        'p_branch_id': branchId,
+        'p_date_from': period.dateFrom?.toUtc().toIso8601String(),
+        'p_date_to': null,
+      },
+    );
+    final list = rows as List;
+    if (list.isEmpty) throw StateError('Supplier analytics is unavailable.');
+    return SupplierSalesSummary.fromMap(
+      Map<String, dynamic>.from(list.first as Map),
+    );
+  }
+
+  Future<SupplierProductSalesPage> fetchSupplierProductSalesPage(
+    SupplierModel supplier, {
+    required SupplierAnalyticsPeriod period,
+    required String search,
+    required SupplierProfitFilter profitFilter,
+    required SupplierAnalyticsSort sort,
+    required int limit,
+    required int offset,
+  }) async {
+    await _entitlements.require('procurement.suppliers');
+    final branchId = await _branchId(supplier.tenantId);
+    final response = await _client.rpc(
+      'supplier_product_sales_page',
+      params: {
+        'p_supplier_id': supplier.id,
+        'p_branch_id': branchId,
+        'p_date_from': period.dateFrom?.toUtc().toIso8601String(),
+        'p_date_to': null,
+        'p_search': search,
+        'p_profit_filter': profitFilter.value,
+        'p_sort': sort.value,
+        'p_limit': limit,
+        'p_offset': offset,
+      },
+    );
+    final rows =
+        (response as List)
+            .map((row) => Map<String, dynamic>.from(row as Map))
+            .toList();
+    return SupplierProductSalesPage(
+      items: rows.map(SupplierProductSalesRow.fromMap).toList(),
+      total:
+          rows.isEmpty ? 0 : (rows.first['total_count'] as num?)?.toInt() ?? 0,
+    );
   }
 }

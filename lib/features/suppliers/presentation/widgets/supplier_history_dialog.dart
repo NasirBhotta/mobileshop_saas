@@ -38,9 +38,6 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
   @override
   Widget build(BuildContext context) {
     final overview = ref.watch(supplierOverviewProvider(widget.supplier));
-    final analytics = ref.watch(
-      supplierSalesAnalyticsProvider((supplier: widget.supplier, days: _days)),
-    );
     return Column(
       children: [
         Padding(
@@ -107,7 +104,7 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
                       )
                       .toList();
               return DefaultTabController(
-                length: 4,
+                length: 3,
                 child: Column(
                   children: [
                     _Summary(data: data),
@@ -121,7 +118,6 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
                               tabs: [
                                 Tab(text: 'Statement'),
                                 Tab(text: 'Orders'),
-                                Tab(text: 'Products & Sales'),
                                 Tab(text: 'Details'),
                               ],
                             ),
@@ -153,16 +149,6 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
                         children: [
                           _Statement(entries: entries),
                           _Orders(orders: orders),
-                          _SupplierProductsAnalytics(
-                            analytics: analytics,
-                            onRetry:
-                                () => ref.invalidate(
-                                  supplierSalesAnalyticsProvider((
-                                    supplier: widget.supplier,
-                                    days: _days,
-                                  )),
-                                ),
-                          ),
                           _Details(data: data),
                         ],
                       ),
@@ -178,6 +164,9 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
   }
 }
 
+// Kept temporarily for backwards-compatible widget tests; the live dialog now
+// routes analytics to the scalable full-screen module.
+// ignore: unused_element
 class _SupplierProductsAnalytics extends StatelessWidget {
   final AsyncValue<SupplierSalesAnalyticsModel> analytics;
   final VoidCallback onRetry;
@@ -264,8 +253,7 @@ class _SupplierProductsAnalytics extends StatelessWidget {
                   ),
                   _AnalyticsMetric(
                     width: width,
-                    label:
-                        data.grossProfit < 0 ? 'Gross loss' : 'Gross profit',
+                    label: data.grossProfit < 0 ? 'Gross loss' : 'Gross profit',
                     value: _money(data.grossProfit.abs()),
                     icon: Icons.ssid_chart_rounded,
                     valueColor:

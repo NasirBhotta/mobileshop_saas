@@ -177,7 +177,7 @@ class _SuppliersBody extends ConsumerWidget {
                         final textScale = MediaQuery.textScalerOf(
                           context,
                         ).scale(1.0).clamp(1.0, 1.3);
-                        final gridCardExtent = 330.0 * textScale;
+                        final gridCardExtent = 382.0 * textScale;
 
                         if (isWide) {
                           return GridView.builder(
@@ -514,6 +514,8 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
             const SizedBox(height: 16),
             _SupplierCardActions(
               onHistory: () => showSupplierHistoryDialog(context, supplier),
+              onAnalytics:
+                  () => context.push('/suppliers/analytics', extra: supplier),
               onViewProducts:
                   () => context.go(
                     Uri(
@@ -896,6 +898,7 @@ class _SupplierInfo extends StatelessWidget {
 
 class _SupplierCardActions extends StatelessWidget {
   final VoidCallback onHistory;
+  final VoidCallback onAnalytics;
   final VoidCallback onViewProducts;
   final VoidCallback? onPayment;
   final bool paymentLoading;
@@ -903,6 +906,7 @@ class _SupplierCardActions extends StatelessWidget {
 
   const _SupplierCardActions({
     required this.onHistory,
+    required this.onAnalytics,
     required this.onViewProducts,
     required this.onPayment,
     this.paymentLoading = false,
@@ -916,6 +920,11 @@ class _SupplierCardActions extends StatelessWidget {
         final stackButtons = constraints.maxWidth < 260;
 
         final buttons = <Widget>[
+          OutlinedButton.icon(
+            onPressed: onAnalytics,
+            icon: const Icon(Icons.query_stats_rounded, size: 17),
+            label: const Text('Analytics', overflow: TextOverflow.ellipsis),
+          ),
           OutlinedButton.icon(
             onPressed: onViewProducts,
             icon: const Icon(Icons.inventory_2_outlined, size: 17),

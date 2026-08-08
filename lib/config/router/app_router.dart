@@ -60,6 +60,7 @@ import 'package:mobileshop_saas/features/suppliers/presentation/screens/purchase
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/purchase_orders_screen.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/receive_goods_screen.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/supplier_form_screen.dart';
+import 'package:mobileshop_saas/features/suppliers/presentation/screens/supplier_sales_analytics_screen.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/suppliers_screen.dart';
 import 'package:mobileshop_saas/shared/widgets/app_layout.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -405,6 +406,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) {
               return const SuppliersScreen();
             },
+          ),
+          GoRoute(
+            path: '/suppliers/analytics',
+            redirect:
+                (_, state) =>
+                    state.extra is SupplierModel ? null : '/suppliers',
+            builder:
+                (context, state) => SupplierSalesAnalyticsScreen(
+                  supplier: state.extra! as SupplierModel,
+                ),
           ),
           GoRoute(
             path: '/purchase-orders',
