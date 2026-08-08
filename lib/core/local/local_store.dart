@@ -173,6 +173,7 @@ class LocalStore {
     required String branchId,
     required String query,
     String? categoryId,
+    String? supplierId,
     ProductSortOption sortOption = ProductSortOption.nameAZ,
     int limit = 50,
     int offset = 0,
@@ -182,6 +183,16 @@ class LocalStore {
     final safeLimit = limit.clamp(1, 100);
     final safeOffset = offset < 0 ? 0 : offset;
     final categorySql = categoryId == null ? '' : 'AND p.category_id = ?';
+    final supplierSql =
+        supplierId == null
+            ? ''
+            : '''
+        AND EXISTS (
+          SELECT 1
+          FROM supplier_products sp
+          WHERE sp.product_id = p.id AND sp.supplier_id = ?
+        )
+      ''';
     final lowStockSql =
         lowStockOnly
             ? '''
@@ -194,7 +205,11 @@ class LocalStore {
         )
       '''
             : '';
-    final args = <Object?>[branchId, if (categoryId != null) categoryId];
+    final args = <Object?>[
+      branchId,
+      if (categoryId != null) categoryId,
+      if (supplierId != null) supplierId,
+    ];
 
     var searchSql = '';
     final orderSql =
@@ -242,6 +257,7 @@ class LocalStore {
       WHERE p.branch_id = ?
         AND COALESCE(p.is_active, 1) = 1
         $categorySql
+        $supplierSql
         $lowStockSql
         $searchSql
       ORDER BY $orderSql
@@ -261,6 +277,125 @@ class LocalStore {
       ],
     );
     return rows.map(_productFromRow).toList();
+  }
+
+  static Future<void> saveInventorySupplierOptions({
+    required String tenantId,
+    required String branchId,
+    required List<Map<String, dynamic>> suppliers,
+  }) async {
+    await LocalDatabase.execute(
+      'UPDATE inventory_supplier_options SET is_active = 0 '
+      'WHERE tenant_id = ? AND branch_id = ?',
+      [tenantId, branchId],
+    );
+    for (final supplier in suppliers) {
+      await LocalDatabase.execute(
+        '''
+        INSERT OR REPLACE INTO inventory_supplier_options(
+          id, tenant_id, branch_id, name, is_active, updated_at
+        ) VALUES(?, ?, ?, ?, 1, ?)
+        ''',
+        [
+          supplier['id'],
+          tenantId,
+          branchId,
+          supplier['name'],
+          DateTime.now().toIso8601String(),
+        ],
+      );
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> loadInventorySupplierOptions({
+    required String tenantId,
+    required String branchId,
+  }) async {
+    final options = await LocalDatabase.select(
+      '''
+      SELECT id, tenant_id, branch_id, name
+      FROM inventory_supplier_options
+      WHERE tenant_id = ? AND branch_id = ? AND is_active = 1
+      ORDER BY name COLLATE NOCASE
+      ''',
+      [tenantId, branchId],
+    );
+    if (options.isNotEmpty) return options;
+
+    // Reuse the established procurement cache on first launch after upgrade.
+    return LocalDatabase.select(
+      '''
+      SELECT id, tenant_id, branch_id, name
+      FROM suppliers
+      WHERE tenant_id = ? AND branch_id = ? AND is_active = 1
+      ORDER BY name COLLATE NOCASE
+      ''',
+      [tenantId, branchId],
+    );
+  }
+
+  static Future<void> replaceSupplierProductLinks({
+    required String tenantId,
+    required String supplierId,
+    required List<Map<String, dynamic>> links,
+  }) async {
+    await LocalDatabase.execute(
+      'DELETE FROM supplier_products WHERE tenant_id = ? AND supplier_id = ?',
+      [tenantId, supplierId],
+    );
+    for (final link in links) {
+      await LocalDatabase.execute(
+        '''
+        INSERT OR REPLACE INTO supplier_products(
+          id, tenant_id, supplier_id, product_id, supplier_sku,
+          last_cost, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?)
+        ''',
+        [
+          link['id'],
+          tenantId,
+          supplierId,
+          link['product_id'],
+          link['supplier_sku'],
+          link['last_cost'],
+          link['created_at'],
+        ],
+      );
+    }
+  }
+
+  static Future<void> saveSupplierProductLinks({
+    required String tenantId,
+    required String supplierId,
+    required List<Map<String, dynamic>> links,
+  }) async {
+    for (final link in links) {
+      await LocalDatabase.execute(
+        '''
+        INSERT OR REPLACE INTO supplier_products(
+          id, tenant_id, supplier_id, product_id, supplier_sku,
+          last_cost, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?)
+        ''',
+        [
+          link['id'],
+          tenantId,
+          supplierId,
+          link['product_id'],
+          link['supplier_sku'],
+          link['last_cost'],
+          link['created_at'],
+        ],
+      );
+    }
+  }
+
+  static Future<bool> hasSupplierProductLinks(String supplierId) async {
+    final rows = await LocalDatabase.select(
+      'SELECT 1 FROM supplier_products WHERE supplier_id = ? LIMIT 1',
+      [supplierId],
+    );
+    return rows.isNotEmpty;
   }
 
   static String _productOrderSql(ProductSortOption sortOption) {

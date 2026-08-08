@@ -371,6 +371,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 (_, state) => InventoryScreen(
                   initialLowStockOnly:
                       state.uri.queryParameters['stock'] == 'low',
+                  initialSupplierId: state.uri.queryParameters['supplierId'],
                 ),
           ),
           GoRoute(path: '/pos', builder: (_, _) => const PosScreen()),

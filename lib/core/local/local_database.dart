@@ -39,6 +39,7 @@ class LocalDatabase {
     'repair_part_returns',
     'repair_financial_events',
     'suppliers',
+    'inventory_supplier_options',
     'supplier_products',
     'purchase_orders',
     'purchase_order_items',
@@ -72,6 +73,7 @@ class LocalDatabase {
     'purchase_order_items',
     'purchase_orders',
     'supplier_products',
+    'inventory_supplier_options',
     'suppliers',
     'repair_status_logs',
     'repair_payments',
@@ -924,6 +926,16 @@ class LocalDatabase {
     ''');
 
     await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS inventory_supplier_options (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT
+      )
+    ''');
+    await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS supplier_products (
         id TEXT PRIMARY KEY,
         tenant_id TEXT NOT NULL,
@@ -934,6 +946,14 @@ class LocalDatabase {
         created_at TEXT,
         UNIQUE(supplier_id, product_id)
       )
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_inventory_supplier_options_branch_name
+      ON inventory_supplier_options(branch_id, name)
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_local_supplier_products_supplier_product
+      ON supplier_products(supplier_id, product_id)
     ''');
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS purchase_orders (

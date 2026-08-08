@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:mobileshop_saas/core/extensions/product_sort_ext.dart';
 import 'package:flutter/rendering.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
+import 'package:mobileshop_saas/core/local/local_store.dart';
 import 'package:mobileshop_saas/core/utils/adjustment_extention.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/category_model.dart';
+import 'package:mobileshop_saas/features/inventory/data/models/inventory_supplier_option.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/csv_import_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/price_history_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
@@ -18,6 +20,7 @@ import 'package:mobileshop_saas/features/inventory/domain/inventory_entitlement_
 
 class InventoryRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
+  final Map<String, Future<void>> _supplierLinkSyncs = {};
   final SupabaseClient _client;
   final EntitlementEvaluator _entitlements;
   late final InventoryEntitlementGate _entitlementGate =
@@ -41,6 +44,97 @@ class InventoryRepository {
     final user = _client.auth.currentUser;
     if (user == null) throw Exception('User not logged in');
     return user;
+  }
+
+  Future<List<InventorySupplierOption>> fetchInventorySuppliers() async {
+    await _requireFeature('inventory.access');
+    final tenantId = await _currentTenantId();
+    final branchId = await _currentBranchId(tenantId);
+    final cached = await LocalStore.loadInventorySupplierOptions(
+      tenantId: tenantId,
+      branchId: branchId,
+    );
+    if (cached.isNotEmpty) {
+      unawaited(_refreshInventorySuppliers(tenantId, branchId).catchError((_) {
+        return cached.map(InventorySupplierOption.fromMap).toList();
+      }));
+      return cached.map(InventorySupplierOption.fromMap).toList();
+    }
+    return _refreshInventorySuppliers(tenantId, branchId);
+  }
+
+  Future<List<InventorySupplierOption>> _refreshInventorySuppliers(
+    String tenantId,
+    String branchId,
+  ) async {
+    final rows = await _client
+        .from('suppliers')
+        .select('id, tenant_id, branch_id, name')
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId)
+        .eq('is_active', true)
+        .order('name')
+        .timeout(_networkTimeout);
+    final maps = (rows as List).cast<Map<String, dynamic>>();
+    await LocalStore.saveInventorySupplierOptions(
+      tenantId: tenantId,
+      branchId: branchId,
+      suppliers: maps,
+    );
+    return maps.map(InventorySupplierOption.fromMap).toList();
+  }
+
+  Future<void> _refreshSupplierProductLinks({
+    required String tenantId,
+    required String branchId,
+    required String supplierId,
+  }) async {
+    const pageSize = 500;
+    final links = <Map<String, dynamic>>[];
+    var offset = 0;
+    while (true) {
+      final rows = await _client
+          .from('supplier_products')
+          .select(
+            'id, tenant_id, supplier_id, product_id, supplier_sku, '
+            'last_cost, created_at, products!inner(branch_id)',
+          )
+          .eq('tenant_id', tenantId)
+          .eq('supplier_id', supplierId)
+          .eq('products.branch_id', branchId)
+          .range(offset, offset + pageSize - 1)
+          .timeout(_networkTimeout);
+      final page = (rows as List).cast<Map<String, dynamic>>();
+      links.addAll(page);
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
+    await LocalStore.replaceSupplierProductLinks(
+      tenantId: tenantId,
+      supplierId: supplierId,
+      links: links,
+    );
+  }
+
+  void _scheduleSupplierProductLinkRefresh({
+    required String tenantId,
+    required String branchId,
+    required String supplierId,
+  }) {
+    if (_supplierLinkSyncs.containsKey(supplierId)) return;
+    final operation = _refreshSupplierProductLinks(
+      tenantId: tenantId,
+      branchId: branchId,
+      supplierId: supplierId,
+    );
+    _supplierLinkSyncs[supplierId] = operation;
+    unawaited(
+      operation.whenComplete(() {
+        if (identical(_supplierLinkSyncs[supplierId], operation)) {
+          _supplierLinkSyncs.remove(supplierId);
+        }
+      }).catchError((_) {}),
+    );
   }
 
   // Branch-level threshold update karo
@@ -507,16 +601,24 @@ class InventoryRepository {
     required String tenantId,
     required String branchId,
     String? categoryId,
+    String? supplierId,
     String? queryText,
     ProductSortOption sortOption = ProductSortOption.nameAZ,
     int? limit,
     int offset = 0,
     bool lowStockOnly = false,
   }) async {
+    final usesCatalog = lowStockOnly || supplierId != null;
     var query = _client
-        .from(lowStockOnly ? 'inventory_product_catalog' : 'products')
+        .from(
+          supplierId != null
+              ? 'supplier_inventory_product_catalog'
+              : lowStockOnly
+              ? 'inventory_product_catalog'
+              : 'products',
+        )
         .select(
-          lowStockOnly
+          usesCatalog
               ? '*'
               : '*, categories(name, default_reorder_threshold), inventory!inner(quantity, reorder_threshold, branch_id)',
         )
@@ -524,9 +626,11 @@ class InventoryRepository {
         .eq('branch_id', branchId)
         .eq('is_active', true);
 
-    if (lowStockOnly) {
-      query = query.eq('is_low_stock', true);
-    } else {
+    if (supplierId != null) {
+      query = query.eq('supplier_id', supplierId);
+    }
+    if (lowStockOnly) query = query.eq('is_low_stock', true);
+    if (!usesCatalog) {
       query = query.eq('inventory.branch_id', branchId);
     }
 
@@ -543,7 +647,7 @@ class InventoryRepository {
     }
 
     var ordered =
-        lowStockOnly
+        usesCatalog
             ? _orderCatalogProducts(query, sortOption)
             : _orderProducts(query, sortOption);
     if (limit != null) {
@@ -553,6 +657,28 @@ class InventoryRepository {
     }
 
     final data = await ordered;
+    if (supplierId != null) {
+      final rows = (data as List).cast<Map<String, dynamic>>();
+      await LocalStore.saveSupplierProductLinks(
+        tenantId: tenantId,
+        supplierId: supplierId,
+        links: [
+          for (final row in rows)
+            {
+              'id': '$supplierId:${row['id']}',
+              'product_id': row['id'],
+              'supplier_sku': row['sku'],
+              'last_cost': row['cost_price'],
+              'created_at': DateTime.now().toIso8601String(),
+            },
+        ],
+      );
+      _scheduleSupplierProductLinkRefresh(
+        tenantId: tenantId,
+        branchId: branchId,
+        supplierId: supplierId,
+      );
+    }
     final remoteProducts =
         (data as List).map((e) => ProductModel.fromMap(e)).toList();
     final products = await _applyPendingSaleStock(
@@ -662,6 +788,7 @@ class InventoryRepository {
   Future<List<ProductModel>> searchProducts({
     required String query,
     String? categoryId,
+    String? supplierId,
     ProductSortOption sortOption = ProductSortOption.nameAZ,
     int limit = 50,
     int offset = 0,
@@ -676,6 +803,7 @@ class InventoryRepository {
       branchId: branchId,
       query: normalizedQuery,
       categoryId: categoryId,
+      supplierId: supplierId,
       sortOption: sortOption,
       limit: limit,
       offset: offset,
@@ -683,6 +811,13 @@ class InventoryRepository {
     );
     if (!preferRemote && !lowStockOnly && localProducts.isNotEmpty) {
       unawaited(syncOfflineMutations());
+      if (supplierId != null) {
+        _scheduleSupplierProductLinkRefresh(
+          tenantId: tenantId,
+          branchId: branchId,
+          supplierId: supplierId,
+        );
+      }
       return localProducts;
     }
 
@@ -697,14 +832,22 @@ class InventoryRepository {
         tenantId: tenantId,
         branchId: branchId,
         categoryId: categoryId,
+        supplierId: supplierId,
         queryText: normalizedQuery,
         sortOption: sortOption,
         limit: limit,
         offset: offset,
         lowStockOnly: lowStockOnly,
       ).timeout(_networkTimeout);
-    } catch (_) {
-      return localProducts;
+    } catch (error) {
+      if (supplierId == null ||
+          localProducts.isNotEmpty ||
+          await LocalStore.hasSupplierProductLinks(supplierId)) {
+        return localProducts;
+      }
+      throw StateError(
+        'Supplier inventory is not cached yet. Internet connect karke retry karein.',
+      );
     }
   }
 
@@ -1836,8 +1979,7 @@ class InventoryRepository {
           'branch_id': branchId,
           'product_id': productId,
           'quantity': quantity < 0 ? 0 : quantity,
-          if (reorderThreshold != null)
-            'reorder_threshold': reorderThreshold,
+          if (reorderThreshold != null) 'reorder_threshold': reorderThreshold,
         }, onConflict: 'branch_id,product_id')
         .timeout(_networkTimeout);
   }

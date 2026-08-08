@@ -16,12 +16,18 @@ import '../../../../core/utils/responsive.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../../shared/providers/navigation_loading_provider.dart';
 import '../../../settings/presentation/widgets/account_menu_button.dart';
+import '../../data/models/inventory_supplier_option.dart';
 import '../providers/inventory_provider.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
   final bool initialLowStockOnly;
+  final String? initialSupplierId;
 
-  const InventoryScreen({super.key, this.initialLowStockOnly = false});
+  const InventoryScreen({
+    super.key,
+    this.initialLowStockOnly = false,
+    this.initialSupplierId,
+  });
 
   @override
   ConsumerState<InventoryScreen> createState() => _InventoryScreenState();
@@ -56,6 +62,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             sortOption: ref.read(sortOptionProvider),
             limit: 50,
             lowStockOnly: widget.initialLowStockOnly,
+            supplierId: widget.initialSupplierId,
           ),
         ),
       );
@@ -67,7 +74,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       _initialInventoryResolved = true;
     }
 
-    return _InventoryBody(initialLowStockOnly: widget.initialLowStockOnly);
+    return _InventoryBody(
+      initialLowStockOnly: widget.initialLowStockOnly,
+      initialSupplierId: widget.initialSupplierId,
+    );
   }
 }
 
@@ -116,10 +126,155 @@ class _LoadMoreTile extends StatelessWidget {
   }
 }
 
+class _InventoryFilterError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _InventoryFilterError({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.cloud_off_rounded,
+            size: 48,
+            color: AppColors.textHint,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Supplier inventory load nahi hui',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Retry'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _SupplierFilter extends StatelessWidget {
+  final AsyncValue<List<InventorySupplierOption>> suppliersState;
+  final String? selectedSupplierId;
+  final ValueChanged<String?> onSelected;
+  final VoidCallback onRetry;
+
+  const _SupplierFilter({
+    required this.suppliersState,
+    required this.selectedSupplierId,
+    required this.onSelected,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return suppliersState.when(
+      loading:
+          () => const SizedBox(
+            height: 38,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ),
+      error:
+          (_, _) => SizedBox(
+            height: 38,
+            child: OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.cloud_off_rounded, size: 16),
+              label: const Text('Retry suppliers'),
+            ),
+          ),
+      data: (suppliers) {
+        if (suppliers.isEmpty) return const SizedBox.shrink();
+        final selectedExists = suppliers.any(
+          (supplier) => supplier.id == selectedSupplierId,
+        );
+        final effectiveValue = selectedExists ? selectedSupplierId : null;
+
+        return Container(
+          constraints: const BoxConstraints(maxWidth: 280),
+          height: 38,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color:
+                effectiveValue == null
+                    ? AppColors.surface
+                    : AppColors.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color:
+                  effectiveValue == null
+                      ? AppColors.border
+                      : AppColors.primary.withValues(alpha: 0.35),
+            ),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String?>(
+              value: effectiveValue,
+              isExpanded: true,
+              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Row(
+                    children: [
+                      Icon(Icons.local_shipping_outlined, size: 17),
+                      SizedBox(width: 7),
+                      Text('All suppliers'),
+                    ],
+                  ),
+                ),
+                for (final supplier in suppliers)
+                  DropdownMenuItem<String?>(
+                    value: supplier.id,
+                    child: Text(
+                      supplier.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: onSelected,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _InventoryBody extends ConsumerStatefulWidget {
   final bool initialLowStockOnly;
+  final String? initialSupplierId;
 
-  const _InventoryBody({required this.initialLowStockOnly});
+  const _InventoryBody({
+    required this.initialLowStockOnly,
+    required this.initialSupplierId,
+  });
 
   @override
   ConsumerState<_InventoryBody> createState() => _InventoryBodyState();
@@ -138,6 +293,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
   bool _initialProductsResolved = false;
   int _visibleLimit = _pageSize;
   late bool _lowStockOnly;
+  String? _selectedSupplierId;
 
   bool get _isSelectionMode => _selectedProductIds.isNotEmpty;
 
@@ -150,15 +306,19 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     _searchFocusNode = FocusNode(debugLabel: 'inventory-search');
     _committedSearchQuery = ValueNotifier(_searchController.text.trim());
     _lowStockOnly = widget.initialLowStockOnly;
+    _selectedSupplierId = widget.initialSupplierId;
   }
 
   @override
   void didUpdateWidget(covariant _InventoryBody oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialLowStockOnly == widget.initialLowStockOnly) return;
-    _lowStockOnly = widget.initialLowStockOnly;
-    _visibleLimit = _pageSize;
-    _lastVisibleProducts = null;
+    if (oldWidget.initialLowStockOnly != widget.initialLowStockOnly ||
+        oldWidget.initialSupplierId != widget.initialSupplierId) {
+      _lowStockOnly = widget.initialLowStockOnly;
+      _selectedSupplierId = widget.initialSupplierId;
+      _visibleLimit = _pageSize;
+      _lastVisibleProducts = null;
+    }
   }
 
   @override
@@ -219,6 +379,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     return InventoryProductsRequest(
       query: ref.read(searchQueryProvider),
       categoryId: ref.read(selectedCategoryProvider),
+      supplierId: _selectedSupplierId,
       sortOption: ref.read(sortOptionProvider),
       limit: limit ?? _visibleLimit,
       lowStockOnly: _lowStockOnly,
@@ -250,6 +411,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
     ref
       ..invalidate(allProductsProvider)
       ..invalidate(categoriesProvider)
+      ..invalidate(inventorySuppliersProvider)
       ..invalidate(inventoryProductsPageProvider)
       ..invalidate(inventoryProductsProvider);
 
@@ -262,6 +424,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
   @override
   Widget build(BuildContext context) {
     final categoriesState = ref.watch(categoriesProvider);
+    final suppliersState = ref.watch(inventorySuppliersProvider);
     final selectedCategory = ref.watch(selectedCategoryProvider);
     final sortOption = ref.watch(sortOptionProvider);
     final isUpdating = ref.watch(productControllerProvider).isLoading;
@@ -298,6 +461,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
             sortOption: sortOption,
             limit: _pageSize,
             lowStockOnly: _lowStockOnly,
+            supplierId: _selectedSupplierId,
           ),
         ),
       );
@@ -480,30 +644,42 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
             SizedBox(height: 10),
             Row(
               children: [
-                Expanded(child: SizedBox.shrink()),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: FilterChip(
-                      avatar: Icon(
-                        Icons.warning_amber_rounded,
-                        size: 18,
-                        color:
-                            _lowStockOnly
-                                ? AppColors.error
-                                : AppColors.textHint,
-                      ),
-                      label: const Text('Low stock only'),
-                      selected: _lowStockOnly,
-                      onSelected: (selected) {
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16),
+                    child: _SupplierFilter(
+                      suppliersState: suppliersState,
+                      selectedSupplierId: _selectedSupplierId,
+                      onSelected: (supplierId) {
                         setState(() {
-                          _lowStockOnly = selected;
+                          _selectedSupplierId = supplierId;
                           _visibleLimit = _pageSize;
                           _lastVisibleProducts = null;
+                          _selectedProductIds.clear();
                         });
                       },
+                      onRetry: () => ref.invalidate(inventorySuppliersProvider),
                     ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 16, 0),
+                  child: FilterChip(
+                    avatar: Icon(
+                      Icons.warning_amber_rounded,
+                      size: 18,
+                      color:
+                          _lowStockOnly ? AppColors.error : AppColors.textHint,
+                    ),
+                    label: const Text('Low stock only'),
+                    selected: _lowStockOnly,
+                    onSelected: (selected) {
+                      setState(() {
+                        _lowStockOnly = selected;
+                        _visibleLimit = _pageSize;
+                        _lastVisibleProducts = null;
+                      });
+                    },
                   ),
                 ),
               ],
@@ -534,6 +710,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       request: InventoryProductsRequest(
                         query: query,
                         categoryId: selectedCategory,
+                        supplierId: _selectedSupplierId,
                         sortOption: sortOption,
                         limit: _visibleLimit,
                         lowStockOnly: _lowStockOnly,
@@ -552,8 +729,19 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                                 child: CircularProgressIndicator(),
                               ),
                           error:
-                              (error, _) =>
-                                  Center(child: Text(error.toString())),
+                              (error, _) => _InventoryFilterError(
+                                message: error.toString().replaceFirst(
+                                  'Bad state: ',
+                                  '',
+                                ),
+                                onRetry: () {
+                                  ref.invalidate(
+                                    inventoryProductsProvider(
+                                      _currentRequest(),
+                                    ),
+                                  );
+                                },
+                              ),
                           data: (products) {
                             _lastVisibleProducts = products;
                             Padding(

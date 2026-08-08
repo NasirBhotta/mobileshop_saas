@@ -286,6 +286,7 @@ class OfflineStore {
     required String branchId,
     required String query,
     String? categoryId,
+    String? supplierId,
     ProductSortOption sortOption = ProductSortOption.nameAZ,
     int limit = 50,
     int offset = 0,
@@ -296,12 +297,16 @@ class OfflineStore {
         branchId: branchId,
         query: query,
         categoryId: categoryId,
+        supplierId: supplierId,
         sortOption: sortOption,
         limit: limit,
         offset: offset,
         lowStockOnly: lowStockOnly,
       );
-      if (products.isNotEmpty || query.trim().isNotEmpty || lowStockOnly) {
+      if (products.isNotEmpty ||
+          query.trim().isNotEmpty ||
+          lowStockOnly ||
+          supplierId != null) {
         return products;
       }
     } catch (_) {}
@@ -313,6 +318,9 @@ class OfflineStore {
             final categoryMatches =
                 categoryId == null || product.categoryId == categoryId;
             if (!categoryMatches) return false;
+            // Supplier filtering requires the normalized local SQL relation;
+            // never guess a supplier from a cached product alone.
+            if (supplierId != null) return false;
             if (lowStockOnly && !product.isLowStock) return false;
             if (normalizedQuery.isEmpty) return true;
             return product.name.toLowerCase().contains(normalizedQuery) ||

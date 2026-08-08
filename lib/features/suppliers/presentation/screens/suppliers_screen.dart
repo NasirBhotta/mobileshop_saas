@@ -177,16 +177,16 @@ class _SuppliersBody extends ConsumerWidget {
                         final textScale = MediaQuery.textScalerOf(
                           context,
                         ).scale(1.0).clamp(1.0, 1.3);
-                        final gridCardExtent = 300.0 * textScale;
+                        final gridCardExtent = 330.0 * textScale;
 
                         if (isWide) {
                           return GridView.builder(
                             padding: const EdgeInsets.all(16),
                             gridDelegate:
                                 SliverGridDelegateWithMaxCrossAxisExtent(
-                                  maxCrossAxisExtent: 420,
-                                  mainAxisSpacing: 12,
-                                  crossAxisSpacing: 12,
+                                  maxCrossAxisExtent: 480,
+                                  mainAxisSpacing: 20,
+                                  crossAxisSpacing: 20,
                                   mainAxisExtent: gridCardExtent,
                                 ),
                             itemCount: suppliers.length,
@@ -363,7 +363,7 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
       elevation: 0,
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -371,7 +371,7 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
             Row(
               children: [
                 CircleAvatar(
-                  radius: 22,
+                  radius: 24,
                   backgroundColor:
                       Theme.of(context).colorScheme.primaryContainer,
                   foregroundColor:
@@ -386,7 +386,7 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -439,7 +439,7 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             Wrap(
               spacing: 14,
               runSpacing: 9,
@@ -461,7 +461,7 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -511,9 +511,16 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
                 ],
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
             _SupplierCardActions(
               onHistory: () => showSupplierHistoryDialog(context, supplier),
+              onViewProducts:
+                  () => context.go(
+                    Uri(
+                      path: '/inventory',
+                      queryParameters: {'supplierId': supplier.id},
+                    ).toString(),
+                  ),
               onPayment:
                   paymentsEnabled
                       ? _openingPayment
@@ -889,12 +896,14 @@ class _SupplierInfo extends StatelessWidget {
 
 class _SupplierCardActions extends StatelessWidget {
   final VoidCallback onHistory;
+  final VoidCallback onViewProducts;
   final VoidCallback? onPayment;
   final bool paymentLoading;
   final VoidCallback? onNewPo;
 
   const _SupplierCardActions({
     required this.onHistory,
+    required this.onViewProducts,
     required this.onPayment,
     this.paymentLoading = false,
     required this.onNewPo,
@@ -904,9 +913,14 @@ class _SupplierCardActions extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final stackButtons = constraints.maxWidth < 300;
+        final stackButtons = constraints.maxWidth < 260;
 
         final buttons = <Widget>[
+          OutlinedButton.icon(
+            onPressed: onViewProducts,
+            icon: const Icon(Icons.inventory_2_outlined, size: 17),
+            label: const Text('Products', overflow: TextOverflow.ellipsis),
+          ),
           OutlinedButton.icon(
             onPressed: onHistory,
             icon: const Icon(Icons.history_rounded, size: 17),
@@ -949,12 +963,13 @@ class _SupplierCardActions extends StatelessWidget {
           );
         }
 
-        return Row(
+        final buttonWidth = (constraints.maxWidth - 8) / 2;
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            for (var index = 0; index < buttons.length; index++) ...[
-              if (index > 0) const SizedBox(width: 8),
-              Expanded(child: buttons[index]),
-            ],
+            for (final button in buttons)
+              SizedBox(width: buttonWidth, height: 42, child: button),
           ],
         );
       },

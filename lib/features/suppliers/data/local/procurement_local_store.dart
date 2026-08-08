@@ -116,7 +116,43 @@ class ProcurementLocalStore {
 
     for (final item in po.items) {
       await savePurchaseOrderItem(item);
+      final linkedProductId = item.resolvedProductId ?? item.productId;
+      if (linkedProductId != null) {
+        await _saveSupplierProductLink(
+          tenantId: po.tenantId,
+          supplierId: po.supplierId,
+          productId: linkedProductId,
+          supplierSku: item.productSku,
+          lastCost: item.actualUnitCost ?? item.negotiatedUnitCost,
+        );
+      }
     }
+  }
+
+  static Future<void> _saveSupplierProductLink({
+    required String tenantId,
+    required String supplierId,
+    required String productId,
+    String? supplierSku,
+    double? lastCost,
+  }) {
+    return LocalDatabase.execute(
+      '''
+      INSERT OR REPLACE INTO supplier_products(
+        id, tenant_id, supplier_id, product_id, supplier_sku,
+        last_cost, created_at
+      ) VALUES(?, ?, ?, ?, ?, ?, ?)
+      ''',
+      [
+        '$supplierId:$productId',
+        tenantId,
+        supplierId,
+        productId,
+        supplierSku,
+        lastCost,
+        DateTime.now().toIso8601String(),
+      ],
+    );
   }
 
   static Future<void> savePurchaseOrderItem(PurchaseOrderItemModel item) async {

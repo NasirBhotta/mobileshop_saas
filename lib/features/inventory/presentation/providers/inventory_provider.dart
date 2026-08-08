@@ -4,6 +4,7 @@ import 'package:mobileshop_saas/core/extensions/product_sort_ext.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/stock_adjustment_model.dart';
 
 import '../../data/models/category_model.dart';
+import '../../data/models/inventory_supplier_option.dart';
 import '../../data/models/price_history_model.dart';
 import '../../data/models/product_model.dart';
 import '../../data/repositories/inventory_repository.dart';
@@ -141,6 +142,12 @@ final inventoryRepositoryProvider = Provider<InventoryRepository>((ref) {
   );
 });
 
+final inventorySuppliersProvider =
+    FutureProvider.autoDispose<List<InventorySupplierOption>>((ref) async {
+      await ref.watch(selectedBranchIdProvider.future);
+      return ref.read(inventoryRepositoryProvider).fetchInventorySuppliers();
+    });
+
 // Selected category filter
 final selectedCategoryProvider = StateProvider<String?>((ref) => null);
 
@@ -165,6 +172,7 @@ final productsProvider = FutureProvider<List<ProductModel>>((ref) async {
 class InventoryProductsRequest {
   final String query;
   final String? categoryId;
+  final String? supplierId;
   final ProductSortOption sortOption;
   final int limit;
   final int offset;
@@ -173,6 +181,7 @@ class InventoryProductsRequest {
   const InventoryProductsRequest({
     required this.query,
     this.categoryId,
+    this.supplierId,
     this.sortOption = ProductSortOption.nameAZ,
     this.limit = 50,
     this.offset = 0,
@@ -184,6 +193,7 @@ class InventoryProductsRequest {
     return other is InventoryProductsRequest &&
         other.query == query &&
         other.categoryId == categoryId &&
+        other.supplierId == supplierId &&
         other.sortOption == sortOption &&
         other.limit == limit &&
         other.offset == offset &&
@@ -191,8 +201,15 @@ class InventoryProductsRequest {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(query, categoryId, sortOption, limit, offset, lowStockOnly);
+  int get hashCode => Object.hash(
+    query,
+    categoryId,
+    supplierId,
+    sortOption,
+    limit,
+    offset,
+    lowStockOnly,
+  );
 }
 
 final inventoryProductsPageProvider =
@@ -206,6 +223,7 @@ final inventoryProductsPageProvider =
           .searchProducts(
             query: request.query.trim(),
             categoryId: request.categoryId,
+            supplierId: request.supplierId,
             sortOption: request.sortOption,
             limit: request.limit,
             offset: request.offset,
@@ -228,6 +246,7 @@ final inventoryProductsProvider =
         final pageRequest = InventoryProductsRequest(
           query: request.query,
           categoryId: request.categoryId,
+          supplierId: request.supplierId,
           sortOption: request.sortOption,
           limit: currentPageSize,
           offset: request.offset + products.length,
