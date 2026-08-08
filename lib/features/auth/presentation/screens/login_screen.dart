@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../providers/auth_provider.dart';
@@ -57,39 +56,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           password: _passwordController.text,
         );
     if (!success || !mounted) return;
-
-    // check branches count if > 1 then redirect to branch selection else redirect to dashboard
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) throw Exception('User not logged in');
-
-    final profile =
-        await Supabase.instance.client
-            .from('users')
-            .select('tenant_id')
-            .eq('id', user.id)
-            .maybeSingle();
-
-    final tenantId = profile?['tenant_id'] as String?;
-    if (tenantId == null) {
-      // user has no tenant/shop yet
-      return;
-    }
-
-    final branches = await Supabase.instance.client
-        .from('branches')
-        .select('id, name, address, city')
-        .eq('tenant_id', tenantId);
-
-    final actualBranchCount = branches.length;
-
-    debugPrint('Actual branch count: $actualBranchCount');
-    if (!mounted) return;
-
-    if (actualBranchCount < 1) {
-      context.go('/dashboard'); // router redirect bhi handle karega
-    } else {
-      context.go('/select-branch');
-    }
+    // Keep all post-login decisions in the router. It verifies the remote
+    // account first, then chooses setup, branch selection, or dashboard.
+    context.go('/');
   }
 
   @override

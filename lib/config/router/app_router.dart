@@ -72,6 +72,7 @@ import 'package:mobileshop_saas/core/tenant_access/tenant_suspended_screen.dart'
 import 'package:mobileshop_saas/features/auth/presentation/providers/auth_provider.dart';
 import 'package:mobileshop_saas/core/constants/app_colors.dart';
 import 'package:mobileshop_saas/core/constants/app_strings.dart';
+import 'package:mobileshop_saas/core/offline/offline_store.dart';
 
 import 'router_error_screen.dart';
 
@@ -221,8 +222,26 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         // Authentication and intro handling above still apply.
         if (location == '/router-error') return null;
 
-        if (setupReadyUserId != session.user.id) {
-          setupReadyUserId = session.user.id;
+        // On a fresh device there is no profile cache yet. Confirm the signed-in
+        // account with the server and hydrate that cache before deciding whether
+        // this is a new shop. A connectivity failure must never be interpreted as
+        // an incomplete setup, otherwise existing users are sent to /setup.
+        final userId = session.user.id;
+        final setupRepository = ref.read(setupFlowRepositoryProvider);
+        final identity = await setupRepository.validateCurrentAccount(userId);
+        if (identity.state == AccountIdentityState.offline) {
+          throw StateError('Account could not be verified while offline');
+        }
+        if (identity.state == AccountIdentityState.revoked) {
+          await OfflineStore.clearUserSessionCache(userId);
+          await Supabase.instance.client.auth.signOut(
+            scope: SignOutScope.local,
+          );
+          return '/login';
+        }
+
+        if (setupReadyUserId != userId) {
+          setupReadyUserId = userId;
           setupReadyStatus = null;
         }
         final setupStatus = await loadSetupStatus(session.user.id);
