@@ -38,6 +38,9 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
   @override
   Widget build(BuildContext context) {
     final overview = ref.watch(supplierOverviewProvider(widget.supplier));
+    final analytics = ref.watch(
+      supplierSalesAnalyticsProvider((supplier: widget.supplier, days: _days)),
+    );
     return Column(
       children: [
         Padding(
@@ -104,7 +107,7 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
                       )
                       .toList();
               return DefaultTabController(
-                length: 3,
+                length: 4,
                 child: Column(
                   children: [
                     _Summary(data: data),
@@ -118,6 +121,7 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
                               tabs: [
                                 Tab(text: 'Statement'),
                                 Tab(text: 'Orders'),
+                                Tab(text: 'Products & Sales'),
                                 Tab(text: 'Details'),
                               ],
                             ),
@@ -149,6 +153,16 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
                         children: [
                           _Statement(entries: entries),
                           _Orders(orders: orders),
+                          _SupplierProductsAnalytics(
+                            analytics: analytics,
+                            onRetry:
+                                () => ref.invalidate(
+                                  supplierSalesAnalyticsProvider((
+                                    supplier: widget.supplier,
+                                    days: _days,
+                                  )),
+                                ),
+                          ),
                           _Details(data: data),
                         ],
                       ),
@@ -162,6 +176,297 @@ class _SupplierHistoryDialogState extends ConsumerState<SupplierHistoryDialog> {
       ],
     );
   }
+}
+
+class _SupplierProductsAnalytics extends StatelessWidget {
+  final AsyncValue<SupplierSalesAnalyticsModel> analytics;
+  final VoidCallback onRetry;
+
+  const _SupplierProductsAnalytics({
+    required this.analytics,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) => analytics.when(
+    loading: () => const Center(child: CircularProgressIndicator()),
+    error: (error, _) => _HistoryError(error: error, onRetry: onRetry),
+    data: (data) {
+      if (data.products.isEmpty) {
+        return const _EmptyHistory(
+          message:
+              'Is supplier ke saath abhi koi inventory product linked nahi hai. '
+              'Purchase order receive karne ke baad products yahan show honge.',
+        );
+      }
+
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.18),
+              ),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Ye supplier-wise read-only breakdown hai. Dashboard, reports, '
+                    'POS sales aur existing profit totals bilkul change nahi hote.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 620 ? 4 : 2;
+              final width =
+                  (constraints.maxWidth - ((columns - 1) * 8)) / columns;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _AnalyticsMetric(
+                    width: width,
+                    label: 'Linked products',
+                    value: data.linkedProductCount.toString(),
+                    icon: Icons.inventory_2_outlined,
+                  ),
+                  _AnalyticsMetric(
+                    width: width,
+                    label: 'Units sold',
+                    value: data.soldQuantity.toString(),
+                    icon: Icons.shopping_bag_outlined,
+                  ),
+                  _AnalyticsMetric(
+                    width: width,
+                    label: 'Sales revenue',
+                    value: _money(data.revenue),
+                    icon: Icons.trending_up_rounded,
+                  ),
+                  _AnalyticsMetric(
+                    width: width,
+                    label:
+                        data.grossProfit < 0 ? 'Gross loss' : 'Gross profit',
+                    value: _money(data.grossProfit.abs()),
+                    icon: Icons.ssid_chart_rounded,
+                    valueColor:
+                        data.grossProfit >= 0
+                            ? AppColors.success
+                            : AppColors.error,
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Supplier products',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Sales figures selected period ki completed sales se read hoti hain.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          for (final product in data.products)
+            _SupplierProductTile(product: product),
+        ],
+      );
+    },
+  );
+}
+
+class _AnalyticsMetric extends StatelessWidget {
+  final double width;
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color? valueColor;
+
+  const _AnalyticsMetric({
+    required this.width,
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: width,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: AppColors.surfaceVariant,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: AppColors.primary),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: valueColor ?? AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+            fontSize: 16,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SupplierProductTile extends StatelessWidget {
+  final SupplierProductAnalyticsModel product;
+
+  const _SupplierProductTile({required this.product});
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: const EdgeInsets.only(bottom: 8),
+    elevation: 0,
+    color: AppColors.surface,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: const BorderSide(color: AppColors.border),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 19,
+                backgroundColor: AppColors.primary.withValues(alpha: 0.09),
+                child: const Icon(
+                  Icons.inventory_2_outlined,
+                  color: AppColors.primary,
+                  size: 19,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product.productName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      product.sku?.trim().isNotEmpty == true
+                          ? 'SKU: ${product.sku}'
+                          : 'No SKU',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color:
+                      product.stockOnHand > 0
+                          ? AppColors.success.withValues(alpha: 0.09)
+                          : AppColors.error.withValues(alpha: 0.09),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Stock ${product.stockOnHand}',
+                  style: TextStyle(
+                    color:
+                        product.stockOnHand > 0
+                            ? AppColors.success
+                            : AppColors.error,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 18,
+            runSpacing: 8,
+            children: [
+              _miniStat('Sold', '${product.soldQuantity} units'),
+              _miniStat('Revenue', _money(product.salesRevenue)),
+              _miniStat('Sale cost', _money(product.costOfSales)),
+              _miniStat(
+                product.grossProfit < 0 ? 'Loss' : 'Profit',
+                _money(product.grossProfit.abs()),
+                valueColor:
+                    product.grossProfit < 0
+                        ? AppColors.error
+                        : AppColors.success,
+              ),
+              _miniStat('Last cost', _money(product.lastPurchaseCost)),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _miniStat(String label, String value, {Color? valueColor}) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+      ),
+      Text(
+        value,
+        style: TextStyle(
+          color: valueColor,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ],
+  );
 }
 
 class _Summary extends StatelessWidget {

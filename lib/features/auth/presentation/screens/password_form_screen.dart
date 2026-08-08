@@ -105,11 +105,12 @@ class _PasswordFormScreenState extends ConsumerState<PasswordFormScreen> {
       if (!mounted) return;
       final message = error is AuthException ? error.message.toLowerCase() : '';
       setState(() {
-        _error = !widget.isRecovery &&
-                (message.contains('invalid login credentials') ||
-                    message.contains('invalid credentials'))
-            ? const AuthException('Current password sahi nahi hai.')
-            : error;
+        _error =
+            !widget.isRecovery &&
+                    (message.contains('invalid login credentials') ||
+                        message.contains('invalid credentials'))
+                ? const AuthException('Current password sahi nahi hai.')
+                : error;
       });
     } finally {
       if (mounted) setState(() => _saving = false);

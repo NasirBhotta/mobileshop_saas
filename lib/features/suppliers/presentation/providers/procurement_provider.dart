@@ -34,6 +34,15 @@ final supplierOverviewProvider = FutureProvider.autoDispose
           .fetchSupplierOverview(supplier);
     });
 
+final supplierSalesAnalyticsProvider = FutureProvider.autoDispose
+    .family<SupplierSalesAnalyticsModel, ({SupplierModel supplier, int? days})>(
+      (ref, request) {
+        return ref
+            .read(procurementRepositoryProvider)
+            .fetchSupplierSalesAnalytics(request.supplier, days: request.days);
+      },
+    );
+
 final selectedPOStatusProvider = StateProvider<PurchaseOrderStatus?>((ref) {
   return null;
 });

@@ -92,7 +92,12 @@ final authListenerProvider = StreamProvider<void>((ref) async* {
     }
     activeUserId = nextUserId;
 
-    if (authState.event == AuthChangeEvent.signedIn) {
+    // A password change verifies the current password by signing the already
+    // active user in again. Supabase emits `signedIn` for that re-auth too.
+    // Re-invalidating navigation providers for the same user can notify the
+    // ProviderScope while DesktopNav is still building. Only bootstrap auth-
+    // scoped data when the signed-in identity has actually changed.
+    if (authState.event == AuthChangeEvent.signedIn && userChanged) {
       final user = authState.session?.user;
       if (user == null) continue;
 

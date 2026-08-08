@@ -490,7 +490,7 @@ class BusinessReportLocalStore {
         p.category_id AS category_id,
         COALESCE(c.name, 'Uncategorized') AS category_name,
         COALESCE(i.quantity, 0) AS quantity,
-        COALESCE(i.reorder_threshold, p.reorder_threshold, c.default_reorder_threshold, 5) AS reorder_threshold,
+        COALESCE(i.reorder_threshold, p.reorder_threshold, c.default_reorder_threshold, 1) AS reorder_threshold,
         COALESCE(p.cost_price, 0) AS cost_price,
         COALESCE(i.quantity, 0) * COALESCE(p.cost_price, 0) AS stock_value
       FROM products p

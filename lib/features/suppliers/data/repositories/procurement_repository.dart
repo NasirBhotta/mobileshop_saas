@@ -240,6 +240,119 @@ class ProcurementRepository {
     );
   }
 
+  Future<SupplierSalesAnalyticsModel> fetchSupplierSalesAnalytics(
+    SupplierModel supplier, {
+    int? days,
+  }) async {
+    await _entitlements.require('procurement.suppliers');
+    final branchId = await _branchId(supplier.tenantId);
+    final since =
+        days == null ? null : DateTime.now().subtract(Duration(days: days));
+
+    final linkRows = await _client
+        .from('supplier_products')
+        .select(
+          'product_id, supplier_sku, last_cost, '
+          'products!inner(id, name, sku, branch_id)',
+        )
+        .eq('tenant_id', supplier.tenantId)
+        .eq('supplier_id', supplier.id);
+
+    final links =
+        (linkRows as List).where((row) {
+          final product = row['products'] as Map<String, dynamic>?;
+          return product?['branch_id'] == branchId;
+        }).toList();
+    if (links.isEmpty) {
+      return SupplierSalesAnalyticsModel.empty(since: since);
+    }
+
+    final productIds = links.map((row) => row['product_id'] as String).toList();
+    final stockRows = await _client
+        .from('inventory')
+        .select('product_id, quantity')
+        .eq('branch_id', branchId)
+        .inFilter('product_id', productIds);
+    final stockByProduct = <String, int>{
+      for (final row in stockRows as List)
+        row['product_id'] as String: (row['quantity'] as num?)?.toInt() ?? 0,
+    };
+
+    var salesQuery = _client
+        .from('sales')
+        .select(
+          'created_at, sale_items(product_id, quantity, line_total, '
+          'cogs_total, unit_cost_at_sale)',
+        )
+        .eq('branch_id', branchId)
+        .eq('status', 'completed');
+    if (since != null) {
+      salesQuery = salesQuery.gte('created_at', since.toIso8601String());
+    }
+    final saleRows = await salesQuery;
+
+    final soldByProduct = <String, int>{};
+    final revenueByProduct = <String, double>{};
+    final costByProduct = <String, double>{};
+    final linkedIds = productIds.toSet();
+    for (final sale in saleRows as List) {
+      for (final rawItem in (sale['sale_items'] as List? ?? const [])) {
+        final item = rawItem as Map<String, dynamic>;
+        final productId = item['product_id'] as String?;
+        if (productId == null || !linkedIds.contains(productId)) continue;
+        final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
+        final revenue = (item['line_total'] as num?)?.toDouble() ?? 0;
+        final unitCost = (item['unit_cost_at_sale'] as num?)?.toDouble() ?? 0;
+        final cost =
+            (item['cogs_total'] as num?)?.toDouble() ?? unitCost * quantity;
+        soldByProduct.update(
+          productId,
+          (value) => value + quantity,
+          ifAbsent: () => quantity,
+        );
+        revenueByProduct.update(
+          productId,
+          (value) => value + revenue,
+          ifAbsent: () => revenue,
+        );
+        costByProduct.update(
+          productId,
+          (value) => value + cost,
+          ifAbsent: () => cost,
+        );
+      }
+    }
+
+    final products =
+        links.map((row) {
+            final product = row['products'] as Map<String, dynamic>;
+            final productId = row['product_id'] as String;
+            return SupplierProductAnalyticsModel(
+              productId: productId,
+              productName: product['name'] as String? ?? 'Unnamed product',
+              sku: (row['supplier_sku'] ?? product['sku']) as String?,
+              lastPurchaseCost: (row['last_cost'] as num?)?.toDouble() ?? 0,
+              stockOnHand: stockByProduct[productId] ?? 0,
+              soldQuantity: soldByProduct[productId] ?? 0,
+              salesRevenue: revenueByProduct[productId] ?? 0,
+              costOfSales: costByProduct[productId] ?? 0,
+            );
+          }).toList()
+          ..sort((a, b) => b.salesRevenue.compareTo(a.salesRevenue));
+
+    return SupplierSalesAnalyticsModel(
+      products: products,
+      linkedProductCount: products.length,
+      soldQuantity: products.fold(
+        0,
+        (total, item) => total + item.soldQuantity,
+      ),
+      revenue: products.fold(0, (total, item) => total + item.salesRevenue),
+      costOfSales: products.fold(0, (total, item) => total + item.costOfSales),
+      since: since,
+    );
+  }
+
   Future<void> _refreshSuppliers(String tenantId, String branchId) async {
     try {
       await _fetchRemoteSuppliers(tenantId, branchId).timeout(_networkTimeout);

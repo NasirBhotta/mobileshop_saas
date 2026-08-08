@@ -664,3 +664,60 @@ class SupplierOverviewModel {
     return dates.isEmpty ? null : dates.last;
   }
 }
+
+/// Read-only supplier breakdown built from the existing supplier-product links,
+/// inventory and completed sales. It never participates in sale/accounting
+/// writes, so operational totals remain owned by POS and reports.
+class SupplierProductAnalyticsModel {
+  final String productId;
+  final String productName;
+  final String? sku;
+  final double lastPurchaseCost;
+  final int stockOnHand;
+  final int soldQuantity;
+  final double salesRevenue;
+  final double costOfSales;
+
+  const SupplierProductAnalyticsModel({
+    required this.productId,
+    required this.productName,
+    this.sku,
+    required this.lastPurchaseCost,
+    required this.stockOnHand,
+    required this.soldQuantity,
+    required this.salesRevenue,
+    required this.costOfSales,
+  });
+
+  double get grossProfit => salesRevenue - costOfSales;
+}
+
+class SupplierSalesAnalyticsModel {
+  final List<SupplierProductAnalyticsModel> products;
+  final int linkedProductCount;
+  final int soldQuantity;
+  final double revenue;
+  final double costOfSales;
+  final DateTime? since;
+
+  const SupplierSalesAnalyticsModel({
+    required this.products,
+    required this.linkedProductCount,
+    required this.soldQuantity,
+    required this.revenue,
+    required this.costOfSales,
+    this.since,
+  });
+
+  double get grossProfit => revenue - costOfSales;
+
+  static SupplierSalesAnalyticsModel empty({DateTime? since}) =>
+      SupplierSalesAnalyticsModel(
+        products: const [],
+        linkedProductCount: 0,
+        soldQuantity: 0,
+        revenue: 0,
+        costOfSales: 0,
+        since: since,
+      );
+}

@@ -38,12 +38,12 @@ class ProductModel {
   });
 
   // ── Yeh property decide kare gi effective threshold ──
-  // Branch > Product > Category > System(5)
+  // Branch > Product > Category > System(1)
   int get effectiveThreshold {
     if (branchThreshold > 0) return branchThreshold;
     if (reorderThreshold > 0) return reorderThreshold;
     if (categoryThreshold > 0) return categoryThreshold;
-    return 5; // system default
+    return 1; // system default
   }
 
   // ── Yeh properties dashboard aur product card use karein ge ──

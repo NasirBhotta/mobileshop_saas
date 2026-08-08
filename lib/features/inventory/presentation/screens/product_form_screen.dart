@@ -106,7 +106,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _imeiTracked = p?.imeiTracked ?? false;
 
     _thresholdController = TextEditingController(
-      text: p?.reorderThreshold.toString() ?? '5',
+      text: p?.reorderThreshold.toString() ?? '1',
     );
   }
 
@@ -156,7 +156,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       costPrice: double.tryParse(_costPriceController.text) ?? 0,
       imeiTracked: _imeiTracked,
       stock: int.tryParse(_quantityController.text) ?? 0,
-      reorderThreshold: int.tryParse(_thresholdController.text) ?? 5,
+      reorderThreshold: int.tryParse(_thresholdController.text) ?? 1,
     );
 
     bool success;
@@ -338,7 +338,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                           keyboardType: TextInputType.number,
                           onChanged: (_) => setState(() {}),
                           decoration: const InputDecoration(
-                            hintText: '5',
+                            hintText: '1',
                             helperText: 'Jab stock is level pe aaye → alert',
                           ),
                           validator: (v) {
