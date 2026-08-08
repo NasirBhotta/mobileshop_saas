@@ -985,6 +985,24 @@ class OfflineStore {
     return [];
   }
 
+  static Future<void> saveCustomerLedgerEntry(
+    CustomerLedgerEntryModel entry, {
+    bool synced = false,
+  }) async {
+    try {
+      await LocalStore.saveCustomerLedgerEntry(entry, synced: synced);
+    } catch (_) {}
+  }
+
+  static Future<List<CustomerLedgerEntryModel>> loadCustomerLedgerEntries(
+    String customerId,
+  ) async {
+    try {
+      return await LocalStore.loadCustomerLedgerEntries(customerId);
+    } catch (_) {}
+    return [];
+  }
+
   // ── Helper ──
   static Map<String, dynamic> _saleToMap(SaleModel sale) => {
     'id': sale.id,

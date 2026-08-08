@@ -6,6 +6,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../data/models/customer_model.dart';
+import '../../data/models/customer_dashboard_model.dart';
 import '../../data/models/sale_payment_model.dart';
 import '../../domain/pos_payment_account_policy.dart';
 import '../../../accounts/data/models/account_models.dart';
@@ -158,7 +159,6 @@ class _CustomerTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final due = customer.outstandingBalance;
 
-    debugPrint("custome data is: ${customer.toJson()}");
     return Material(
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(8),
@@ -234,156 +234,285 @@ class CustomerDetailScreen extends ConsumerWidget {
             onRefresh:
                 () async =>
                     ref.invalidate(customerDashboardProvider(customer.id!)),
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1180),
+                child: ListView(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: Responsive.isDesktop(context) ? 24 : 16,
+                    vertical: 16,
+                  ),
                   children: [
-                    _MetricCard(
-                      label: AppStrings.customerLifetimeValue,
-                      value: AppStrings.customerMoney(data.lifetimeValue),
-                      icon: Icons.trending_up_rounded,
-                    ),
-                    _MetricCard(
-                      label: AppStrings.customerOutstanding,
-                      value: AppStrings.customerMoney(data.outstandingDues),
-                      icon: Icons.payments_rounded,
-                      color:
-                          data.outstandingDues > 0
-                              ? AppColors.warning
-                              : AppColors.success,
-                    ),
-                    _MetricCard(
-                      label: AppStrings.customerCreditLimit,
-                      value:
-                          limit == null
-                              ? AppStrings.customerCreditLimitNotSet
-                              : AppStrings.customerMoney(limit),
-                      icon: Icons.speed_rounded,
-                    ),
-                    _MetricCard(
-                      label: AppStrings.customerActiveRepairs,
-                      value: data.activeRepairTickets.toString(),
-                      icon: Icons.build_rounded,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.info.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: AppColors.info.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  child: const Text(
-                    AppStrings.customerCreditExplanation,
-                    style: TextStyle(
-                      color: AppColors.info,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed:
-                        data.outstandingDues <= 0
-                            ? null
-                            : () => showModalBottomSheet<void>(
-                              context: context,
-                              isScrollControlled: true,
-                              showDragHandle: true,
-                              builder:
-                                  (_) => _SettleDuesSheet(
-                                    customerId: customer.id!,
-                                    outstanding: data.outstandingDues,
-                                  ),
+                    // Align(
+                    //   alignment: Alignment.centerRight,
+                    //   child: Chip(
+                    //     avatar: Icon(
+                    //       data.syncPending
+                    //           ? Icons.cloud_upload_outlined
+                    //           : Icons.cloud_done_outlined,
+                    //       size: 17,
+                    //       color:
+                    //           data.syncPending
+                    //               ? AppColors.warning
+                    //               : AppColors.success,
+                    //     ),
+                    //     label: Text(
+                    //       data.syncPending ? 'Pending sync' : 'Synced',
+                    //     ),
+                    //   ),
+                    // ),
+                    // const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final columns =
+                            constraints.maxWidth >= 900
+                                ? 4
+                                : constraints.maxWidth >= 560
+                                ? 2
+                                : 1;
+                        final width =
+                            (constraints.maxWidth - (columns - 1) * 12) /
+                            columns;
+                        return Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            _MetricCard(
+                              width: width,
+                              label: AppStrings.customerLifetimeValue,
+                              value: AppStrings.customerMoney(
+                                data.lifetimeValue,
+                              ),
+                              icon: Icons.trending_up_rounded,
                             ),
-                    icon: const Icon(Icons.task_alt_rounded, size: 18),
-                    label: const Text(AppStrings.customerSettleDues),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  AppStrings.customerPurchaseHistory,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (data.purchases.isEmpty)
-                  const Text(
-                    AppStrings.customerNoPurchases,
-                    style: TextStyle(color: AppColors.textSecondary),
-                  )
-                else
-                  ...data.purchases.map(
-                    (sale) => Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        title: Text(AppStrings.customerInvoice(sale.id ?? '')),
-                        subtitle: Text(
-                          sale.createdAt
-                                  ?.toLocal()
-                                  .toString()
-                                  .split('.')
-                                  .first ??
-                              '',
+                            _MetricCard(
+                              width: width,
+                              label: AppStrings.customerOutstanding,
+                              value: AppStrings.customerMoney(
+                                data.outstandingDues,
+                              ),
+                              icon: Icons.payments_rounded,
+                              color:
+                                  data.outstandingDues > 0
+                                      ? AppColors.warning
+                                      : AppColors.success,
+                            ),
+                            _MetricCard(
+                              width: width,
+                              label: AppStrings.customerCreditLimit,
+                              value:
+                                  limit == null
+                                      ? AppStrings.customerCreditLimitNotSet
+                                      : AppStrings.customerMoney(limit),
+                              icon: Icons.speed_rounded,
+                            ),
+                            _MetricCard(
+                              width: width,
+                              label: AppStrings.customerActiveRepairs,
+                              value: data.activeRepairTickets.toString(),
+                              icon: Icons.build_rounded,
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.info.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: AppColors.info.withValues(alpha: 0.2),
                         ),
-                        trailing: Text(
-                          AppStrings.customerMoney(sale.total),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      child: const Text(
+                        AppStrings.customerCreditExplanation,
+                        style: TextStyle(
+                          color: AppColors.info,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
-                  ),
-                const SizedBox(height: 20),
-                const Text(
-                  AppStrings.customerSettlements,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (data.settlements.isEmpty)
-                  const Text(
-                    AppStrings.customerNoSettlements,
-                    style: TextStyle(color: AppColors.textSecondary),
-                  )
-                else
-                  ...data.settlements.map(
-                    (settlement) => Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: const Icon(Icons.receipt_long_rounded),
-                        title: Text(
-                          AppStrings.customerMoney(settlement.amount),
-                        ),
-                        subtitle: Text(
-                          AppStrings.customerSettlementDetails(
-                            settlement.method,
-                            settlement.createdAt
-                                .toLocal()
-                                .toString()
-                                .split('.')
-                                .first,
+                    const SizedBox(height: 16),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final stacked = constraints.maxWidth < 560;
+                        final buttonWidth =
+                            stacked
+                                ? constraints.maxWidth
+                                : (constraints.maxWidth - 12) / 2;
+                        return Wrap(
+                          spacing: 12,
+                          runSpacing: 10,
+                          children: [
+                            SizedBox(
+                              width: buttonWidth,
+                              child: FilledButton.icon(
+                                onPressed:
+                                    data.outstandingDues <= 0
+                                        ? null
+                                        : () {
+                                          _showResponsiveCustomerSheet(
+                                            context,
+                                            (isDialog) => _SettleDuesSheet(
+                                              customerId: data.customer.id!,
+                                              outstanding: data.outstandingDues,
+                                              isDialog: isDialog,
+                                            ),
+                                          );
+                                        },
+                                icon: const Icon(
+                                  Icons.task_alt_rounded,
+                                  size: 18,
+                                ),
+                                label: const Text(
+                                  AppStrings.customerSettleDues,
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: buttonWidth,
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  _showResponsiveCustomerSheet(
+                                    context,
+                                    (isDialog) => _CustomerLedgerEntrySheet(
+                                      customerId: data.customer.id!,
+                                      outstanding: data.outstandingDues,
+                                      isDialog: isDialog,
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(
+                                  Icons.post_add_rounded,
+                                  size: 18,
+                                ),
+                                label: const Text('Add manual ledger entry'),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      AppStrings.customerPurchaseHistory,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (data.purchases.isEmpty)
+                      const Text(
+                        AppStrings.customerNoPurchases,
+                        style: TextStyle(color: AppColors.textSecondary),
+                      )
+                    else
+                      ...data.purchases.map(
+                        (sale) => Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            title: Text(
+                              AppStrings.customerInvoice(sale.id ?? ''),
+                            ),
+                            subtitle: Text(
+                              sale.createdAt
+                                      ?.toLocal()
+                                      .toString()
+                                      .split('.')
+                                      .first ??
+                                  '',
+                            ),
+                            trailing: Text(
+                              AppStrings.customerMoney(sale.total),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ),
                       ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      AppStrings.customerSettlements,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
-                  ),
-              ],
+                    const SizedBox(height: 8),
+                    if (data.settlements.isEmpty)
+                      const Text(
+                        AppStrings.customerNoSettlements,
+                        style: TextStyle(color: AppColors.textSecondary),
+                      )
+                    else
+                      ...data.settlements.map(
+                        (settlement) => Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            leading: const Icon(Icons.receipt_long_rounded),
+                            title: Text(
+                              AppStrings.customerMoney(settlement.amount),
+                            ),
+                            subtitle: Text(
+                              AppStrings.customerSettlementDetails(
+                                settlement.method,
+                                settlement.createdAt
+                                    .toLocal()
+                                    .toString()
+                                    .split('.')
+                                    .first,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Manual ledger entries',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (data.ledgerEntries.isEmpty)
+                      const Text(
+                        'No manual ledger entries yet',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      )
+                    else
+                      ...data.ledgerEntries.map(
+                        (entry) => Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            leading: Icon(
+                              entry.type == CustomerLedgerEntryType.charge
+                                  ? Icons.add_circle_outline
+                                  : Icons.remove_circle_outline,
+                              color:
+                                  entry.type == CustomerLedgerEntryType.charge
+                                      ? AppColors.warning
+                                      : AppColors.success,
+                            ),
+                            title: Text(
+                              '${entry.type == CustomerLedgerEntryType.charge ? '+' : '-'} ${AppStrings.customerMoney(entry.amount)}',
+                            ),
+                            subtitle: Text(entry.reason),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           );
         },
@@ -392,23 +521,196 @@ class CustomerDetailScreen extends ConsumerWidget {
   }
 }
 
+Future<void> _showResponsiveCustomerSheet(
+  BuildContext context,
+  Widget Function(bool isDialog) builder,
+) {
+  if (Responsive.isDesktop(context)) {
+    return showDialog<void>(
+      context: context,
+      builder:
+          (dialogContext) => Dialog(
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 32,
+              vertical: 24,
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: SingleChildScrollView(child: builder(true)),
+            ),
+          ),
+    );
+  }
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    useSafeArea: true,
+    builder: (_) => SingleChildScrollView(child: builder(false)),
+  );
+}
+
+class _CustomerLedgerEntrySheet extends ConsumerStatefulWidget {
+  final String customerId;
+  final double outstanding;
+  final bool isDialog;
+
+  const _CustomerLedgerEntrySheet({
+    required this.customerId,
+    required this.outstanding,
+    this.isDialog = false,
+  });
+
+  @override
+  ConsumerState<_CustomerLedgerEntrySheet> createState() =>
+      _CustomerLedgerEntrySheetState();
+}
+
+class _CustomerLedgerEntrySheetState
+    extends ConsumerState<_CustomerLedgerEntrySheet> {
+  final _amount = TextEditingController();
+  final _reason = TextEditingController();
+  CustomerLedgerEntryType _type = CustomerLedgerEntryType.charge;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _reason.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final saving = ref.watch(customerLedgerControllerProvider).isLoading;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        widget.isDialog ? 24 : 16,
+        widget.isDialog ? 20 : 0,
+        widget.isDialog ? 24 : 16,
+        MediaQuery.of(context).viewInsets.bottom + (widget.isDialog ? 24 : 16),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Manual ledger entry',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<CustomerLedgerEntryType>(
+            initialValue: _type,
+            items: const [
+              DropdownMenuItem(
+                value: CustomerLedgerEntryType.charge,
+                child: Text('Add due / charge'),
+              ),
+              DropdownMenuItem(
+                value: CustomerLedgerEntryType.credit,
+                child: Text('Reduce due / adjustment'),
+              ),
+            ],
+            onChanged:
+                saving
+                    ? null
+                    : (value) => setState(
+                      () => _type = value ?? CustomerLedgerEntryType.charge,
+                    ),
+            decoration: const InputDecoration(labelText: 'Entry type'),
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: _amount,
+            enabled: !saving,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: 'Amount',
+              prefixText: 'Rs ',
+              helperText:
+                  _type == CustomerLedgerEntryType.credit
+                      ? 'Current due: ${AppStrings.customerMoney(widget.outstanding)}'
+                      : null,
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: _reason,
+            enabled: !saving,
+            decoration: const InputDecoration(labelText: 'Reason *'),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: saving ? null : _submit,
+              child: Text(saving ? 'Saving...' : 'Save ledger entry'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    final amount = double.tryParse(_amount.text.trim()) ?? 0;
+    final reason = _reason.text.trim();
+    if (amount <= 0 ||
+        reason.isEmpty ||
+        (_type == CustomerLedgerEntryType.credit &&
+            amount > widget.outstanding + 0.01)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Valid amount aur reason enter karein.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+    final ok = await ref
+        .read(customerLedgerControllerProvider.notifier)
+        .add(
+          customerId: widget.customerId,
+          type: _type,
+          amount: amount,
+          reason: reason,
+        );
+    if (!mounted) return;
+    if (ok) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Ledger entry saved.')));
+    } else {
+      final error = ref.read(customerLedgerControllerProvider).error;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error?.toString() ?? 'Ledger entry save nahi hui.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+}
+
 class _MetricCard extends StatelessWidget {
   final String label;
   final String value;
   final IconData icon;
   final Color color;
+  final double width;
 
   const _MetricCard({
     required this.label,
     required this.value,
     required this.icon,
+    required this.width,
     this.color = AppColors.primary,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 190,
+      width: width,
       child: Card(
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -739,8 +1041,13 @@ class _CreditLimitSheetState extends ConsumerState<_CreditLimitSheet> {
 class _SettleDuesSheet extends ConsumerStatefulWidget {
   final String customerId;
   final double outstanding;
+  final bool isDialog;
 
-  const _SettleDuesSheet({required this.customerId, required this.outstanding});
+  const _SettleDuesSheet({
+    required this.customerId,
+    required this.outstanding,
+    this.isDialog = false,
+  });
 
   @override
   ConsumerState<_SettleDuesSheet> createState() => _SettleDuesSheetState();
@@ -785,10 +1092,10 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
         )?.id;
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        16,
-        0,
-        16,
-        MediaQuery.of(context).viewInsets.bottom + 16,
+        widget.isDialog ? 24 : 16,
+        widget.isDialog ? 20 : 0,
+        widget.isDialog ? 24 : 16,
+        MediaQuery.of(context).viewInsets.bottom + (widget.isDialog ? 24 : 16),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -980,6 +1287,9 @@ String _settlementErrorMessage(Object? error) {
   if (normalized.contains('current dues') ||
       normalized.contains('exceeds current customer dues')) {
     return AppStrings.customerSettlementExceedsDues;
+  }
+  if (normalized.contains('settlement sync pending')) {
+    return 'Previous settlement abhi sync pending hai. Pehle sync complete hone dein.';
   }
   if (normalized.contains('account') &&
       (normalized.contains('compatible') || normalized.contains('not found'))) {

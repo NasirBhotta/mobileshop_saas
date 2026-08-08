@@ -102,6 +102,7 @@ SetupFlowStatus filterSetupStatusForBranchAccess(
 
 class SetupFlowRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
+  static const _identityTimeout = Duration(seconds: 5);
   final SupabaseClient _client;
   final Map<String, Future<void>> _syncsInFlight = {};
   final Set<String> _syncAgainForUsers = {};
@@ -119,7 +120,7 @@ class SetupFlowRepository {
       try {
         final raw = await _client
             .rpc('current_account_context')
-            .timeout(_networkTimeout);
+            .timeout(_identityTimeout);
         final context =
             raw is Map
                 ? Map<String, dynamic>.from(raw)
@@ -144,6 +145,10 @@ class SetupFlowRepository {
         return const AccountIdentityResult(AccountIdentityState.revoked);
       } catch (error) {
         OfflineErrorClassifier.rethrowIfTerminal(error);
+        if (!hasCachedProfile && attempt + 1 < maxAttempts) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          continue;
+        }
         return const AccountIdentityResult(AccountIdentityState.offline);
       }
     }

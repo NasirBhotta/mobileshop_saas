@@ -671,6 +671,45 @@ class CustomerSettlementController extends StateNotifier<AsyncValue<void>> {
   }
 }
 
+final customerLedgerControllerProvider =
+    StateNotifierProvider<CustomerLedgerController, AsyncValue<void>>((ref) {
+      return CustomerLedgerController(ref.read(posRepositoryProvider), ref);
+    });
+
+class CustomerLedgerController extends StateNotifier<AsyncValue<void>> {
+  final PosRepository _repository;
+  final Ref _ref;
+
+  CustomerLedgerController(this._repository, this._ref)
+    : super(const AsyncData(null));
+
+  Future<bool> add({
+    required String customerId,
+    required CustomerLedgerEntryType type,
+    required double amount,
+    required String reason,
+  }) async {
+    if (state.isLoading) return false;
+    state = const AsyncLoading();
+    try {
+      await _repository.addCustomerLedgerEntry(
+        customerId: customerId,
+        type: type,
+        amount: amount,
+        reason: reason,
+      );
+      _ref.invalidate(customersProvider);
+      _ref.invalidate(allCustomersProvider);
+      _ref.invalidate(customerDashboardProvider(customerId));
+      state = const AsyncData(null);
+      return true;
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+      return false;
+    }
+  }
+}
+
 class ReturnDraftState {
   final SaleModel? sale;
   final Map<String, int> quantitiesByProductId;

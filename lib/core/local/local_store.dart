@@ -1120,6 +1120,12 @@ class LocalStore {
     final localCustomer = await loadCustomerById(localCustomerId);
     if (localCustomer == null) return;
 
+    await LocalDatabase.execute(
+      '''INSERT OR REPLACE INTO customer_id_aliases(local_id, remote_id, created_at)
+         VALUES(?,?,?)''',
+      [localCustomerId, remoteCustomerId, DateTime.now().toIso8601String()],
+    );
+
     await saveCustomer(
       CustomerModel(
         id: remoteCustomerId,
@@ -1140,6 +1146,10 @@ class LocalStore {
     );
     await LocalDatabase.execute(
       'UPDATE customer_settlements SET customer_id = ? WHERE customer_id = ?',
+      [remoteCustomerId, localCustomerId],
+    );
+    await LocalDatabase.execute(
+      'UPDATE customer_ledger_entries SET customer_id = ? WHERE customer_id = ?',
       [remoteCustomerId, localCustomerId],
     );
     await LocalDatabase.execute('DELETE FROM customers WHERE id = ?', [
@@ -1224,6 +1234,57 @@ class LocalStore {
       [customerId],
     );
     return rows.map(CustomerSettlementModel.fromMap).toList();
+  }
+
+  static Future<String> resolveCustomerId(String customerId) async {
+    final rows = await LocalDatabase.select(
+      'SELECT remote_id FROM customer_id_aliases WHERE local_id = ? LIMIT 1',
+      [customerId],
+    );
+    return rows.isEmpty ? customerId : rows.first['remote_id'] as String;
+  }
+
+  static Future<void> saveCustomerLedgerEntry(
+    CustomerLedgerEntryModel entry, {
+    bool synced = false,
+  }) async {
+    await LocalDatabase.execute(
+      '''
+      INSERT OR REPLACE INTO customer_ledger_entries(
+        id, customer_id, branch_id, user_id, entry_type, amount, reason,
+        synced, created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?)
+      ''',
+      [
+        entry.id,
+        entry.customerId,
+        entry.branchId,
+        entry.userId,
+        entry.type.name,
+        entry.amount,
+        entry.reason,
+        synced ? 1 : 0,
+        entry.createdAt.toIso8601String(),
+      ],
+    );
+  }
+
+  static Future<void> markCustomerLedgerEntrySynced(String id) async {
+    await LocalDatabase.execute(
+      'UPDATE customer_ledger_entries SET synced = 1 WHERE id = ?',
+      [id],
+    );
+  }
+
+  static Future<List<CustomerLedgerEntryModel>> loadCustomerLedgerEntries(
+    String customerId,
+  ) async {
+    final rows = await LocalDatabase.select(
+      '''SELECT * FROM customer_ledger_entries
+         WHERE customer_id = ? ORDER BY created_at DESC''',
+      [customerId],
+    );
+    return rows.map(CustomerLedgerEntryModel.fromMap).toList();
   }
 
   static CustomerModel _customerFromRow(Map<String, dynamic> row) {

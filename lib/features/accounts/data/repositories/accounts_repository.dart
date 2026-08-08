@@ -603,6 +603,13 @@ class AccountsRepository {
     } catch (_) {
       return;
     }
+    final pending = await OfflineStore.loadMutations(_currentUser.id);
+    if (pending.any((mutation) => mutation.type == 'customer_settlement')) {
+      // Customer settlements are committed optimistically to the local account
+      // ledger by POS. Until their server RPC succeeds, a remote account fetch
+      // would overwrite the newer local balance with a stale server balance.
+      return;
+    }
     await _refreshAccounts(tenantId, branchId);
   }
 

@@ -20,10 +20,12 @@ class LocalDatabase {
     'stock_adjustments',
     'tenant_settings',
     'customers',
+    'customer_id_aliases',
     'sales',
     'sale_items',
     'sale_payments',
     'customer_settlements',
+    'customer_ledger_entries',
     'sale_returns',
     'sale_return_items',
     'sale_return_refund_legs',
@@ -89,6 +91,8 @@ class LocalDatabase {
     'sale_return_credit_adjustments',
     'sale_returns',
     'customer_settlements',
+    'customer_ledger_entries',
+    'customer_id_aliases',
     'sale_payments',
     'sale_items',
     'sales',
@@ -508,6 +512,13 @@ class LocalDatabase {
     ''');
 
     await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS customer_id_aliases (
+        local_id TEXT PRIMARY KEY,
+        remote_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await _db.customStatement('''
     CREATE TABLE IF NOT EXISTS customer_settlements (
       id TEXT PRIMARY KEY,
       customer_id TEXT NOT NULL,
@@ -522,6 +533,23 @@ class LocalDatabase {
       created_at TEXT NOT NULL
     )
   ''');
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS customer_ledger_entries (
+        id TEXT PRIMARY KEY,
+        customer_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        entry_type TEXT NOT NULL CHECK(entry_type IN ('charge', 'credit')),
+        amount REAL NOT NULL CHECK(amount > 0),
+        reason TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_customer_ledger_entries_customer
+      ON customer_ledger_entries(customer_id, created_at)
+    ''');
     await _addColumnIfMissing(
       table: 'customer_settlements',
       column: 'account_id',

@@ -117,6 +117,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   SetupFlowStatus? setupReadyStatus;
   String? setupLoadUserId;
   Future<SetupFlowStatus>? setupLoadInFlight;
+  String? identityVerifiedUserId;
 
   Future<SetupFlowStatus> loadSetupStatus(String userId) {
     final ready = setupReadyUserId == userId ? setupReadyStatus : null;
@@ -228,16 +229,25 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         // an incomplete setup, otherwise existing users are sent to /setup.
         final userId = session.user.id;
         final setupRepository = ref.read(setupFlowRepositoryProvider);
-        final identity = await setupRepository.validateCurrentAccount(userId);
-        if (identity.state == AccountIdentityState.offline) {
-          throw StateError('Account could not be verified while offline');
-        }
-        if (identity.state == AccountIdentityState.revoked) {
-          await OfflineStore.clearUserSessionCache(userId);
-          await Supabase.instance.client.auth.signOut(
-            scope: SignOutScope.local,
-          );
-          return '/login';
+        if (identityVerifiedUserId != userId) {
+          final identity = await setupRepository.validateCurrentAccount(userId);
+          if (identity.state == AccountIdentityState.offline) {
+            // An established account may continue from its offline cache. A
+            // fresh device has no trusted profile and must retry verification
+            // instead of being mistaken for a brand-new shop.
+            final cachedProfile = await OfflineStore.loadProfile(userId);
+            if (cachedProfile == null) {
+              throw StateError('Account could not be verified while offline');
+            }
+          }
+          if (identity.state == AccountIdentityState.revoked) {
+            await OfflineStore.clearUserSessionCache(userId);
+            await Supabase.instance.client.auth.signOut(
+              scope: SignOutScope.local,
+            );
+            return '/login';
+          }
+          identityVerifiedUserId = userId;
         }
 
         if (setupReadyUserId != userId) {
