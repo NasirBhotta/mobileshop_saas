@@ -461,16 +461,33 @@ class CustomerDetailScreen extends ConsumerWidget {
                             title: Text(
                               AppStrings.customerMoney(settlement.amount),
                             ),
-                            subtitle: Text(
-                              AppStrings.customerSettlementDetails(
-                                settlement.method,
-                                settlement.createdAt
-                                    .toLocal()
-                                    .toString()
-                                    .split('.')
-                                    .first,
-                              ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  AppStrings.customerSettlementDetails(
+                                    settlement.method,
+                                    settlement.createdAt
+                                        .toLocal()
+                                        .toString()
+                                        .split('.')
+                                        .first,
+                                  ),
+                                ),
+                                if (settlement.syncError != null)
+                                  const Text(
+                                    'Needs review: remote dues changed before sync',
+                                    style: TextStyle(color: AppColors.warning),
+                                  ),
+                              ],
                             ),
+                            trailing:
+                                settlement.syncError == null
+                                    ? null
+                                    : const Icon(
+                                      Icons.warning_amber_rounded,
+                                      color: AppColors.warning,
+                                    ),
                           ),
                         ),
                       ),
@@ -1288,8 +1305,8 @@ String _settlementErrorMessage(Object? error) {
       normalized.contains('exceeds current customer dues')) {
     return AppStrings.customerSettlementExceedsDues;
   }
-  if (normalized.contains('settlement sync pending')) {
-    return 'Previous settlement abhi sync pending hai. Pehle sync complete hone dein.';
+  if (normalized.contains('sync conflict needs review')) {
+    return 'Is customer ki ek offline settlement review mangti hai. Pehle conflict resolve karein.';
   }
   if (normalized.contains('account') &&
       (normalized.contains('compatible') || normalized.contains('not found'))) {

@@ -36,6 +36,17 @@ void main() {
           'lib/features/auth/presentation/screens/forgot_password_screen.dart',
         ).readAsStringSync();
     expect(source, contains('resetPasswordForEmail'));
-    expect(source, contains('io.supabase.mobileshop://login-callback/'));
+    expect(source, contains('passwordRecoveryRedirectUrl()'));
+  });
+
+  test('recovery exit clears the temporary session', () {
+    final source =
+        File(
+          'lib/features/auth/presentation/screens/password_form_screen.dart',
+        ).readAsStringSync();
+
+    expect(source, contains('Future<void> _cancelRecovery()'));
+    expect(source, contains('passwordRecoveryRefreshProvider).complete()'));
+    expect(source, contains('auth.signOut()'));
   });
 }

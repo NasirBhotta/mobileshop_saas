@@ -1,12 +1,14 @@
 import 'cart_item_model.dart';
 
 class SaleReturnRefundPreviewModel {
+  final String paymentId;
   final String accountId;
   final String accountName;
   final String paymentMethod;
   final double amount;
 
   const SaleReturnRefundPreviewModel({
+    required this.paymentId,
     required this.accountId,
     required this.accountName,
     required this.paymentMethod,
@@ -179,6 +181,7 @@ class SaleReturnModel {
   final SaleReturnStatus status;
   final RefundMethod refundMethod;
   final double refundAmount;
+  final String? refundPaymentId;
   final String? approvalRequiredReason;
   final String? overrideReason;
   final String? approvedBy;
@@ -194,6 +197,7 @@ class SaleReturnModel {
     required this.status,
     required this.refundMethod,
     required this.refundAmount,
+    this.refundPaymentId,
     this.approvalRequiredReason,
     this.overrideReason,
     this.approvedBy,
@@ -216,6 +220,7 @@ class SaleReturnModel {
         map['refund_method'] as String? ?? '',
       ),
       refundAmount: (map['refund_amount'] as num).toDouble(),
+      refundPaymentId: map['refund_payment_id'] as String?,
       approvalRequiredReason: map['approval_required_reason'] as String?,
       overrideReason: map['override_reason'] as String?,
       approvedBy: map['approved_by'] as String?,
@@ -247,6 +252,7 @@ class SaleReturnModel {
     'status': status.code,
     'refund_method': refundMethod.code,
     'refund_amount': refundAmount,
+    'refund_payment_id': refundPaymentId,
     'approval_required_reason': approvalRequiredReason,
     'override_reason': overrideReason,
     'approved_by': approvedBy,
@@ -261,6 +267,7 @@ class SaleReturnModel {
     String? overrideReason,
     String? approvedBy,
     List<SaleReturnRefundLegModel>? refundLegs,
+    String? refundPaymentId,
   }) {
     return SaleReturnModel(
       id: id,
@@ -270,6 +277,7 @@ class SaleReturnModel {
       status: status ?? this.status,
       refundMethod: refundMethod,
       refundAmount: refundAmount,
+      refundPaymentId: refundPaymentId ?? this.refundPaymentId,
       approvalRequiredReason:
           approvalRequiredReason ?? this.approvalRequiredReason,
       overrideReason: overrideReason ?? this.overrideReason,

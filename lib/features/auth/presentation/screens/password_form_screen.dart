@@ -57,6 +57,18 @@ class _PasswordFormScreenState extends ConsumerState<PasswordFormScreen> {
     setState(() {});
   }
 
+  Future<void> _cancelRecovery() async {
+    if (_saving) return;
+    ref.read(passwordRecoveryRefreshProvider).complete();
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (_) {
+      // The recovery session may already be expired. Local navigation should
+      // still let the user request a fresh link.
+    }
+    if (mounted) context.go('/login');
+  }
+
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
@@ -105,12 +117,20 @@ class _PasswordFormScreenState extends ConsumerState<PasswordFormScreen> {
       if (!mounted) return;
       final message = error is AuthException ? error.message.toLowerCase() : '';
       setState(() {
-        _error =
-            !widget.isRecovery &&
-                    (message.contains('invalid login credentials') ||
-                        message.contains('invalid credentials'))
-                ? const AuthException('Current password sahi nahi hai.')
-                : error;
+        if (!widget.isRecovery &&
+            (message.contains('invalid login credentials') ||
+                message.contains('invalid credentials'))) {
+          _error = const AuthException('Current password sahi nahi hai.');
+        } else if (widget.isRecovery &&
+            (message.contains('expired') ||
+                message.contains('session') ||
+                message.contains('token'))) {
+          _error = const AuthException(
+            'Reset link expire ho chuka hai. Back jaa kar naya link request karein.',
+          );
+        } else {
+          _error = error;
+        }
       });
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -134,151 +154,163 @@ class _PasswordFormScreenState extends ConsumerState<PasswordFormScreen> {
   Widget build(BuildContext context) {
     final title = widget.isRecovery ? 'Reset password' : 'Change password';
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
+    return PopScope(
+      canPop: !widget.isRecovery,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && widget.isRecovery) _cancelRecovery();
+      },
+      child: Scaffold(
         backgroundColor: AppColors.background,
-        surfaceTintColor: Colors.transparent,
-        leading: IconButton(
-          tooltip: 'Back',
-          onPressed: _saving ? null : () => context.pop(),
-          icon: const Icon(Icons.arrow_back_rounded),
+        appBar: AppBar(
+          backgroundColor: AppColors.background,
+          surfaceTintColor: Colors.transparent,
+          leading: IconButton(
+            tooltip: widget.isRecovery ? 'Cancel password reset' : 'Back',
+            onPressed:
+                _saving
+                    ? null
+                    : widget.isRecovery
+                    ? _cancelRecovery
+                    : () => context.pop(),
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+          title: Text(title),
         ),
-        title: Text(title),
-      ),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.border),
-                  boxShadow: AppColors.cardShadow,
-                ),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Icon(
-                          widget.isRecovery
-                              ? Icons.lock_reset_rounded
-                              : Icons.shield_outlined,
-                          color: AppColors.primary,
-                          size: 30,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.isRecovery
-                            ? 'Apne account ke liye ek naya secure password banayein.'
-                            : 'Pehle current password verify karein, phir naya password set karein.',
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          height: 1.45,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      if (_error != null) AuthStatusMessage(error: _error!),
-                      if (!widget.isRecovery) ...[
-                        _PasswordField(
-                          controller: _currentPassword,
-                          label: 'Current password',
-                          hint: 'Apna current password enter karein',
-                          visible: _showCurrentPassword,
-                          autofillHint: AutofillHints.password,
-                          onToggleVisibility:
-                              () => setState(
-                                () =>
-                                    _showCurrentPassword =
-                                        !_showCurrentPassword,
-                              ),
-                          validator:
-                              (value) =>
-                                  (value?.isEmpty ?? true)
-                                      ? 'Current password required hai'
-                                      : null,
-                        ),
-                        const SizedBox(height: 16),
-                        const Divider(color: AppColors.divider),
-                        const SizedBox(height: 16),
-                      ],
-                      _PasswordField(
-                        controller: _password,
-                        label: 'New password',
-                        hint: 'Kam az kam 8 characters',
-                        visible: _showPassword,
-                        onToggleVisibility:
-                            () =>
-                                setState(() => _showPassword = !_showPassword),
-                        validator: _newPasswordValidator,
-                      ),
-                      const SizedBox(height: 10),
-                      _PasswordRequirements(password: _password.text),
-                      const SizedBox(height: 16),
-                      _PasswordField(
-                        controller: _confirmation,
-                        label: 'Confirm new password',
-                        hint: 'Naya password dobara enter karein',
-                        visible: _showConfirmation,
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _saving ? null : _save(),
-                        onToggleVisibility:
-                            () => setState(
-                              () => _showConfirmation = !_showConfirmation,
-                            ),
-                        validator: (value) {
-                          if (value?.isEmpty ?? true) {
-                            return 'Password confirmation required hai';
-                          }
-                          return value != _password.text
-                              ? 'Passwords match nahi karte'
-                              : null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        height: 50,
-                        child: FilledButton.icon(
-                          onPressed: _saving ? null : _save,
-                          icon:
-                              _saving
-                                  ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                  : const Icon(Icons.lock_outline_rounded),
-                          label: Text(
-                            _saving ? 'Updating...' : 'Update password',
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.border),
+                    boxShadow: AppColors.cardShadow,
+                  ),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(
+                            widget.isRecovery
+                                ? Icons.lock_reset_rounded
+                                : Icons.shield_outlined,
+                            color: AppColors.primary,
+                            size: 30,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 20),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          widget.isRecovery
+                              ? 'Apne account ke liye ek naya secure password banayein.'
+                              : 'Pehle current password verify karein, phir naya password set karein.',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            height: 1.45,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        if (_error != null) AuthStatusMessage(error: _error!),
+                        if (!widget.isRecovery) ...[
+                          _PasswordField(
+                            controller: _currentPassword,
+                            label: 'Current password',
+                            hint: 'Apna current password enter karein',
+                            visible: _showCurrentPassword,
+                            autofillHint: AutofillHints.password,
+                            onToggleVisibility:
+                                () => setState(
+                                  () =>
+                                      _showCurrentPassword =
+                                          !_showCurrentPassword,
+                                ),
+                            validator:
+                                (value) =>
+                                    (value?.isEmpty ?? true)
+                                        ? 'Current password required hai'
+                                        : null,
+                          ),
+                          const SizedBox(height: 16),
+                          const Divider(color: AppColors.divider),
+                          const SizedBox(height: 16),
+                        ],
+                        _PasswordField(
+                          controller: _password,
+                          label: 'New password',
+                          hint: 'Kam az kam 8 characters',
+                          visible: _showPassword,
+                          onToggleVisibility:
+                              () => setState(
+                                () => _showPassword = !_showPassword,
+                              ),
+                          validator: _newPasswordValidator,
+                        ),
+                        const SizedBox(height: 10),
+                        _PasswordRequirements(password: _password.text),
+                        const SizedBox(height: 16),
+                        _PasswordField(
+                          controller: _confirmation,
+                          label: 'Confirm new password',
+                          hint: 'Naya password dobara enter karein',
+                          visible: _showConfirmation,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => _saving ? null : _save(),
+                          onToggleVisibility:
+                              () => setState(
+                                () => _showConfirmation = !_showConfirmation,
+                              ),
+                          validator: (value) {
+                            if (value?.isEmpty ?? true) {
+                              return 'Password confirmation required hai';
+                            }
+                            return value != _password.text
+                                ? 'Passwords match nahi karte'
+                                : null;
+                          },
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          height: 50,
+                          child: FilledButton.icon(
+                            onPressed: _saving ? null : _save,
+                            icon:
+                                _saving
+                                    ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                    : const Icon(Icons.lock_outline_rounded),
+                            label: Text(
+                              _saving ? 'Updating...' : 'Update password',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

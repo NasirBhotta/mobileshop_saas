@@ -603,14 +603,20 @@ class AccountsRepository {
     } catch (_) {
       return;
     }
-    final pending = await OfflineStore.loadMutations(_currentUser.id);
-    if (pending.any((mutation) => mutation.type == 'customer_settlement')) {
-      // Customer settlements are committed optimistically to the local account
-      // ledger by POS. Until their server RPC succeeds, a remote account fetch
-      // would overwrite the newer local balance with a stale server balance.
-      return;
-    }
+    if (await _hasPendingOptimisticAccountMutation()) return;
     await _refreshAccounts(tenantId, branchId);
+  }
+
+  Future<bool> _hasPendingOptimisticAccountMutation() async {
+    final pending = await OfflineStore.loadMutations(_currentUser.id);
+    return pending.any(
+      (mutation) => const {
+        'sale_checkout',
+        'customer_settlement',
+        'sale_return',
+        'sale_return_approval',
+      }.contains(mutation.type),
+    );
   }
 
   Future<void> _syncThenRefreshTransactions(
@@ -636,6 +642,9 @@ class AccountsRepository {
     Duration timeout = _networkTimeout,
   }) async {
     await _entitlements.require('accounts.core');
+    // POS financial writes update SQLite optimistically. Never replace that
+    // newer balance with an older server snapshot while its mutation is queued.
+    if (await _hasPendingOptimisticAccountMutation()) return;
     final tenantId = await _tenantId();
     final branchId = await _branchId(tenantId);
     await _fetchRemoteAccounts(tenantId, branchId).timeout(timeout);

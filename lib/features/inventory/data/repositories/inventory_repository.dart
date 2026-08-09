@@ -21,6 +21,7 @@ import 'package:mobileshop_saas/features/inventory/domain/inventory_entitlement_
 class InventoryRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
   final Map<String, Future<void>> _supplierLinkSyncs = {};
+  Future<void>? _offlineSyncInFlight;
   final SupabaseClient _client;
   final EntitlementEvaluator _entitlements;
   late final InventoryEntitlementGate _entitlementGate =
@@ -55,9 +56,11 @@ class InventoryRepository {
       branchId: branchId,
     );
     if (cached.isNotEmpty) {
-      unawaited(_refreshInventorySuppliers(tenantId, branchId).catchError((_) {
-        return cached.map(InventorySupplierOption.fromMap).toList();
-      }));
+      unawaited(
+        _refreshInventorySuppliers(tenantId, branchId).catchError((_) {
+          return cached.map(InventorySupplierOption.fromMap).toList();
+        }),
+      );
       return cached.map(InventorySupplierOption.fromMap).toList();
     }
     return _refreshInventorySuppliers(tenantId, branchId);
@@ -129,11 +132,13 @@ class InventoryRepository {
     );
     _supplierLinkSyncs[supplierId] = operation;
     unawaited(
-      operation.whenComplete(() {
-        if (identical(_supplierLinkSyncs[supplierId], operation)) {
-          _supplierLinkSyncs.remove(supplierId);
-        }
-      }).catchError((_) {}),
+      operation
+          .whenComplete(() {
+            if (identical(_supplierLinkSyncs[supplierId], operation)) {
+              _supplierLinkSyncs.remove(supplierId);
+            }
+          })
+          .catchError((_) {}),
     );
   }
 
@@ -681,9 +686,18 @@ class InventoryRepository {
     }
     final remoteProducts =
         (data as List).map((e) => ProductModel.fromMap(e)).toList();
-    final products = await _applyPendingSaleStock(
+    final productsWithPendingEdits = await _applyPendingProductUpserts(
       branchId: branchId,
       products: remoteProducts,
+      includeMissing:
+          categoryId == null &&
+          supplierId == null &&
+          normalizedQuery?.isNotEmpty != true &&
+          !lowStockOnly,
+    );
+    final products = await _applyPendingSaleStock(
+      branchId: branchId,
+      products: productsWithPendingEdits,
     );
     if (categoryId == null && normalizedQuery?.isNotEmpty != true) {
       await OfflineStore.saveProducts(branchId, products);
@@ -1859,8 +1873,12 @@ class InventoryRepository {
         .eq('branch_id', branchId)
         .order('name');
 
-    final categories =
+    final remoteCategories =
         (data as List).map((e) => CategoryModel.fromMap(e)).toList();
+    final categories = await _applyPendingCategoryUpserts(
+      branchId: branchId,
+      categories: remoteCategories,
+    );
     await OfflineStore.saveCategories(branchId, categories);
     return categories;
   }
@@ -2197,7 +2215,20 @@ class InventoryRepository {
     );
   }
 
-  Future<void> syncOfflineMutations() async {
+  Future<void> syncOfflineMutations() {
+    final activeSync = _offlineSyncInFlight;
+    if (activeSync != null) return activeSync;
+
+    final sync = _syncOfflineMutations();
+    _offlineSyncInFlight = sync;
+    return sync.whenComplete(() {
+      if (identical(_offlineSyncInFlight, sync)) {
+        _offlineSyncInFlight = null;
+      }
+    });
+  }
+
+  Future<void> _syncOfflineMutations() async {
     final userId = _currentUser.id;
     final mutations = await OfflineStore.loadMutations(userId);
     if (mutations.isEmpty) return;
@@ -2276,6 +2307,49 @@ class InventoryRepository {
       snapshot: mutations,
       remaining: remaining,
     );
+  }
+
+  Future<List<ProductModel>> _applyPendingProductUpserts({
+    required String branchId,
+    required List<ProductModel> products,
+    required bool includeMissing,
+  }) async {
+    final mutations = await OfflineStore.loadMutations(_currentUser.id);
+    final productsById = {for (final product in products) product.id: product};
+
+    for (final mutation in mutations) {
+      if (mutation.type != 'upsert_product') continue;
+      final raw = mutation.payload['product'];
+      if (raw is! Map) continue;
+      final pending = ProductModel.fromMap(Map<String, dynamic>.from(raw));
+      if (pending.branchId != branchId) continue;
+      if (!includeMissing && !productsById.containsKey(pending.id)) continue;
+      productsById[pending.id] = pending;
+    }
+
+    return productsById.values.toList();
+  }
+
+  Future<List<CategoryModel>> _applyPendingCategoryUpserts({
+    required String branchId,
+    required List<CategoryModel> categories,
+  }) async {
+    final mutations = await OfflineStore.loadMutations(_currentUser.id);
+    final categoriesById = {
+      for (final category in categories) category.id: category,
+    };
+
+    for (final mutation in mutations) {
+      if (mutation.type != 'upsert_category') continue;
+      final raw = mutation.payload['category'];
+      if (raw is! Map) continue;
+      final pending = CategoryModel.fromMap(Map<String, dynamic>.from(raw));
+      if (pending.branchId != branchId) continue;
+      categoriesById[pending.id] = pending;
+    }
+
+    return categoriesById.values.toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
   }
 
   Future<void> _syncUpsertProduct(Map<String, dynamic> payload) async {

@@ -143,8 +143,12 @@ class _ReturnScreenState extends ConsumerState<ReturnScreen> {
 
     final value = draft.refundAmount.toStringAsFixed(0);
     if (_refundController.text == value) return;
-
-    _refundController.text = value;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _refundFocusNode.hasFocus) return;
+      if (_refundController.text != value) {
+        _refundController.text = value;
+      }
+    });
   }
 
   void _setRefundAmount(String value) {
@@ -299,29 +303,32 @@ class _RefundDecisionPanel extends ConsumerWidget {
     final maxRefund = draft.maxRefundAmount;
     final actualRefund = draft.refundAmount;
     final hasReturnItems = maxRefund > 0;
-    final saleId = draft.sale?.id;
+    final selectedCashOption = draft.selectedCashRefundOption;
     final refundPreview =
-        draft.refundMethod == RefundMethod.cash &&
-                actualRefund > 0 &&
-                saleId != null
-            ? ref.watch(
-              returnRefundPreviewProvider((
-                saleId: saleId,
-                refundAmount: actualRefund,
-              )),
+        draft.refundMethod == RefundMethod.cash && actualRefund > 0
+            ? AsyncData<List<SaleReturnRefundPreviewModel>>(
+              selectedCashOption == null
+                  ? const []
+                  : [
+                    SaleReturnRefundPreviewModel(
+                      paymentId: selectedCashOption.paymentId,
+                      accountId: selectedCashOption.accountId,
+                      accountName: selectedCashOption.accountName,
+                      paymentMethod: selectedCashOption.paymentMethod,
+                      amount: actualRefund,
+                    ),
+                  ],
             )
             : null;
     final creditCapacity =
-        draft.refundMethod == RefundMethod.credit &&
-                actualRefund > 0 &&
-                saleId != null
-            ? ref.watch(returnCreditCapacityProvider(saleId))
+        draft.refundMethod == RefundMethod.credit && actualRefund > 0
+            ? AsyncData<double>(draft.creditRefundCapacity)
             : null;
     final hasRefundDestination =
         actualRefund <= 0 ||
         (draft.refundMethod == RefundMethod.cash
-            ? (refundPreview?.value?.isNotEmpty ?? false)
-            : (creditCapacity?.value ?? 0) + 0.01 >= actualRefund);
+            ? refundPreview!.value.isNotEmpty
+            : creditCapacity!.value + 0.01 >= actualRefund);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -381,7 +388,7 @@ class _RefundDecisionPanel extends ConsumerWidget {
               ButtonSegment(
                 value: RefundMethod.cash,
                 icon: Icon(Icons.payments_rounded),
-                label: Text('Original account'),
+                label: Text('Account refund'),
               ),
               ButtonSegment(
                 value: RefundMethod.credit,
@@ -397,6 +404,46 @@ class _RefundDecisionPanel extends ConsumerWidget {
                         .read(returnDraftProvider.notifier)
                         .setRefundMethod(values.first),
           ),
+          if (draft.refundMethod == RefundMethod.cash) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: draft.selectedRefundPaymentId,
+              decoration: const InputDecoration(
+                labelText: 'Refund kis account se dena hai',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.account_balance_wallet_rounded),
+              ),
+              items:
+                  draft.cashRefundOptions
+                      .map(
+                        (option) => DropdownMenuItem(
+                          value: option.paymentId,
+                          child: Text(
+                            '${option.accountName} • ${option.paymentMethod} '
+                            '(Rs ${option.amount.toStringAsFixed(0)} available)',
+                          ),
+                        ),
+                      )
+                      .toList(),
+              onChanged:
+                  controller.isLoading
+                      ? null
+                      : (paymentId) {
+                        if (paymentId != null) {
+                          ref
+                              .read(returnDraftProvider.notifier)
+                              .setRefundPayment(paymentId);
+                        }
+                      },
+            ),
+            if (draft.cashRefundOptions.isEmpty) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Is sale mein koi refundable cash/wallet/card account available nahi.',
+                style: TextStyle(color: AppColors.error, fontSize: 12),
+              ),
+            ],
+          ],
           if (actualRefund > 0) ...[
             const SizedBox(height: 12),
             _RefundDestinationCard(

@@ -530,6 +530,7 @@ class LocalDatabase {
       ledger_transaction_id TEXT,
       notes TEXT,
       synced INTEGER NOT NULL DEFAULT 0,
+      sync_error TEXT,
       created_at TEXT NOT NULL
     )
   ''');
@@ -560,6 +561,11 @@ class LocalDatabase {
       column: 'ledger_transaction_id',
       definition: 'TEXT',
     );
+    await _addColumnIfMissing(
+      table: 'customer_settlements',
+      column: 'sync_error',
+      definition: 'TEXT',
+    );
     await _db.customStatement('''
       CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_settlement_ledger
       ON customer_settlements(ledger_transaction_id)
@@ -575,6 +581,7 @@ class LocalDatabase {
       status TEXT NOT NULL,
       refund_method TEXT NOT NULL,
       refund_amount REAL NOT NULL DEFAULT 0,
+      refund_payment_id TEXT,
       approval_required_reason TEXT,
       override_reason TEXT,
       approved_by TEXT,
@@ -582,6 +589,11 @@ class LocalDatabase {
       created_at TEXT NOT NULL
     )
   ''');
+    await _addColumnIfMissing(
+      table: 'sale_returns',
+      column: 'refund_payment_id',
+      definition: 'TEXT',
+    );
 
     await _db.customStatement('''
     CREATE TABLE IF NOT EXISTS sale_return_items (

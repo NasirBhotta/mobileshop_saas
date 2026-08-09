@@ -23,6 +23,7 @@ import '../local/pos_local_refund_committer.dart';
 import '../local/pos_local_settlement_committer.dart';
 import '../../domain/pos_payment_account_policy.dart';
 import '../../domain/pos_refund_allocation.dart';
+import '../../domain/held_cart_identity.dart';
 import '../../../accounts/data/local/accounts_local_store.dart';
 import 'sale_return_parent_recovery.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
@@ -34,6 +35,9 @@ class PosRepository {
   // Checkout performs several transactional writes, so the general fast
   // offline fallback is not a realistic deadline for this RPC.
   static const _saleCommitTimeout = Duration(seconds: 8);
+  // A return performs multiple dependent remote writes and ledger RPCs. The
+  // fast offline probe used by simple writes is too short for this workflow.
+  static const _returnSyncTimeout = Duration(seconds: 8);
   final SupabaseClient _client;
   final PermissionEvaluator _permissions;
   final EntitlementEvaluator _entitlements;
@@ -334,21 +338,14 @@ class PosRepository {
     if (pin == null || pin.isEmpty) return null;
     try {
       final tenantId = await _currentTenantId();
-      final approver = await _client
-          .from('users')
-          .select('id, tenant_id')
-          .eq('tenant_id', tenantId)
-          .eq('approval_pin', pin)
-          .maybeSingle()
+      final branchId = await _currentBranchId(tenantId);
+      final result = await _client
+          .rpc(
+            'verify_pos_discount_approval',
+            params: {'p_branch_id': branchId, 'p_pin': pin},
+          )
           .timeout(Network.networkTimeout);
-      final approverId = approver?['id'] as String?;
-      if (approverId == null) return null;
-      final access = await _permissions.canFor(
-        userId: approverId,
-        tenantId: tenantId,
-        permissionKey: 'pos.discount.approve',
-      );
-      return access.isAllowed ? approverId : null;
+      return result as String?;
     } catch (_) {
       return null;
     }
@@ -815,7 +812,8 @@ class PosRepository {
     final branchId = await _currentBranchId(tenantId);
     final user = _currentUser;
 
-    final cartId = DateTime.now().millisecondsSinceEpoch.toString();
+    final createdAt = DateTime.now();
+    final cartId = const Uuid().v4();
     final cartData = {
       'items': items.map((e) => e.toMap()).toList(),
       'customer_id': customerId,
@@ -827,11 +825,11 @@ class PosRepository {
       id: cartId,
       branchId: branchId,
       userId: user.id,
-      label: label ?? 'Cart $cartId',
+      label: label ?? 'Cart ${createdAt.millisecondsSinceEpoch}',
       items: items,
       customerId: customerId,
       customerName: customerName,
-      createdAt: DateTime.now(),
+      createdAt: createdAt,
       expiresAt: expiresAt,
     );
 
@@ -942,6 +940,7 @@ class PosRepository {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final user = _currentUser;
+    final remoteCartId = heldCartRemoteId(heldCartId);
 
     // Delete locally
     await OfflineStore.deleteHeldCart(branchId: branchId, cartId: heldCartId);
@@ -950,7 +949,7 @@ class PosRepository {
       await _client
           .from('held_carts')
           .delete()
-          .eq('id', heldCartId)
+          .eq('id', remoteCartId)
           .eq('branch_id', branchId)
           .timeout(Network.networkTimeout);
     } catch (e) {
@@ -959,7 +958,7 @@ class PosRepository {
       await OfflineStore.enqueueMutation(
         userId: user.id,
         type: 'held_cart_delete',
-        payload: {'id': heldCartId, 'branch_id': branchId},
+        payload: {'id': remoteCartId, 'branch_id': branchId},
       );
     }
   }
@@ -1091,6 +1090,7 @@ class PosRepository {
     required Map<String, int> quantitiesByProductId,
     required RefundMethod refundMethod,
     required double refundAmount,
+    String? refundPaymentId,
     String? overrideReason,
   }) async {
     await _requireFeature('pos.returns');
@@ -1173,6 +1173,7 @@ class PosRepository {
       status: status,
       refundMethod: refundMethod,
       refundAmount: normalizedRefundAmount,
+      refundPaymentId: refundPaymentId,
       approvalRequiredReason: reasons.isEmpty ? null : reasons.join('; '),
       overrideReason: normalizedOverrideReason,
       approvedBy: status == SaleReturnStatus.approved ? _currentUser.id : null,
@@ -1182,7 +1183,13 @@ class PosRepository {
     if (status == SaleReturnStatus.approved &&
         refundMethod == RefundMethod.cash &&
         normalizedRefundAmount > 0) {
-      saleReturn = await _withRefundAllocation(saleReturn);
+      if (refundPaymentId == null) {
+        throw Exception('Refund account select karein');
+      }
+      saleReturn = await _withRefundAllocation(
+        saleReturn,
+        originalPaymentId: refundPaymentId,
+      );
     }
 
     await _saveReturnLocally(
@@ -1349,7 +1356,10 @@ class PosRepository {
     if (approved.refundMethod == RefundMethod.cash &&
         approved.refundAmount > 0 &&
         approved.refundLegs.isEmpty) {
-      approved = await _withRefundAllocation(approved);
+      approved = await _withRefundAllocation(
+        approved,
+        originalPaymentId: approved.refundPaymentId,
+      );
     }
     final wasAlreadyApproved = await _isReturnAlreadyApproved(approved.id);
     await _saveReturnLocally(approved, synced: false, postRefund: true);
@@ -1438,6 +1448,7 @@ class PosRepository {
       status: saleReturn.status,
       refundMethod: saleReturn.refundMethod,
       refundAmount: saleReturn.refundAmount,
+      refundPaymentId: saleReturn.refundPaymentId,
       approvalRequiredReason: saleReturn.approvalRequiredReason,
       overrideReason: saleReturn.overrideReason,
       approvedBy: saleReturn.approvedBy,
@@ -1504,9 +1515,9 @@ class PosRepository {
       '''
       INSERT OR REPLACE INTO sale_returns(
         id, original_sale_id, branch_id, user_id, status, refund_method,
-        refund_amount, approval_required_reason, override_reason, approved_by,
-        synced, created_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+          refund_amount, refund_payment_id, approval_required_reason,
+          override_reason, approved_by, synced, created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
       ''',
       [
         saleReturn.id,
@@ -1516,6 +1527,7 @@ class PosRepository {
         saleReturn.status.code,
         saleReturn.refundMethod.code,
         saleReturn.refundAmount,
+        saleReturn.refundPaymentId,
         saleReturn.approvalRequiredReason,
         saleReturn.overrideReason,
         saleReturn.approvedBy,
@@ -1557,8 +1569,9 @@ class PosRepository {
   }
 
   Future<SaleReturnModel> _withRefundAllocation(
-    SaleReturnModel saleReturn,
-  ) async {
+    SaleReturnModel saleReturn, {
+    String? originalPaymentId,
+  }) async {
     final rows = await LocalDatabase.select(
       '''
       SELECT payment.id, payment.account_id, payment.amount,
@@ -1570,10 +1583,16 @@ class PosRepository {
       WHERE payment.sale_id = ?
         AND payment.method <> 'credit'
         AND payment.account_id IS NOT NULL
+        AND (? IS NULL OR payment.id = ?)
       GROUP BY payment.id, payment.account_id, payment.amount
       ORDER BY payment.id
       ''',
-      [saleReturn.id, saleReturn.originalSaleId],
+      [
+        saleReturn.id,
+        saleReturn.originalSaleId,
+        originalPaymentId,
+        originalPaymentId,
+      ],
     );
     final allocations = PosRefundAllocator.allocate(
       refundAmount: saleReturn.refundAmount,
@@ -1641,12 +1660,55 @@ class PosRepository {
     return allocations.map((allocation) {
       final row = rowsByPaymentId[allocation.paymentId]!;
       return SaleReturnRefundPreviewModel(
+        paymentId: allocation.paymentId,
         accountId: allocation.accountId,
         accountName: row['account_name'] as String,
         paymentMethod: PaymentMethodX.fromCode(row['method'] as String).label,
         amount: allocation.amount,
       );
     }).toList();
+  }
+
+  Future<List<SaleReturnRefundPreviewModel>> loadCashRefundOptions(
+    String saleId,
+  ) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT payment.id, payment.method, payment.account_id, payment.amount,
+             account.name AS account_name,
+             COALESCE(SUM(refund.amount), 0) AS already_refunded
+      FROM sale_payments payment
+      JOIN accounts account ON account.id = payment.account_id
+      LEFT JOIN sale_return_refund_legs refund
+        ON refund.original_payment_id = payment.id
+      WHERE payment.sale_id = ?
+        AND payment.method <> 'credit'
+        AND payment.account_id IS NOT NULL
+        AND account.is_active = 1
+      GROUP BY payment.id, payment.method, payment.account_id, payment.amount,
+               account.name
+      ORDER BY payment.id
+      ''',
+      [saleId],
+    );
+    return rows
+        .map((row) {
+          final available =
+              ((row['amount'] as num).toDouble() -
+                      (row['already_refunded'] as num).toDouble())
+                  .clamp(0, double.infinity)
+                  .toDouble();
+          return SaleReturnRefundPreviewModel(
+            paymentId: row['id'] as String,
+            accountId: row['account_id'] as String,
+            accountName: row['account_name'] as String,
+            paymentMethod:
+                PaymentMethodX.fromCode(row['method'] as String).label,
+            amount: available,
+          );
+        })
+        .where((option) => option.amount > 0.005)
+        .toList();
   }
 
   Future<double> previewCreditReturnCapacity(String saleId) async {
@@ -1742,7 +1804,7 @@ class PosRepository {
           .eq('id', saleReturn.id)
           .eq('branch_id', saleReturn.branchId)
           .maybeSingle()
-          .timeout(Network.networkTimeout);
+          .timeout(_returnSyncTimeout);
       remoteAlreadyApproved =
           existing?['status'] == SaleReturnStatus.approved.code;
     } catch (_) {}
@@ -1757,18 +1819,19 @@ class PosRepository {
           'status': saleReturn.status.code,
           'refund_method': saleReturn.refundMethod.code,
           'refund_amount': saleReturn.refundAmount,
+          'refund_payment_id': saleReturn.refundPaymentId,
           'approval_required_reason': saleReturn.approvalRequiredReason,
           'override_reason': saleReturn.overrideReason,
           'approved_by': saleReturn.approvedBy,
           'created_at': saleReturn.createdAt.toIso8601String(),
         }, onConflict: 'id')
-        .timeout(Network.networkTimeout);
+        .timeout(_returnSyncTimeout);
 
     await _client
         .from('sale_return_items')
         .delete()
         .eq('return_id', saleReturn.id)
-        .timeout(Network.networkTimeout);
+        .timeout(_returnSyncTimeout);
     await _client
         .from('sale_return_items')
         .insert(
@@ -1786,7 +1849,7 @@ class PosRepository {
               )
               .toList(),
         )
-        .timeout(Network.networkTimeout);
+        .timeout(_returnSyncTimeout);
 
     if (saleReturn.status == SaleReturnStatus.approved &&
         !remoteAlreadyApproved) {
@@ -1803,7 +1866,7 @@ class PosRepository {
             .eq('branch_id', saleReturn.branchId)
             .eq('product_id', returnedProductId)
             .maybeSingle()
-            .timeout(Network.networkTimeout);
+            .timeout(_returnSyncTimeout);
         final currentStock = (inv?['quantity'] as num?)?.toInt() ?? 0;
         await _client
             .from('inventory')
@@ -1813,7 +1876,7 @@ class PosRepository {
               'quantity': currentStock + item.quantity,
               'updated_at': DateTime.now().toIso8601String(),
             }, onConflict: 'branch_id,product_id')
-            .timeout(Network.networkTimeout);
+            .timeout(_returnSyncTimeout);
       }
     }
 
@@ -1829,14 +1892,14 @@ class PosRepository {
                   saleReturn.refundLegs.map((leg) => leg.toMap()).toList(),
             },
           )
-          .timeout(Network.networkTimeout);
+          .timeout(_returnSyncTimeout);
     }
     if (saleReturn.status == SaleReturnStatus.approved &&
         saleReturn.refundMethod == RefundMethod.credit &&
         saleReturn.refundAmount > 0) {
       await _client
           .rpc('post_pos_credit_return', params: {'p_return_id': saleReturn.id})
-          .timeout(Network.networkTimeout);
+          .timeout(_returnSyncTimeout);
     }
   }
 
@@ -1866,7 +1929,7 @@ class PosRepository {
           'is_active': true,
           'created_at': saleReturn.createdAt.toIso8601String(),
         }, onConflict: 'id')
-        .timeout(Network.networkTimeout);
+        .timeout(_returnSyncTimeout);
   }
 
   String _returnedSku(SaleReturnItemModel item, String returnedProductId) {
@@ -2443,15 +2506,16 @@ class PosRepository {
     if (amount <= 0) throw Exception('Settlement amount valid nahi hai.');
     final customer = await _loadCustomerById(customerId);
     if (customer == null) throw Exception('Customer profile nahi mila.');
-    final pendingCustomerSettlement = (await OfflineStore.loadMutations(
+    final unresolvedSettlementConflict = (await OfflineStore.loadMutations(
       _currentUser.id,
     )).any(
       (mutation) =>
           mutation.type == 'customer_settlement' &&
-          mutation.payload['customer_id'] == customer.id,
+          mutation.payload['customer_id'] == customer.id &&
+          mutation.payload['_sync_state'] == 'needs_review',
     );
-    if (pendingCustomerSettlement) {
-      throw Exception('Previous customer settlement sync pending hai.');
+    if (unresolvedSettlementConflict) {
+      throw Exception('Customer settlement sync conflict needs review.');
     }
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
@@ -2540,6 +2604,15 @@ class PosRepository {
           .timeout(_offlineWriteTimeout);
       await LocalStore.markCustomerSettlementSynced(settlement.id);
     } catch (e) {
+      if (_isSettlementOutstandingConflict(e)) {
+        await _markSettlementNeedsReview(payload);
+        await OfflineStore.enqueueMutation(
+          userId: _currentUser.id,
+          type: 'customer_settlement',
+          payload: payload,
+        );
+        return settlement;
+      }
       OfflineErrorClassifier.rethrowIfTerminal(e);
       await OfflineStore.enqueueMutation(
         userId: _currentUser.id,
@@ -2647,8 +2720,21 @@ class PosRepository {
 
       final remaining = <OfflineMutation>[];
       final reconciledCustomerIds = <String, String>{};
+      final blockedSettlementCustomerIds = <String>{};
 
       for (final mutation in mutations) {
+        if (mutation.type == 'customer_settlement') {
+          final customerId = mutation.payload['customer_id'] as String?;
+          if (mutation.payload['_sync_state'] == 'needs_review' ||
+              (customerId != null &&
+                  blockedSettlementCustomerIds.contains(customerId))) {
+            remaining.add(mutation);
+            if (customerId != null) {
+              blockedSettlementCustomerIds.add(customerId);
+            }
+            continue;
+          }
+        }
         try {
           _remapMutationCustomerId(mutation, reconciledCustomerIds);
           await _resolvePersistedMutationCustomerId(mutation);
@@ -2663,8 +2749,11 @@ class PosRepository {
               break;
 
             case 'held_cart_save':
+              final remoteCartId = heldCartRemoteId(
+                mutation.payload['id'].toString(),
+              );
               await _client.from('held_carts').upsert({
-                'id': mutation.payload['id'],
+                'id': remoteCartId,
                 'branch_id': mutation.payload['branch_id'],
                 'user_id': mutation.payload['user_id'],
                 'label': mutation.payload['label'],
@@ -2674,10 +2763,13 @@ class PosRepository {
               break;
 
             case 'held_cart_delete':
+              final remoteCartId = heldCartRemoteId(
+                mutation.payload['id'].toString(),
+              );
               var deleteQuery = _client
                   .from('held_carts')
                   .delete()
-                  .eq('id', mutation.payload['id']);
+                  .eq('id', remoteCartId);
               final branchId = mutation.payload['branch_id'] as String?;
               if (branchId != null) {
                 deleteQuery = deleteQuery.eq('branch_id', branchId);
@@ -2825,6 +2917,21 @@ class PosRepository {
               remaining.add(mutation);
           }
         } catch (e) {
+          if (mutation.type == 'customer_settlement') {
+            final customerId = mutation.payload['customer_id'] as String?;
+            if (customerId != null) {
+              blockedSettlementCustomerIds.add(customerId);
+            }
+            if (_isSettlementOutstandingConflict(e)) {
+              await _markSettlementNeedsReview(mutation.payload);
+              remaining.add(mutation);
+              debugPrint(
+                'Settlement ${mutation.payload['id']} needs review because '
+                'remote dues changed before sync.',
+              );
+              continue;
+            }
+          }
           if (mutation.type == 'customer_settlement' &&
               _isPermanentSettlementAccountMismatch(e)) {
             await _rollbackRejectedCustomerSettlement(mutation.payload);
@@ -2863,6 +2970,24 @@ class PosRepository {
         error.message.toLowerCase().contains(
           'settlement receiving account is incompatible',
         );
+  }
+
+  bool _isSettlementOutstandingConflict(Object error) {
+    return error is PostgrestException &&
+        error.code == '23514' &&
+        error.message.toLowerCase().contains(
+          'settlement exceeds current customer dues',
+        );
+  }
+
+  Future<void> _markSettlementNeedsReview(Map<String, dynamic> payload) async {
+    const reason = 'Remote dues changed before this settlement synced.';
+    payload['_sync_state'] = 'needs_review';
+    payload['_sync_error'] = reason;
+    final settlementId = payload['id'] as String?;
+    if (settlementId != null) {
+      await LocalStore.markCustomerSettlementSyncConflict(settlementId, reason);
+    }
   }
 
   Future<void> _rollbackRejectedCustomerSettlement(

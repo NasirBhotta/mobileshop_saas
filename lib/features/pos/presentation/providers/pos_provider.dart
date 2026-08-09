@@ -17,6 +17,7 @@ import '../../data/models/sale_return_model.dart';
 import '../../data/repositories/pos_repository.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
 
 Future<void> _requireEntitlement(
   EntitlementEvaluator evaluator,
@@ -381,6 +382,8 @@ class CheckoutController extends StateNotifier<AsyncValue<SaleModel?>> {
       _ref.invalidate(salesHistoryProvider);
       _ref.invalidate(allSalesProvider);
       _ref.invalidate(approvedReturnsProvider);
+      _ref.invalidate(accountsProvider);
+      _ref.invalidate(accountTransactionsProvider);
       invalidateProductListProviders(_ref);
       _ref.invalidate(customersProvider);
       _ref.invalidate(allCustomersProvider);
@@ -716,6 +719,9 @@ class ReturnDraftState {
   final Map<String, int> alreadyReturnedByProductId;
   final RefundMethod refundMethod;
   final double refundAmountInput;
+  final List<SaleReturnRefundPreviewModel> cashRefundOptions;
+  final double creditRefundCapacity;
+  final String? selectedRefundPaymentId;
 
   const ReturnDraftState({
     this.sale,
@@ -723,16 +729,31 @@ class ReturnDraftState {
     this.alreadyReturnedByProductId = const {},
     this.refundMethod = RefundMethod.cash,
     this.refundAmountInput = 0,
+    this.cashRefundOptions = const [],
+    this.creditRefundCapacity = 0,
+    this.selectedRefundPaymentId,
   });
 
   double get maxRefundAmount {
     final currentSale = sale;
     if (currentSale == null) return 0;
-    return currentSale.items.fold<double>(0, (sum, item) {
+    final itemCapacity = currentSale.items.fold<double>(0, (sum, item) {
       final qty = quantitiesByProductId[item.productId] ?? 0;
       if (qty <= 0 || item.quantity == 0) return sum;
       return sum + ((item.lineTotal / item.quantity) * qty);
     });
+    final paymentCapacity = switch (refundMethod) {
+      RefundMethod.cash => selectedCashRefundOption?.amount ?? 0,
+      RefundMethod.credit => creditRefundCapacity,
+    };
+    return itemCapacity < paymentCapacity ? itemCapacity : paymentCapacity;
+  }
+
+  SaleReturnRefundPreviewModel? get selectedCashRefundOption {
+    for (final option in cashRefundOptions) {
+      if (option.paymentId == selectedRefundPaymentId) return option;
+    }
+    return null;
   }
 
   double get refundAmount =>
@@ -745,6 +766,10 @@ class ReturnDraftState {
     Map<String, int>? alreadyReturnedByProductId,
     RefundMethod? refundMethod,
     double? refundAmountInput,
+    List<SaleReturnRefundPreviewModel>? cashRefundOptions,
+    double? creditRefundCapacity,
+    String? selectedRefundPaymentId,
+    bool clearSelectedRefundPayment = false,
   }) {
     return ReturnDraftState(
       sale: clearSale ? null : sale ?? this.sale,
@@ -754,6 +779,12 @@ class ReturnDraftState {
           alreadyReturnedByProductId ?? this.alreadyReturnedByProductId,
       refundMethod: refundMethod ?? this.refundMethod,
       refundAmountInput: refundAmountInput ?? this.refundAmountInput,
+      cashRefundOptions: cashRefundOptions ?? this.cashRefundOptions,
+      creditRefundCapacity: creditRefundCapacity ?? this.creditRefundCapacity,
+      selectedRefundPaymentId:
+          clearSelectedRefundPayment
+              ? null
+              : selectedRefundPaymentId ?? this.selectedRefundPaymentId,
     );
   }
 }
@@ -776,11 +807,19 @@ class ReturnDraftNotifier extends StateNotifier<ReturnDraftState> {
       return null;
     }
     final returned = await _repository.loadReturnedQuantities(sale.id!);
+    final cashOptions = await _repository.loadCashRefundOptions(sale.id!);
+    final creditCapacity = await _repository.previewCreditReturnCapacity(
+      sale.id!,
+    );
     state = ReturnDraftState(
       sale: sale,
       alreadyReturnedByProductId: returned,
       quantitiesByProductId: {for (final item in sale.items) item.productId: 0},
       refundAmountInput: 0,
+      cashRefundOptions: cashOptions,
+      creditRefundCapacity: creditCapacity,
+      selectedRefundPaymentId:
+          cashOptions.length == 1 ? cashOptions.single.paymentId : null,
     );
     return sale;
   }
@@ -815,7 +854,27 @@ class ReturnDraftNotifier extends StateNotifier<ReturnDraftState> {
   }
 
   void setRefundMethod(RefundMethod method) {
-    state = state.copyWith(refundMethod: method);
+    final selectedPaymentId =
+        method == RefundMethod.cash && state.cashRefundOptions.length == 1
+            ? state.cashRefundOptions.single.paymentId
+            : state.selectedRefundPaymentId;
+    state = state.copyWith(
+      refundMethod: method,
+      selectedRefundPaymentId: selectedPaymentId,
+    );
+    _clampRefundToCapacity();
+  }
+
+  void setRefundPayment(String paymentId) {
+    state = state.copyWith(selectedRefundPaymentId: paymentId);
+    _clampRefundToCapacity();
+  }
+
+  void _clampRefundToCapacity() {
+    state = state.copyWith(
+      refundAmountInput:
+          state.refundAmountInput.clamp(0, state.maxRefundAmount).toDouble(),
+    );
   }
 }
 
@@ -904,6 +963,10 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
         quantitiesByProductId: draft.quantitiesByProductId,
         refundMethod: draft.refundMethod,
         refundAmount: draft.refundAmount,
+        refundPaymentId:
+            draft.refundMethod == RefundMethod.cash
+                ? draft.selectedRefundPaymentId
+                : null,
         overrideReason: overrideReason,
       );
       _ref.invalidate(salesHistoryProvider);
@@ -911,6 +974,8 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
       _ref.invalidate(pendingReturnsProvider);
       _ref.invalidate(approvedReturnsProvider);
       _ref.invalidate(allApprovedReturnsProvider);
+      _ref.invalidate(accountsProvider);
+      _ref.invalidate(accountTransactionsProvider);
       invalidateProductListProviders(_ref);
       _ref.invalidate(returnDraftProvider);
       state = AsyncData(result);
@@ -930,6 +995,8 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
       _ref.invalidate(pendingReturnsProvider);
       _ref.invalidate(approvedReturnsProvider);
       _ref.invalidate(allApprovedReturnsProvider);
+      _ref.invalidate(accountsProvider);
+      _ref.invalidate(accountTransactionsProvider);
       invalidateProductListProviders(_ref);
       state = AsyncData(result);
       return result;

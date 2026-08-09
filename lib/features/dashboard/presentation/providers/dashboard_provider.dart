@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -21,6 +21,7 @@ import '../../../../core/extensions/repair_ticket_ext.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../reports/data/local/business_report_local_store.dart';
 import '../../../../core/accounting/ledger_cash_summary.dart';
+import '../../../accounts/presentation/providers/accounts_provider.dart';
 
 final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final tenantAccess = await ref.watch(tenantAccessProvider.future);
@@ -389,11 +390,92 @@ final dashboardRefreshProvider = Provider<Future<void> Function()>((ref) {
   return () => refreshDashboardData(ref);
 });
 
+class _DashboardAccountLifecycleObserver extends WidgetsBindingObserver {
+  final VoidCallback onResume;
+
+  _DashboardAccountLifecycleObserver({required this.onResume});
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) onResume();
+  }
+}
+
+final dashboardAccountLifecycleRefreshProvider = Provider<void>((ref) {
+  Future<void>? inFlight;
+  DateTime? lastStartedAt;
+
+  Future<void> refresh() {
+    final active = inFlight;
+    if (active != null) return active;
+    final now = DateTime.now();
+    if (lastStartedAt != null &&
+        now.difference(lastStartedAt!) < const Duration(seconds: 5)) {
+      return Future<void>.value();
+    }
+    lastStartedAt = now;
+
+    late final Future<void> operation;
+    operation = _refreshDashboardAccounts(ref).whenComplete(() {
+      if (identical(inFlight, operation)) inFlight = null;
+    });
+    inFlight = operation;
+    return operation;
+  }
+
+  void scheduleRefresh() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      refresh();
+    });
+  }
+
+  final observer = _DashboardAccountLifecycleObserver(
+    onResume: scheduleRefresh,
+  );
+  WidgetsBinding.instance.addObserver(observer);
+  scheduleRefresh();
+  ref.onDispose(() => WidgetsBinding.instance.removeObserver(observer));
+});
+
+Future<void> _refreshDashboardAccounts(Ref ref) async {
+  try {
+    if (Supabase.instance.client.auth.currentUser == null) return;
+  } catch (_) {
+    // Widget previews/tests and an unusually early first frame can precede
+    // Supabase initialization. A later dashboard entry/resume retries safely.
+    return;
+  }
+  final posRepository = ref.read(posRepositoryProvider);
+  final accountsRepository = ref.read(accountsRepositoryProvider);
+
+  try {
+    // POS owns sale/return/settlement mutations that affect account balances.
+    // Complete those before accepting a newer remote account snapshot.
+    await posRepository.syncOfflineMutations();
+    await accountsRepository.syncOfflineMutations();
+    await Future.wait([
+      accountsRepository.refreshCurrentAccountsCache(
+        timeout: const Duration(seconds: 10),
+      ),
+      accountsRepository.refreshCurrentTransactionsCache(
+        timeout: const Duration(seconds: 10),
+      ),
+    ]);
+  } catch (error) {
+    debugPrint('Dashboard account lifecycle refresh deferred: $error');
+  } finally {
+    ref
+      ..invalidate(accountsProvider)
+      ..invalidate(accountTransactionsProvider);
+  }
+}
+
 Future<void> refreshDashboardData(Ref ref) async {
   final inventoryRepository = ref.read(inventoryRepositoryProvider);
   final posRepository = ref.read(posRepositoryProvider);
   final repairRepository = ref.read(repairRepositoryProvider);
   final mobileServicesRepository = ref.read(mobileServicesRepositoryProvider);
+  final accountsRepository = ref.read(accountsRepositoryProvider);
   final branchId = await ref.read(selectedBranchIdProvider.future);
   final userId = Supabase.instance.client.auth.currentUser?.id;
 
@@ -410,6 +492,7 @@ Future<void> refreshDashboardData(Ref ref) async {
     inventoryRepository.syncOfflineMutations(),
     posRepository.syncOfflineMutations(),
     repairRepository.syncOfflineMutations(),
+    accountsRepository.syncOfflineMutations(),
     if (userId != null)
       safelyRefresh(mobileServicesRepository.syncOfflineMutations(userId)),
   ]);
@@ -431,6 +514,16 @@ Future<void> refreshDashboardData(Ref ref) async {
           .fetchTransactions(branchId, limit: 1000)
           .timeout(const Duration(seconds: 5)),
     ),
+    safelyRefresh(
+      accountsRepository.refreshCurrentAccountsCache(
+        timeout: const Duration(seconds: 10),
+      ),
+    ),
+    safelyRefresh(
+      accountsRepository.refreshCurrentTransactionsCache(
+        timeout: const Duration(seconds: 10),
+      ),
+    ),
   ]);
 
   // Cached providers ko dobara calculate karwao.
@@ -441,6 +534,8 @@ Future<void> refreshDashboardData(Ref ref) async {
     ..invalidate(allCustomerSettlementsProvider)
     ..invalidate(allApprovedReturnsProvider)
     ..invalidate(allRepairTicketsProvider)
+    ..invalidate(accountsProvider)
+    ..invalidate(accountTransactionsProvider)
     ..invalidate(dashboardStatsProvider);
 
   // RefreshIndicator tab tak loading dikhaye jab tak dashboard ready na ho.

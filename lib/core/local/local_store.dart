@@ -1217,8 +1217,22 @@ class LocalStore {
 
   static Future<void> markCustomerSettlementSynced(String settlementId) async {
     await LocalDatabase.execute(
-      'UPDATE customer_settlements SET synced = 1 WHERE id = ?',
+      '''UPDATE customer_settlements
+         SET synced = 1, sync_error = NULL
+         WHERE id = ?''',
       [settlementId],
+    );
+  }
+
+  static Future<void> markCustomerSettlementSyncConflict(
+    String settlementId,
+    String reason,
+  ) async {
+    await LocalDatabase.execute(
+      '''UPDATE customer_settlements
+         SET synced = 0, sync_error = ?
+         WHERE id = ?''',
+      [reason, settlementId],
     );
   }
 

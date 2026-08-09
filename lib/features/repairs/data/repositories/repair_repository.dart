@@ -21,6 +21,7 @@ import 'package:mobileshop_saas/features/repairs/domain/repair_entitlement_gate.
 class RepairRepository {
   static const _networkTimeout = Duration(milliseconds: 1200);
 
+  Future<void>? _offlineSyncInFlight;
   final SupabaseClient _client;
   final EntitlementEvaluator _entitlements;
   late final RepairEntitlementGate _gate = RepairEntitlementGate(_entitlements);
@@ -1050,7 +1051,20 @@ class RepairRepository {
   // Unknown mutation types ko remaining mein wapas save kar dete hain,
   // taake InventoryRepository/POSRepository apni mutations khud handle kar sakein.
 
-  Future<void> syncOfflineMutations() async {
+  Future<void> syncOfflineMutations() {
+    final activeSync = _offlineSyncInFlight;
+    if (activeSync != null) return activeSync;
+
+    final sync = _syncOfflineMutations();
+    _offlineSyncInFlight = sync;
+    return sync.whenComplete(() {
+      if (identical(_offlineSyncInFlight, sync)) {
+        _offlineSyncInFlight = null;
+      }
+    });
+  }
+
+  Future<void> _syncOfflineMutations() async {
     final userId = _currentUser.id;
     final mutations = await OfflineStore.loadMutations(userId);
 
@@ -1070,6 +1084,12 @@ class RepairRepository {
               }.contains(mutation.type)
               ? mutation.payload['ticket_id'] as String?
               : null;
+      if (financialTicketId != null &&
+          mutation.payload['_sync_state'] == 'needs_review') {
+        failedFinancialTicketIds.add(financialTicketId);
+        remaining.add(mutation);
+        continue;
+      }
       if (financialTicketId != null &&
           failedFinancialTicketIds.contains(financialTicketId)) {
         remaining.add(mutation);
@@ -1109,18 +1129,45 @@ class RepairRepository {
             }
             break;
           case 'complete_repair_ticket_v2':
-            await _client.rpc(
-              'complete_repair_ticket_v2',
-              params: {
-                'p_ticket_id': mutation.payload['ticket_id'],
-                'p_event_id': mutation.payload['event_id'],
-                'p_customer_charge': mutation.payload['customer_charge'],
-                'p_service_charge': mutation.payload['service_charge'],
-                'p_discount': mutation.payload['discount'],
-                'p_commission': mutation.payload['commission'],
-                'p_other_direct_cost': mutation.payload['other_direct_cost'],
-              },
-            );
+            try {
+              await _client.rpc(
+                'complete_repair_ticket_v2',
+                params: {
+                  'p_ticket_id': mutation.payload['ticket_id'],
+                  'p_event_id': mutation.payload['event_id'],
+                  'p_customer_charge': mutation.payload['customer_charge'],
+                  'p_service_charge': mutation.payload['service_charge'],
+                  'p_discount': mutation.payload['discount'],
+                  'p_commission': mutation.payload['commission'],
+                  'p_other_direct_cost': mutation.payload['other_direct_cost'],
+                },
+              );
+            } catch (error) {
+              if (!_isCompletionStatusRejection(error)) rethrow;
+              final equivalentReplay = await _isEquivalentCompletedRepairReplay(
+                mutation.payload,
+              );
+              if (equivalentReplay) {
+                debugPrint(
+                  'Reconciled already-completed repair '
+                  '${mutation.payload['ticket_id']} with its queued completion.',
+                );
+                break;
+              }
+
+              mutation.payload['_sync_state'] = 'needs_review';
+              mutation.payload['_sync_error'] =
+                  'Remote ticket was finalized with different completion data.';
+              if (financialTicketId != null) {
+                failedFinancialTicketIds.add(financialTicketId);
+              }
+              remaining.add(mutation);
+              debugPrint(
+                'Repair completion ${mutation.payload['event_id']} needs '
+                'review because the remote ticket is already finalized.',
+              );
+              continue;
+            }
             break;
           case 'cancel_repair_ticket_v2':
             await _client.rpc(
@@ -1167,6 +1214,65 @@ class RepairRepository {
       snapshot: mutations,
       remaining: remaining,
     );
+  }
+
+  bool _isCompletionStatusRejection(Object error) {
+    return error is PostgrestException &&
+        error.code == 'P0001' &&
+        error.message.toLowerCase().contains(
+          'ticket cannot be completed from its current status',
+        );
+  }
+
+  Future<bool> _isEquivalentCompletedRepairReplay(
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      final ticketId = payload['ticket_id'] as String?;
+      if (ticketId == null) return false;
+      final ticket =
+          await _client
+              .from('repair_tickets')
+              .select(
+                'status, customer_charge, service_charge, discount_amount, '
+                'per_job_commission, other_direct_cost',
+              )
+              .eq('id', ticketId)
+              .maybeSingle();
+      if (!const {'completed', 'delivered'}.contains(ticket?['status'])) {
+        return false;
+      }
+
+      final completion =
+          await _client
+              .from('repair_financial_events')
+              .select('id')
+              .eq('ticket_id', ticketId)
+              .eq('event_type', 'completion')
+              .limit(1)
+              .maybeSingle();
+      if (completion == null) return false;
+
+      return _sameMoney(
+            ticket?['customer_charge'],
+            payload['customer_charge'],
+          ) &&
+          _sameMoney(ticket?['service_charge'], payload['service_charge']) &&
+          _sameMoney(ticket?['discount_amount'], payload['discount']) &&
+          _sameMoney(ticket?['per_job_commission'], payload['commission']) &&
+          _sameMoney(
+            ticket?['other_direct_cost'],
+            payload['other_direct_cost'],
+          );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _sameMoney(Object? remote, Object? queued) {
+    final remoteAmount = (remote as num?)?.toDouble() ?? 0;
+    final queuedAmount = (queued as num?)?.toDouble() ?? 0;
+    return (remoteAmount - queuedAmount).abs() <= 0.01;
   }
 
   Future<bool> _isEquivalentFinalizedPartsReplay(

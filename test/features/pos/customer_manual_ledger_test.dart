@@ -133,6 +133,22 @@ void main() {
   });
 
   test(
+    'multiple offline settlements stay available and sync safely in order',
+    () {
+      final repository =
+          File(
+            'lib/features/pos/data/repositories/pos_repository.dart',
+          ).readAsStringSync();
+
+      expect(repository, isNot(contains('pendingCustomerSettlement')));
+      expect(repository, contains("'_sync_state'] == 'needs_review'"));
+      expect(repository, contains('blockedSettlementCustomerIds'));
+      expect(repository, contains('_isSettlementOutstandingConflict'));
+      expect(repository, contains('markCustomerSettlementSyncConflict'));
+    },
+  );
+
+  test(
     'permanent account mismatch compensates instead of retrying forever',
     () {
       final repository =

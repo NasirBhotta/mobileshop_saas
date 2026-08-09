@@ -11,6 +11,7 @@ class CustomerSettlementModel {
   final String? accountId;
   final String? ledgerTransactionId;
   final String? notes;
+  final String? syncError;
   final DateTime createdAt;
 
   const CustomerSettlementModel({
@@ -23,6 +24,7 @@ class CustomerSettlementModel {
     this.accountId,
     this.ledgerTransactionId,
     this.notes,
+    this.syncError,
     required this.createdAt,
   });
 
@@ -37,6 +39,7 @@ class CustomerSettlementModel {
       accountId: map['account_id'] as String?,
       ledgerTransactionId: map['ledger_transaction_id'] as String?,
       notes: map['notes'] as String?,
+      syncError: map['sync_error'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),
     );
   }

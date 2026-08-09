@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/core/local/local_database.dart';
+import 'package:mobileshop_saas/core/local/local_store.dart';
 import 'package:mobileshop_saas/features/accounts/data/local/accounts_local_store.dart';
 import 'package:mobileshop_saas/features/accounts/data/models/account_models.dart';
 import 'package:mobileshop_saas/features/pos/data/local/pos_local_settlement_committer.dart';
@@ -116,6 +117,59 @@ void main() {
     );
   });
 
+  test(
+    'consecutive offline settlements use the remaining local dues',
+    () async {
+      await PosLocalSettlementCommitter.commit(
+        _settlement(id: 'settlement-1', ledgerId: 'ledger-1', amount: 300),
+        authoritativeOutstanding: 1000,
+      );
+      await PosLocalSettlementCommitter.commit(
+        _settlement(id: 'settlement-2', ledgerId: 'ledger-2', amount: 250),
+        authoritativeOutstanding: 700,
+      );
+
+      final customer = await LocalDatabase.select(
+        'SELECT outstanding_balance FROM customers WHERE id = ?',
+        [_customerId],
+      );
+      final account = await AccountsLocalStore.loadAccountById(_cashId);
+      final settlements = await LocalDatabase.select(
+        'SELECT id FROM customer_settlements ORDER BY created_at',
+      );
+
+      expect((customer.single['outstanding_balance'] as num).toDouble(), 450);
+      expect(account?.currentBalance, 550);
+      expect(
+        settlements.map((row) => row['id']),
+        unorderedEquals(['settlement-1', 'settlement-2']),
+      );
+    },
+  );
+
+  test('cross-device conflict stays recorded for manual review', () async {
+    final settlement = _settlement();
+    await PosLocalSettlementCommitter.commit(
+      settlement,
+      authoritativeOutstanding: 1000,
+    );
+
+    await LocalStore.markCustomerSettlementSyncConflict(
+      settlement.id,
+      'Remote dues changed before this settlement synced.',
+    );
+
+    final stored = await LocalStore.loadCustomerSettlements(_customerId);
+    expect(stored.single.syncError, isNotNull);
+    expect(
+      await LocalDatabase.select(
+        'SELECT id FROM customer_settlements WHERE id = ?',
+        [settlement.id],
+      ),
+      isNotEmpty,
+    );
+  });
+
   test('remote migration commits receivable and account ledger atomically', () {
     final sql =
         File(
@@ -152,16 +206,20 @@ void main() {
   });
 }
 
-CustomerSettlementModel _settlement({double amount = 300}) {
+CustomerSettlementModel _settlement({
+  double amount = 300,
+  String id = 'settlement-1',
+  String ledgerId = 'settlement-ledger-1',
+}) {
   return CustomerSettlementModel(
-    id: 'settlement-1',
+    id: id,
     customerId: _customerId,
     branchId: _branchId,
     userId: 'cashier',
     amount: amount,
     method: 'cash',
     accountId: _cashId,
-    ledgerTransactionId: 'settlement-ledger-1',
+    ledgerTransactionId: ledgerId,
     createdAt: DateTime(2026, 7, 28, 15),
   );
 }

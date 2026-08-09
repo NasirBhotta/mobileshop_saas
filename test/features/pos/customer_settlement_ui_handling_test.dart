@@ -9,7 +9,7 @@ void main() {
           'lib/features/pos/presentation/screens/customers_screen.dart',
         ).readAsStringSync();
 
-    expect(screen, contains("Text('Recording...')"));
+    expect(screen, contains('AppStrings.customerRecordingSettlement'));
     expect(screen, contains('CircularProgressIndicator'));
     expect(screen, contains('isSubmitting || effectiveAccountId == null'));
     expect(screen, contains('try {'));
