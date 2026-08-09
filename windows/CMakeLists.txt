@@ -6,6 +6,15 @@ project(mobileshop_saas LANGUAGES CXX)
 # the on-disk name of your application.
 set(BINARY_NAME "Nizaaam")
 
+# Some plugins (notably printing) still expect Flutter to expose the Windows
+# target through FLUTTER_TARGET_PLATFORM. Newer Flutter versions can leave it
+# unset during CMake configuration, which produces an invalid PDFium download
+# URL such as `pdfium-win-.tgz`.
+if(NOT DEFINED FLUTTER_TARGET_PLATFORM OR FLUTTER_TARGET_PLATFORM STREQUAL "")
+  set(FLUTTER_TARGET_PLATFORM "windows-x64" CACHE STRING
+    "Flutter target platform used by Windows plugins" FORCE)
+endif()
+
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)
