@@ -390,6 +390,27 @@ final dashboardRefreshProvider = Provider<Future<void> Function()>((ref) {
   return () => refreshDashboardData(ref);
 });
 
+final _dashboardAccountRefreshCoordinatorProvider =
+    Provider<_DashboardAccountRefreshCoordinator>((ref) {
+      return _DashboardAccountRefreshCoordinator();
+    });
+
+class _DashboardAccountRefreshCoordinator {
+  Future<void>? _inFlight;
+
+  Future<void> run(Future<void> Function() refresh) {
+    final active = _inFlight;
+    if (active != null) return active;
+
+    late final Future<void> operation;
+    operation = refresh().whenComplete(() {
+      if (identical(_inFlight, operation)) _inFlight = null;
+    });
+    _inFlight = operation;
+    return operation;
+  }
+}
+
 class _DashboardAccountLifecycleObserver extends WidgetsBindingObserver {
   final VoidCallback onResume;
 
@@ -447,27 +468,40 @@ Future<void> _refreshDashboardAccounts(Ref ref) async {
   }
   final posRepository = ref.read(posRepositoryProvider);
   final accountsRepository = ref.read(accountsRepositoryProvider);
+  final coordinator = ref.read(_dashboardAccountRefreshCoordinatorProvider);
 
-  try {
-    // POS owns sale/return/settlement mutations that affect account balances.
-    // Complete those before accepting a newer remote account snapshot.
-    await posRepository.syncOfflineMutations();
-    await accountsRepository.syncOfflineMutations();
-    await Future.wait([
-      accountsRepository.refreshCurrentAccountsCache(
-        timeout: const Duration(seconds: 10),
-      ),
-      accountsRepository.refreshCurrentTransactionsCache(
-        timeout: const Duration(seconds: 10),
-      ),
-    ]);
-  } catch (error) {
-    debugPrint('Dashboard account lifecycle refresh deferred: $error');
-  } finally {
-    ref
-      ..invalidate(accountsProvider)
-      ..invalidate(accountTransactionsProvider);
-  }
+  await coordinator
+      .run(() async {
+        // POS owns sale/return/settlement mutations that affect account balances.
+        // Complete those before accepting a newer remote account snapshot.
+        await _refreshDashboardSource(
+          'lifecycle POS mutation sync',
+          posRepository.syncOfflineMutations,
+        );
+        await _refreshDashboardSource(
+          'lifecycle account mutation sync',
+          accountsRepository.syncOfflineMutations,
+        );
+        await Future.wait([
+          _refreshDashboardSource(
+            'lifecycle accounts',
+            () => accountsRepository.refreshCurrentAccountsCache(
+              timeout: const Duration(seconds: 10),
+            ),
+          ),
+          _refreshDashboardSource(
+            'lifecycle account transactions',
+            () => accountsRepository.refreshCurrentTransactionsCache(
+              timeout: const Duration(seconds: 10),
+            ),
+          ),
+        ]);
+      })
+      .whenComplete(() {
+        ref
+          ..invalidate(accountsProvider)
+          ..invalidate(accountTransactionsProvider);
+      });
 }
 
 Future<void> refreshDashboardData(Ref ref) async {
@@ -476,54 +510,83 @@ Future<void> refreshDashboardData(Ref ref) async {
   final repairRepository = ref.read(repairRepositoryProvider);
   final mobileServicesRepository = ref.read(mobileServicesRepositoryProvider);
   final accountsRepository = ref.read(accountsRepositoryProvider);
+  final accountCoordinator = ref.read(
+    _dashboardAccountRefreshCoordinatorProvider,
+  );
   final branchId = await ref.read(selectedBranchIdProvider.future);
   final userId = Supabase.instance.client.auth.currentUser?.id;
 
-  Future<void> safelyRefresh(Future<Object?> refresh) async {
-    try {
-      await refresh;
-    } catch (error) {
-      debugPrint('Dashboard manual refresh skipped one source: $error');
-    }
-  }
-
   // Existing repository sync methods hon to pehle unhein await karo.
   await Future.wait([
-    inventoryRepository.syncOfflineMutations(),
-    posRepository.syncOfflineMutations(),
-    repairRepository.syncOfflineMutations(),
-    accountsRepository.syncOfflineMutations(),
+    _refreshDashboardSource(
+      'inventory mutation sync',
+      inventoryRepository.syncOfflineMutations,
+    ),
+    _refreshDashboardSource(
+      'POS mutation sync',
+      posRepository.syncOfflineMutations,
+    ),
+    _refreshDashboardSource(
+      'repair mutation sync',
+      repairRepository.syncOfflineMutations,
+    ),
+    _refreshDashboardSource(
+      'account mutation sync',
+      accountsRepository.syncOfflineMutations,
+    ),
     if (userId != null)
-      safelyRefresh(mobileServicesRepository.syncOfflineMutations(userId)),
+      _refreshDashboardSource(
+        'mobile services mutation sync',
+        () => mobileServicesRepository.syncOfflineMutations(userId),
+      ),
   ]);
 
   // Server data fetch karke local cache update hone ka wait karo.
   await Future.wait([
-    safelyRefresh(inventoryRepository.refreshCurrentProductsCache()),
-    safelyRefresh(posRepository.fetchSales(limit: 1000)),
-    safelyRefresh(posRepository.fetchCustomers()),
-    safelyRefresh(posRepository.fetchCustomerSettlements()),
-    safelyRefresh(posRepository.fetchApprovedReturns(limit: 1000)),
-    safelyRefresh(
-      repairRepository.refreshCurrentRepairTicketsCache(
+    _refreshDashboardSource(
+      'inventory products',
+      inventoryRepository.refreshCurrentProductsCache,
+    ),
+    _refreshDashboardSource(
+      'sales',
+      () => posRepository.fetchSales(limit: 1000),
+    ),
+    _refreshDashboardSource('customers', posRepository.fetchCustomers),
+    _refreshDashboardSource(
+      'customer settlements',
+      posRepository.fetchCustomerSettlements,
+    ),
+    _refreshDashboardSource(
+      'approved returns',
+      () => posRepository.fetchApprovedReturns(limit: 1000),
+    ),
+    _refreshDashboardSource(
+      'repair tickets',
+      () => repairRepository.refreshCurrentRepairTicketsCache(
         timeout: const Duration(seconds: 10),
       ),
     ),
-    safelyRefresh(
-      mobileServicesRepository
-          .fetchTransactions(branchId, limit: 1000)
-          .timeout(const Duration(seconds: 5)),
+    _refreshDashboardSource(
+      'mobile services transactions',
+      () => mobileServicesRepository.fetchTransactions(branchId, limit: 1000),
+      timeout: const Duration(seconds: 5),
     ),
-    safelyRefresh(
-      accountsRepository.refreshCurrentAccountsCache(
-        timeout: const Duration(seconds: 10),
-      ),
-    ),
-    safelyRefresh(
-      accountsRepository.refreshCurrentTransactionsCache(
-        timeout: const Duration(seconds: 10),
-      ),
-    ),
+    accountCoordinator.run(() async {
+      await Future.wait([
+        _refreshDashboardSource(
+          'accounts',
+          () => accountsRepository.refreshCurrentAccountsCache(
+            timeout: const Duration(seconds: 10),
+          ),
+        ),
+        _refreshDashboardSource(
+          'account transactions',
+          () => accountsRepository.refreshCurrentTransactionsCache(
+            timeout: const Duration(seconds: 10),
+          ),
+        ),
+      ]);
+    }),
   ]);
 
   // Cached providers ko dobara calculate karwao.
@@ -540,4 +603,19 @@ Future<void> refreshDashboardData(Ref ref) async {
 
   // RefreshIndicator tab tak loading dikhaye jab tak dashboard ready na ho.
   await ref.read(dashboardStatsProvider.future);
+}
+
+Future<void> _refreshDashboardSource(
+  String source,
+  Future<Object?> Function() refresh, {
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  try {
+    await refresh().timeout(timeout);
+  } catch (error) {
+    debugPrint(
+      'Dashboard refresh skipped source "$source": '
+      '${error.runtimeType}: $error',
+    );
+  }
 }

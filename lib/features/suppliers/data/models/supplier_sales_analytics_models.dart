@@ -108,7 +108,10 @@ class SupplierProductSalesRow {
         costOfSales: _decimal(map['cost_of_sales']),
         grossProfit: _decimal(map['gross_profit']),
         profitMargin: _decimal(map['profit_margin']),
-        isShared: map['is_shared'] as bool? ?? false,
+        isShared:
+            map['is_shared'] is bool
+                ? map['is_shared'] as bool
+                : (map['is_shared'] as num?)?.toInt() == 1,
       );
 }
 

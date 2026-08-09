@@ -1,62 +1,18 @@
--- Safe, auditable PO cancellation and supplier-return workflow.
+-- Some deployed product schemas predate the timestamp used by the atomic PO
+-- reversal function. Keep the established reversal logic intact and make its
+-- final product deactivation update schema-compatible.
 alter table public.products
   add column if not exists updated_at timestamptz;
 
-create table if not exists public.purchase_order_reversals (
-  id uuid primary key,
-  tenant_id uuid not null references public.tenants(id),
-  branch_id uuid not null references public.branches(id),
-  purchase_order_id uuid not null unique references public.purchase_orders(id),
-  supplier_id uuid not null references public.suppliers(id),
-  resolution text not null check (
-    resolution in ('unreceived_cancel','supplier_refund','supplier_credit')
-  ),
-  received_value numeric(12,2) not null default 0,
-  payable_reversed numeric(12,2) not null default 0,
-  recovered_amount numeric(12,2) not null default 0,
-  recovery_account_id uuid references public.accounts(id),
-  recovery_ledger_transaction_id uuid unique
-    references public.account_transactions(id),
-  reason text not null,
-  reversed_by uuid not null references public.users(id),
-  reversed_at timestamptz not null default now()
-);
-
-create table if not exists public.supplier_advances (
-  id uuid primary key,
-  tenant_id uuid not null references public.tenants(id),
-  branch_id uuid not null references public.branches(id),
-  supplier_id uuid not null references public.suppliers(id),
-  purchase_order_reversal_id uuid not null unique
-    references public.purchase_order_reversals(id),
-  amount numeric(12,2) not null check (amount > 0),
-  status text not null default 'open' check (status in ('open','applied','refunded')),
-  created_by uuid not null references public.users(id),
-  created_at timestamptz not null default now()
-);
-
+-- Paid recovery is intentionally PO-specific. The established v1 function
+-- derives the unpaid portion from supplier outstanding balance and v2 clears
+-- phantom recovery links when no money was recovered. This index keeps the
+-- PO-specific payment lookup and audit path deterministic at scale.
 create index if not exists idx_supplier_payments_purchase_order
   on public.supplier_payments(purchase_order_id);
 
-alter table public.purchase_order_reversals enable row level security;
-alter table public.supplier_advances enable row level security;
-drop policy if exists "branch users read po reversals"
-on public.purchase_order_reversals;
-create policy "branch users read po reversals"
-on public.purchase_order_reversals for select to authenticated using (
-  public.current_user_has_branch_permission(
-    tenant_id, branch_id, 'procurement.purchase_orders'
-  )
-);
-drop policy if exists "branch users read supplier advances"
-on public.supplier_advances;
-create policy "branch users read supplier advances"
-on public.supplier_advances for select to authenticated using (
-  public.current_user_has_branch_permission(
-    tenant_id, branch_id, 'supplier.supplier.view'
-  )
-);
-
+-- Reinstall the atomic function so already-deployed databases also use
+-- PO-specific payments when separating payable reversal from cash recovery.
 create or replace function public.reverse_purchase_order_v1(
   p_po_id uuid,
   p_reversal_id uuid,

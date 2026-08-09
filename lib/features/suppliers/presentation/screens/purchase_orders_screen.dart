@@ -533,13 +533,20 @@ Future<void> _showPOReversalDialog(
   PurchaseOrderModel po,
 ) async {
   final received = po.totalReceivedCost > 0;
+  final paidAmount =
+      received
+          ? await ref
+              .read(procurementRepositoryProvider)
+              .loadPaidForPurchaseOrder(po.id)
+          : 0.0;
+  final hasPaidAmount = paidAmount > 0.01;
   final reason = TextEditingController();
   var resolution = received ? 'supplier_credit' : 'unreceived_cancel';
   String? accountId;
   String? error;
   var saving = false;
   final accounts =
-      received
+      received && hasPaidAmount
           ? (await ref.read(accountsProvider.future))
               .where(
                 (account) =>
@@ -577,27 +584,40 @@ Future<void> _showPOReversalDialog(
                       ),
                       if (received) ...[
                         const SizedBox(height: 12),
-                        SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(
-                              value: 'supplier_credit',
-                              label: Text('Supplier Credit'),
-                            ),
-                            ButtonSegment(
-                              value: 'supplier_refund',
-                              label: Text('Money Refunded'),
-                            ),
-                          ],
-                          selected: {resolution},
-                          onSelectionChanged:
-                              saving
-                                  ? null
-                                  : (values) => setDialogState(() {
-                                    resolution = values.first;
-                                    accountId = null;
-                                    error = null;
-                                  }),
-                        ),
+                        if (!hasPaidAmount)
+                          const Text(
+                            'Is PO ki koi payment nahi hui. Sirf products '
+                            'return aur supplier payable reverse hoga; cash '
+                            'refund nahi banega.',
+                          )
+                        else ...[
+                          Text(
+                            'Paid amount: Rs ${paidAmount.toStringAsFixed(0)}. '
+                            'Isi amount ka refund ya supplier credit banega.',
+                          ),
+                          const SizedBox(height: 8),
+                          SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(
+                                value: 'supplier_credit',
+                                label: Text('Supplier Credit'),
+                              ),
+                              ButtonSegment(
+                                value: 'supplier_refund',
+                                label: Text('Money Refunded'),
+                              ),
+                            ],
+                            selected: {resolution},
+                            onSelectionChanged:
+                                saving
+                                    ? null
+                                    : (values) => setDialogState(() {
+                                      resolution = values.first;
+                                      accountId = null;
+                                      error = null;
+                                    }),
+                          ),
+                        ],
                         if (resolution == 'supplier_refund') ...[
                           const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
@@ -748,6 +768,9 @@ String _poReversalError(String raw) {
   }
   if (value.contains('network') || value.contains('connection')) {
     return 'Network unavailable. No reversal was applied; retry online.';
+  }
+  if (value.contains('needs internet')) {
+    return 'PO return offline nahi ho sakta. Internet on karke dobara try karein.';
   }
   if (value.contains('timeout')) {
     return 'Request timeout ho gayi. Refresh karke PO status check karein.';

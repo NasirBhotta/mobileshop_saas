@@ -15,11 +15,14 @@ void main() {
 
     expect(screen, contains('dashboardAccountLifecycleRefreshProvider'));
     expect(provider, contains('AppLifecycleState.resumed'));
-    expect(provider, contains('await posRepository.syncOfflineMutations()'));
+    expect(provider, contains('posRepository.syncOfflineMutations'));
     expect(provider, contains('refreshCurrentAccountsCache'));
     expect(provider, contains('refreshCurrentTransactionsCache'));
     expect(provider, contains('invalidate(accountsProvider)'));
-    expect(provider, contains('inFlight'));
+    expect(provider, contains('_DashboardAccountRefreshCoordinator'));
+    expect(provider, contains('_refreshDashboardSource'));
+    expect(provider, contains("'lifecycle accounts'"));
+    expect(provider, contains('refresh().timeout(timeout)'));
   });
 
   test('remote account refresh preserves optimistic financial mutations', () {

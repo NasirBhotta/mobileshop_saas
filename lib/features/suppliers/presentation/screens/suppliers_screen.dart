@@ -556,7 +556,9 @@ class _SupplierCardState extends ConsumerState<_SupplierCard> {
     WidgetRef ref,
     SupplierModel supplier,
   ) async {
-    final overview = await ref.read(supplierOverviewProvider(supplier).future);
+    final overview = await ref
+        .read(procurementRepositoryProvider)
+        .loadCachedSupplierOverview(supplier);
     final accounts = await ref.read(accountsProvider.future);
     if (!context.mounted) return;
 

@@ -3,9 +3,200 @@ import 'dart:convert';
 import 'package:mobileshop_saas/core/local/local_database.dart';
 
 import '../models/procurement_models.dart';
+import '../models/supplier_sales_analytics_models.dart';
 import '../../domain/supplier_accounting_contract.dart';
 
 class ProcurementLocalStore {
+  static Future<SupplierSalesSummary> loadSupplierSalesSummary({
+    required String supplierId,
+    required String branchId,
+    required DateTime? dateFrom,
+  }) async {
+    final rows = await LocalDatabase.select(
+      '''
+      WITH supplier_links AS (
+        SELECT sp.product_id, counts.supplier_count
+        FROM supplier_products sp
+        JOIN (
+          SELECT product_id, COUNT(DISTINCT supplier_id) AS supplier_count
+          FROM supplier_products
+          GROUP BY product_id
+        ) counts ON counts.product_id = sp.product_id
+        JOIN products p ON p.id = sp.product_id
+        WHERE sp.supplier_id = ? AND p.branch_id = ? AND p.is_active = 1
+      ),
+      sale_lines AS (
+        SELECT s.id AS sale_id, si.product_id,
+          SUM(si.quantity) AS sold_quantity,
+          SUM(si.line_total) AS revenue,
+          SUM(COALESCE(si.cogs_total, si.unit_cost_at_sale * si.quantity, 0)) AS cost
+        FROM sales s
+        JOIN sale_items si ON si.sale_id = s.id
+        WHERE s.branch_id = ? AND s.status = 'completed'
+          AND (? IS NULL OR s.created_at >= ?)
+        GROUP BY s.id, si.product_id
+      ),
+      returned AS (
+        SELECT sri.original_sale_id AS sale_id, sri.product_id,
+          SUM(sri.quantity) AS returned_quantity,
+          SUM(sri.refund_amount) AS refund
+        FROM sale_return_items sri
+        JOIN sale_returns sr ON sr.id = sri.return_id
+        WHERE sr.branch_id = ? AND sr.status = 'approved'
+        GROUP BY sri.original_sale_id, sri.product_id
+      ),
+      eligible_net AS (
+        SELECT sl.sale_id,
+          MAX(sl.sold_quantity - COALESCE(r.returned_quantity, 0), 0) AS quantity,
+          sl.revenue - COALESCE(r.refund, 0) AS revenue,
+          CASE WHEN sl.sold_quantity = 0 THEN 0 ELSE
+            sl.cost * MAX(sl.sold_quantity - COALESCE(r.returned_quantity, 0), 0)
+              / sl.sold_quantity END AS cost
+        FROM sale_lines sl
+        LEFT JOIN returned r
+          ON r.sale_id = sl.sale_id AND r.product_id = sl.product_id
+        JOIN supplier_links link ON link.product_id = sl.product_id
+        WHERE link.supplier_count = 1
+      )
+      SELECT
+        (SELECT COUNT(*) FROM supplier_links) AS linked_product_count,
+        (SELECT COUNT(*) FROM supplier_links WHERE supplier_count > 1)
+          AS shared_product_count,
+        COUNT(DISTINCT sale_id) AS sales_count,
+        COALESCE(SUM(quantity), 0) AS units_sold,
+        COALESCE(SUM(revenue), 0) AS sales_revenue,
+        COALESCE(SUM(cost), 0) AS cost_of_sales,
+        COALESCE(SUM(revenue), 0) - COALESCE(SUM(cost), 0) AS gross_profit,
+        CASE WHEN COALESCE(SUM(revenue), 0) = 0 THEN 0 ELSE
+          (SUM(revenue) - SUM(cost)) / SUM(revenue) * 100 END AS profit_margin
+      FROM eligible_net
+      ''',
+      [
+        supplierId,
+        branchId,
+        branchId,
+        dateFrom?.toUtc().toIso8601String(),
+        dateFrom?.toUtc().toIso8601String(),
+        branchId,
+      ],
+    );
+    return SupplierSalesSummary.fromMap(rows.first);
+  }
+
+  static Future<SupplierProductSalesPage> loadSupplierProductSalesPage({
+    required String supplierId,
+    required String branchId,
+    required DateTime? dateFrom,
+    required String search,
+    required SupplierProfitFilter profitFilter,
+    required SupplierAnalyticsSort sort,
+    required int limit,
+    required int offset,
+  }) async {
+    final searchPattern = '%${search.trim().toLowerCase()}%';
+    final rows = await LocalDatabase.select(
+      '''
+      WITH supplier_links AS (
+        SELECT sp.product_id, counts.supplier_count
+        FROM supplier_products sp
+        JOIN (
+          SELECT product_id, COUNT(DISTINCT supplier_id) AS supplier_count
+          FROM supplier_products GROUP BY product_id
+        ) counts ON counts.product_id = sp.product_id
+        JOIN products p ON p.id = sp.product_id
+        WHERE sp.supplier_id = ? AND p.branch_id = ? AND p.is_active = 1
+      ),
+      sale_lines AS (
+        SELECT s.id AS sale_id, si.product_id,
+          SUM(si.quantity) AS sold_quantity, SUM(si.line_total) AS revenue,
+          SUM(COALESCE(si.cogs_total, si.unit_cost_at_sale * si.quantity, 0)) AS cost
+        FROM sales s JOIN sale_items si ON si.sale_id = s.id
+        WHERE s.branch_id = ? AND s.status = 'completed'
+          AND (? IS NULL OR s.created_at >= ?)
+        GROUP BY s.id, si.product_id
+      ),
+      returned AS (
+        SELECT sri.original_sale_id AS sale_id, sri.product_id,
+          SUM(sri.quantity) AS returned_quantity, SUM(sri.refund_amount) AS refund
+        FROM sale_return_items sri JOIN sale_returns sr ON sr.id = sri.return_id
+        WHERE sr.branch_id = ? AND sr.status = 'approved'
+        GROUP BY sri.original_sale_id, sri.product_id
+      ),
+      product_totals AS (
+        SELECT sl.product_id,
+          SUM(MAX(sl.sold_quantity - COALESCE(r.returned_quantity, 0), 0)) AS units_sold,
+          SUM(sl.revenue - COALESCE(r.refund, 0)) AS sales_revenue,
+          SUM(CASE WHEN sl.sold_quantity = 0 THEN 0 ELSE
+            sl.cost * MAX(sl.sold_quantity - COALESCE(r.returned_quantity, 0), 0)
+              / sl.sold_quantity END) AS cost_of_sales
+        FROM sale_lines sl LEFT JOIN returned r
+          ON r.sale_id = sl.sale_id AND r.product_id = sl.product_id
+        GROUP BY sl.product_id
+      ),
+      analytics_rows AS (
+        SELECT p.id AS product_id, p.name AS product_name, p.sku,
+          COALESCE(i.quantity, 0) AS stock,
+          CASE WHEN link.supplier_count = 1 THEN COALESCE(pt.units_sold, 0) ELSE 0 END AS units_sold,
+          CASE WHEN link.supplier_count = 1 THEN COALESCE(pt.sales_revenue, 0) ELSE 0 END AS sales_revenue,
+          CASE WHEN link.supplier_count = 1 THEN COALESCE(pt.cost_of_sales, 0) ELSE 0 END AS cost_of_sales,
+          link.supplier_count > 1 AS is_shared
+        FROM supplier_links link JOIN products p ON p.id = link.product_id
+        LEFT JOIN inventory i ON i.product_id = p.id AND i.branch_id = ?
+        LEFT JOIN product_totals pt ON pt.product_id = p.id
+        WHERE ? = '%%' OR LOWER(p.name) LIKE ? OR LOWER(COALESCE(p.sku, '')) LIKE ?
+          OR LOWER(COALESCE(p.barcode, '')) LIKE ?
+      ),
+      filtered AS (
+        SELECT *, sales_revenue - cost_of_sales AS gross_profit,
+          CASE WHEN sales_revenue = 0 THEN 0 ELSE
+            (sales_revenue - cost_of_sales) / sales_revenue * 100 END AS profit_margin
+        FROM analytics_rows
+        WHERE ? = 'all' OR (? = 'profit' AND sales_revenue - cost_of_sales > 0)
+          OR (? = 'loss' AND sales_revenue - cost_of_sales < 0)
+          OR (? = 'unsold' AND units_sold = 0)
+      )
+      SELECT *, COUNT(*) OVER () AS total_count FROM filtered
+      ORDER BY
+        CASE WHEN ? = 'revenue_desc' THEN sales_revenue END DESC,
+        CASE WHEN ? = 'units_desc' THEN units_sold END DESC,
+        CASE WHEN ? = 'profit_desc' THEN gross_profit END DESC,
+        CASE WHEN ? = 'profit_asc' THEN gross_profit END ASC,
+        CASE WHEN ? = 'name_asc' THEN product_name END ASC,
+        product_name ASC
+      LIMIT ? OFFSET ?
+      ''',
+      [
+        supplierId,
+        branchId,
+        branchId,
+        dateFrom?.toUtc().toIso8601String(),
+        dateFrom?.toUtc().toIso8601String(),
+        branchId,
+        branchId,
+        searchPattern,
+        searchPattern,
+        searchPattern,
+        searchPattern,
+        profitFilter.value,
+        profitFilter.value,
+        profitFilter.value,
+        profitFilter.value,
+        sort.value,
+        sort.value,
+        sort.value,
+        sort.value,
+        sort.value,
+        limit.clamp(1, 100),
+        offset < 0 ? 0 : offset,
+      ],
+    );
+    return SupplierProductSalesPage(
+      items: rows.map(SupplierProductSalesRow.fromMap).toList(),
+      total:
+          rows.isEmpty ? 0 : (rows.first['total_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   static Future<void> saveSupplier(SupplierModel supplier) async {
     await LocalDatabase.execute(
       '''
@@ -266,6 +457,40 @@ class ProcurementLocalStore {
       ''',
       [PurchaseOrderStatus.cancelled.code, now, now, poId],
     );
+  }
+
+  /// Mirrors an already-committed online reversal into SQLite.
+  static Future<void> reconcileReversedPurchaseOrderInventory({
+    required String purchaseOrderId,
+    required String branchId,
+  }) async {
+    await LocalDatabase.runInTransaction(() async {
+      final rows = await LocalDatabase.select(
+        '''
+        SELECT product_id, item_resolution,
+               SUM(received_quantity) AS received_quantity
+        FROM goods_receipt_items
+        WHERE purchase_order_id = ? AND product_id IS NOT NULL
+        GROUP BY product_id, item_resolution
+        ''',
+        [purchaseOrderId],
+      );
+      final now = DateTime.now().toIso8601String();
+      for (final row in rows) {
+        final productId = row['product_id'] as String;
+        final receivedQuantity =
+            (row['received_quantity'] as num?)?.toInt() ?? 0;
+        await LocalDatabase.execute(
+          '''
+          UPDATE inventory
+          SET quantity = MAX(quantity - ?, 0), updated_at = ?
+          WHERE branch_id = ? AND product_id = ?
+          ''',
+          [receivedQuantity, now, branchId, productId],
+        );
+      }
+      await markPurchaseOrderCancelled(purchaseOrderId);
+    });
   }
 
   static Future<void> applyReceiptLocally({

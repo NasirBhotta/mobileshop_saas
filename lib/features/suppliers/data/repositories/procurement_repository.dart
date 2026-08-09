@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
+import 'package:mobileshop_saas/core/local/local_database.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
+import 'package:mobileshop_saas/core/utils/network.dart';
 import 'package:mobileshop_saas/features/suppliers/data/local/procurement_local_store.dart';
 import 'package:mobileshop_saas/features/suppliers/data/local/supplier_payment_local_committer.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
@@ -225,6 +227,30 @@ class ProcurementRepository {
       debugPrint('Supplier overview using offline data: $error');
     }
 
+    final orders = await ProcurementLocalStore.loadPurchaseOrders(branchId);
+    final ledger = await ProcurementLocalStore.loadSupplierLedger(supplier.id);
+    final payments = await ProcurementLocalStore.loadSupplierPayments(
+      supplier.id,
+    );
+    final currentSupplier =
+        await ProcurementLocalStore.loadSupplierById(supplier.id) ?? supplier;
+    return SupplierOverviewModel(
+      supplier: currentSupplier,
+      purchaseOrders:
+          orders.where((order) => order.supplierId == supplier.id).toList(),
+      ledgerEntries: ledger,
+      payments: payments,
+    );
+  }
+
+  /// Reads only the already-synced supplier payment prerequisites.
+  ///
+  /// The payment dialog must remain instant when there is no connection, so it
+  /// must not wait for the history screen's remote refresh path.
+  Future<SupplierOverviewModel> loadCachedSupplierOverview(
+    SupplierModel supplier,
+  ) async {
+    final branchId = supplier.branchId ?? await _branchId(supplier.tenantId);
     final orders = await ProcurementLocalStore.loadPurchaseOrders(branchId);
     final ledger = await ProcurementLocalStore.loadSupplierLedger(supplier.id);
     final payments = await ProcurementLocalStore.loadSupplierPayments(
@@ -692,27 +718,15 @@ class ProcurementRepository {
           .timeout(_networkTimeout);
     } catch (error) {
       OfflineErrorClassifier.rethrowIfTerminal(error);
-      if (po.totalReceivedCost > 0) {
-        throw StateError(
-          'Received PO return needs internet so stock, payable and refund '
-          'can be reversed atomically.',
-        );
-      }
-      await ProcurementLocalStore.markPurchaseOrderCancelled(po.id);
-      await OfflineStore.enqueueMutation(
-        userId: _currentUser.id,
-        type: 'reverse_purchase_order',
-        payload: {
-          'po_id': po.id,
-          'reversal_id': reversalId,
-          'resolution': resolution,
-          'reason': reason.trim(),
-          'recovery_account_id': recoveryAccountId,
-          'recovery_ledger_transaction_id': recoveryLedgerId,
-        },
+      throw StateError(
+        'Purchase order cancellation/return needs internet so stock, payable '
+        'and any refund can be reversed atomically.',
       );
-      return;
     }
+    await ProcurementLocalStore.reconcileReversedPurchaseOrderInventory(
+      purchaseOrderId: po.id,
+      branchId: po.branchId,
+    );
     try {
       await fetchPurchaseOrderById(po.id);
     } catch (error) {
@@ -720,6 +734,15 @@ class ProcurementRepository {
       // not report the completed reversal itself as failed.
       debugPrint('PO reversed; follow-up cache refresh failed: $error');
     }
+  }
+
+  Future<double> loadPaidForPurchaseOrder(String purchaseOrderId) async {
+    final payments = await LocalDatabase.select(
+      'SELECT COALESCE(SUM(amount), 0) AS paid '
+      'FROM supplier_payments WHERE purchase_order_id = ?',
+      [purchaseOrderId],
+    );
+    return (payments.first['paid'] as num?)?.toDouble() ?? 0;
   }
 
   Future<void> receiveGoods({
@@ -805,6 +828,12 @@ class ProcurementRepository {
 
     await SupplierPaymentLocalCommitter.commit(payment);
 
+    if (!await const NetworkService().hasConnection) {
+      await _enqueueSupplierPayment(payment);
+      debugPrint('Supplier payment saved offline; remote sync queued.');
+      return;
+    }
+
     try {
       await _client
           .rpc(
@@ -825,13 +854,17 @@ class ProcurementRepository {
           .timeout(_networkTimeout);
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
-      await OfflineStore.enqueueMutation(
-        userId: _currentUser.id,
-        type: 'record_supplier_payment',
-        payload: payment.toMap(),
-      );
+      await _enqueueSupplierPayment(payment);
       debugPrint('Supplier payment saved offline: $e');
     }
+  }
+
+  Future<void> _enqueueSupplierPayment(SupplierPaymentModel payment) {
+    return OfflineStore.enqueueMutation(
+      userId: _currentUser.id,
+      type: 'record_supplier_payment',
+      payload: payment.toMap(),
+    );
   }
 
   Future<void> syncOfflineMutations() async {
@@ -1081,19 +1114,10 @@ class ProcurementRepository {
   }) async {
     await _entitlements.require('procurement.suppliers');
     final branchId = await _branchId(supplier.tenantId);
-    final rows = await _client.rpc(
-      'supplier_sales_summary',
-      params: {
-        'p_supplier_id': supplier.id,
-        'p_branch_id': branchId,
-        'p_date_from': period.dateFrom?.toUtc().toIso8601String(),
-        'p_date_to': null,
-      },
-    );
-    final list = rows as List;
-    if (list.isEmpty) throw StateError('Supplier analytics is unavailable.');
-    return SupplierSalesSummary.fromMap(
-      Map<String, dynamic>.from(list.first as Map),
+    return ProcurementLocalStore.loadSupplierSalesSummary(
+      supplierId: supplier.id,
+      branchId: branchId,
+      dateFrom: period.dateFrom,
     );
   }
 
@@ -1108,28 +1132,15 @@ class ProcurementRepository {
   }) async {
     await _entitlements.require('procurement.suppliers');
     final branchId = await _branchId(supplier.tenantId);
-    final response = await _client.rpc(
-      'supplier_product_sales_page',
-      params: {
-        'p_supplier_id': supplier.id,
-        'p_branch_id': branchId,
-        'p_date_from': period.dateFrom?.toUtc().toIso8601String(),
-        'p_date_to': null,
-        'p_search': search,
-        'p_profit_filter': profitFilter.value,
-        'p_sort': sort.value,
-        'p_limit': limit,
-        'p_offset': offset,
-      },
-    );
-    final rows =
-        (response as List)
-            .map((row) => Map<String, dynamic>.from(row as Map))
-            .toList();
-    return SupplierProductSalesPage(
-      items: rows.map(SupplierProductSalesRow.fromMap).toList(),
-      total:
-          rows.isEmpty ? 0 : (rows.first['total_count'] as num?)?.toInt() ?? 0,
+    return ProcurementLocalStore.loadSupplierProductSalesPage(
+      supplierId: supplier.id,
+      branchId: branchId,
+      dateFrom: period.dateFrom,
+      search: search,
+      profitFilter: profitFilter,
+      sort: sort,
+      limit: limit,
+      offset: offset,
     );
   }
 }

@@ -2721,8 +2721,25 @@ class PosRepository {
       final remaining = <OfflineMutation>[];
       final reconciledCustomerIds = <String, String>{};
       final blockedSettlementCustomerIds = <String>{};
+      var inventoryPrerequisitePending = false;
 
       for (final mutation in mutations) {
+        // Procurement and inventory repositories own these mutations. When
+        // they precede an offline sale, the server stock may not include the
+        // locally received/adjusted quantity yet. Defer the sale until its
+        // stock prerequisite has left the shared queue instead of submitting
+        // it early and producing a false insufficient-inventory conflict.
+        if (const {
+          'receive_po_goods',
+          'stock_adjustment',
+          'upsert_product',
+        }.contains(mutation.type)) {
+          inventoryPrerequisitePending = true;
+        }
+        if (mutation.type == 'sale_checkout' && inventoryPrerequisitePending) {
+          remaining.add(mutation);
+          continue;
+        }
         if (mutation.type == 'customer_settlement') {
           final customerId = mutation.payload['customer_id'] as String?;
           if (mutation.payload['_sync_state'] == 'needs_review' ||

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
 
 void main() {
   const userId = 'queue-test-user';
@@ -131,4 +132,21 @@ void main() {
       expect(prefs.containsKey('offline.tenant.tenant-1'), isTrue);
     },
   );
+
+  test('POS sync defers sales behind queued inventory prerequisites', () {
+    final source =
+        File(
+          'lib/features/pos/data/repositories/pos_repository.dart',
+        ).readAsStringSync();
+
+    expect(source, contains("'receive_po_goods'"));
+    expect(source, contains("'stock_adjustment'"));
+    expect(source, contains('inventoryPrerequisitePending'));
+    expect(
+      source,
+      contains(
+        "mutation.type == 'sale_checkout' && inventoryPrerequisitePending",
+      ),
+    );
+  });
 }

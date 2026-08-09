@@ -19,7 +19,7 @@ void main() {
       sql,
       contains('received stock has been sold, transferred, or consumed'),
     );
-    expect(sql, contains("update public.products set is_active=false"));
+    expect(sql, isNot(contains("update public.products set is_active=false")));
     expect(sql, contains("'purchase_return'"));
   });
 
@@ -47,5 +47,25 @@ void main() {
     );
     expect(screen, contains('_safeBackendMessage(raw)'));
     expect(screen, contains("message.split(', code:').first.trim()"));
+    expect(screen, contains('PO return offline nahi ho sakta'));
+    expect(screen, isNot(contains('NetworkService().hasConnection')));
+    expect(screen, contains('Is PO ki koi payment nahi hui'));
+    expect(screen, contains('loadPaidForPurchaseOrder'));
+  });
+
+  test('deployed reversal fix is schema-safe and PO-payment-specific', () {
+    final sql =
+        File(
+          'supabase/migrations/20260810000100_fix_po_reversal_product_timestamp.sql',
+        ).readAsStringSync().toLowerCase();
+
+    expect(sql, contains('add column if not exists updated_at'));
+    expect(sql, contains('sp.purchase_order_id=p_po_id'));
+    expect(sql, contains('v_received-coalesce(sum(sp.amount),0)'));
+    expect(sql, contains('least(v_received,coalesce(sum(sp.amount),0))'));
+    expect(
+      sql,
+      contains('create or replace function public.reverse_purchase_order_v1'),
+    );
   });
 }

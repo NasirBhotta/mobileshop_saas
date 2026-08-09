@@ -181,6 +181,12 @@ class PurchaseOrderController
             reason: reason,
             recoveryAccountId: recoveryAccountId,
           );
+      // The reversal is online-only and commits stock atomically on the
+      // server. Refresh SQLite before invalidating cached-first inventory
+      // providers, otherwise they can immediately republish stale stock.
+      await _ref
+          .read(inventoryRepositoryProvider)
+          .refreshCurrentProductsCache();
       state = AsyncData(po.copyWith(status: PurchaseOrderStatus.cancelled));
       _ref
         ..invalidate(purchaseOrdersProvider)
