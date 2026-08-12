@@ -324,6 +324,7 @@ class _CartPanelState extends ConsumerState<CartPanel> {
   String _friendlyCheckoutError(String message) {
     return message
         .replaceFirst('Exception: ', '')
+        .replaceFirst('Bad state: ', '')
         .replaceFirst('PostgrestException(message: ', '')
         .split(', code:')
         .first;

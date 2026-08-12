@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../inventory/data/models/product_model.dart';
+import '../../../inventory/data/repositories/inventory_repository.dart';
 import '../models/cart_item_model.dart';
 import '../models/customer_dashboard_model.dart';
 import '../models/customer_model.dart';
@@ -25,6 +26,7 @@ import '../../domain/pos_payment_account_policy.dart';
 import '../../domain/pos_refund_allocation.dart';
 import '../../domain/held_cart_identity.dart';
 import '../../../accounts/data/local/accounts_local_store.dart';
+import '../../../suppliers/data/repositories/procurement_repository.dart';
 import 'sale_return_parent_recovery.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
@@ -98,9 +100,7 @@ class PosRepository {
 
     Map<String, dynamic>? profile;
     try {
-      profile = await _remoteProfile().timeout(
-        const Duration(milliseconds: 1200),
-      );
+      profile = await _remoteProfile().timeout(_saleCommitTimeout);
       if (profile != null) {
         final selectedBranchId = await OfflineStore.loadSelectedBranchId(
           _currentUser.id,
@@ -128,9 +128,7 @@ class PosRepository {
 
   Future<void> _refreshProfileCache() async {
     try {
-      final profile = await _remoteProfile().timeout(
-        const Duration(milliseconds: 1200),
-      );
+      final profile = await _remoteProfile().timeout(_saleCommitTimeout);
       if (profile != null) {
         final selectedBranchId = await OfflineStore.loadSelectedBranchId(
           _currentUser.id,
@@ -173,7 +171,7 @@ class PosRepository {
         .order('id')
         .limit(1)
         .maybeSingle()
-        .timeout(const Duration(milliseconds: 1200));
+        .timeout(_saleCommitTimeout);
 
     final branchId = branch?['id'] as String?;
     if (branchId == null) throw Exception('Branch not found');
@@ -194,7 +192,7 @@ class PosRepository {
           .eq('id', branchId)
           .eq('tenant_id', tenantId)
           .maybeSingle()
-          .timeout(Network.networkTimeout);
+          .timeout(_saleCommitTimeout);
       return branch != null;
     } catch (_) {
       return false;
@@ -395,46 +393,63 @@ class PosRepository {
       items: items,
     );
 
-    // ── Step 1: Stock check ──
-    try {
-      for (final item in costedItems) {
-        final inv = await _client
+    // A PO receipt may have been completed locally while its remote mutation
+    // is still pending. Give that prerequisite one online sync opportunity
+    // before rejecting the sale as a missing server product/stock row.
+    await _syncPendingPurchaseReceipts();
+
+    // ── Step 1: Online product and stock verification ──
+    for (final item in costedItems) {
+      Map<String, dynamic>? product;
+      try {
+        product = await _client
+            .from('products')
+            .select('id')
+            .eq('id', item.productId)
+            .eq('tenant_id', tenantId)
+            .eq('branch_id', branchId)
+            .eq('is_active', true)
+            .maybeSingle()
+            .timeout(_saleCommitTimeout);
+      } on TimeoutException {
+        throw StateError(
+          'Database verification timeout hui. Internet available hai, '
+          'lekin server ne waqt par response nahi diya. Dobara try karein.',
+        );
+      }
+      if (product == null) {
+        throw StateError(
+          '${item.productName} local cache mein hai, lekin database mein '
+          'is branch ke liye sync nahi hui. Purchase order/receipt sync '
+          'complete karke dobara try karein.',
+        );
+      }
+
+      Map<String, dynamic>? inventory;
+      try {
+        inventory = await _client
             .from('inventory')
             .select('quantity')
             .eq('branch_id', branchId)
             .eq('product_id', item.productId)
             .maybeSingle()
-            .timeout(Network.networkTimeout);
-
-        final currentStock = (inv?['quantity'] as num?)?.toInt() ?? 0;
-
-        if (currentStock < item.quantity) {
-          throw Exception(
-            '${item.productName} ka stock kam hai. '
-            'Available: $currentStock, Required: ${item.quantity}',
-          );
-        }
-      }
-    } catch (e) {
-      if (e.toString().contains('stock kam hai')) rethrow;
-
-      // Offline fallback: check stock locally from cached products
-      final cachedProducts = await OfflineStore.loadProducts(branchId);
-      for (final item in costedItems) {
-        final cachedProduct = cachedProducts.firstWhere(
-          (p) => p.id == item.productId,
-          orElse:
-              () =>
-                  throw Exception(
-                    'Product ${item.productName} locally cached nahi mila.',
-                  ),
+            .timeout(_saleCommitTimeout);
+      } on TimeoutException {
+        throw StateError(
+          'Inventory verification timeout hui. Dobara try karein.',
         );
-        if (cachedProduct.stock < item.quantity) {
-          throw Exception(
-            '${item.productName} ka stock kam hai. '
-            'Available (Offline cache): ${cachedProduct.stock}, Required: ${item.quantity}',
-          );
-        }
+      }
+      if (inventory == null) {
+        throw StateError(
+          '${item.productName} ka inventory record database mein nahi mila.',
+        );
+      }
+      final currentStock = (inventory['quantity'] as num?)?.toInt() ?? 0;
+      if (currentStock < item.quantity) {
+        throw StateError(
+          '${item.productName} ka stock kam hai. '
+          'Available: $currentStock, Required: ${item.quantity}',
+        );
       }
     }
 
@@ -508,65 +523,33 @@ class PosRepository {
       createdAt: DateTime.now(),
     );
 
-    var remoteSaleAndStockCommitted = false;
-    try {
-      await _commitSaleRemote(_saleSyncPayload(sale));
-      remoteSaleAndStockCommitted = true;
-
-      // Save locally as already synced (SQLite synced = 1)
-      await _saveSaleLocally(sale);
-      await LocalStore.markSaleSynced(saleId);
-      if (creditAmount > 0 && effectiveCustomerId != null) {
-        await _adjustCustomerOutstanding(
-          customerId: effectiveCustomerId,
-          delta: creditAmount,
-          synced: false,
-        );
-      }
-
-      for (final item in costedItems) {
-        await OfflineStore.decrementStock(
-          branchId: branchId,
-          productId: item.productId,
-          quantity: item.quantity,
-        );
-      }
-
-      debugPrint('✅ Sale complete remotely: $saleId, Total: ₨$total');
-    } catch (e) {
-      OfflineErrorClassifier.rethrowIfTerminal(e);
-      debugPrint('Offline checkout: Saving locally. Error: $e');
-
-      // Save locally (synced = 0 by default in SQLite / LocalStore)
-      await _saveSaleLocally(sale);
-      if (remoteSaleAndStockCommitted) {
-        await LocalStore.markSaleSynced(saleId);
-      }
-      if (creditAmount > 0 && effectiveCustomerId != null) {
-        await _adjustCustomerOutstanding(
-          customerId: effectiveCustomerId,
-          delta: creditAmount,
-          synced: false,
-        );
-      }
-
-      for (final item in costedItems) {
-        await OfflineStore.decrementStock(
-          branchId: branchId,
-          productId: item.productId,
-          quantity: item.quantity,
-        );
-      }
-
-      // Enqueue mutation for later sync
-      if (!remoteSaleAndStockCommitted) {
-        await OfflineStore.enqueueMutation(
-          userId: user.id,
-          type: 'sale_checkout',
-          payload: {'sale_id': saleId, 'sale_data': _saleSyncPayload(sale)},
-        );
-      }
+    final committed = await _commitSaleRemote(_saleSyncPayload(sale));
+    if (!committed) {
+      throw StateError(
+        'Sale database mein commit nahi ho saki. Dobara try karein.',
+      );
     }
+
+    // Save locally only after the server has verified and committed the sale.
+    await _saveSaleLocally(sale);
+    await LocalStore.markSaleSynced(saleId);
+    if (creditAmount > 0 && effectiveCustomerId != null) {
+      await _adjustCustomerOutstanding(
+        customerId: effectiveCustomerId,
+        delta: creditAmount,
+        synced: false,
+      );
+    }
+
+    for (final item in costedItems) {
+      await OfflineStore.decrementStock(
+        branchId: branchId,
+        productId: item.productId,
+        quantity: item.quantity,
+      );
+    }
+
+    debugPrint('✅ Sale complete remotely: $saleId, Total: ₨$total');
 
     try {
       await _logDiscountAudits(
@@ -625,6 +608,33 @@ class PosRepository {
             ? item
             : item.copyWith(unitCost: costByProductId[item.productId]),
     ];
+  }
+
+  Future<void> _syncPendingPurchaseReceipts() async {
+    final mutations = await OfflineStore.loadMutations(_currentUser.id);
+    if (!mutations.any(
+      (mutation) =>
+          mutation.type == 'upsert_product' ||
+          mutation.type == 'stock_adjustment' ||
+          mutation.type == 'create_purchase_order' ||
+          mutation.type == 'receive_po_goods',
+    )) {
+      return;
+    }
+    try {
+      // A PO can reference a product created locally just before the PO. Sync
+      // that catalog prerequisite first; procurement then receives its stock.
+      await InventoryRepository(
+        client: _client,
+        entitlementEvaluator: _entitlements,
+      ).syncOfflineMutations();
+      await ProcurementRepository(
+        client: _client,
+        entitlementEvaluator: _entitlements,
+      ).syncOfflineMutations();
+    } catch (error) {
+      debugPrint('Pending purchase receipt sync failed before sale: $error');
+    }
   }
 
   Future<void> _validateCreditCheckout({
@@ -2934,6 +2944,16 @@ class PosRepository {
               remaining.add(mutation);
           }
         } catch (e) {
+          if (mutation.type == 'sale_checkout' &&
+              _isInsufficientInventoryError(e)) {
+            // Sales are online-only now. This removes a stale mutation left
+            // by the previous offline-sale flow instead of retrying forever.
+            debugPrint(
+              'Removed stale offline sale ${mutation.payload['sale_id']}: '
+              'server inventory is insufficient.',
+            );
+            continue;
+          }
           if (mutation.type == 'customer_settlement') {
             final customerId = mutation.payload['customer_id'] as String?;
             if (customerId != null) {
@@ -2979,6 +2999,12 @@ class PosRepository {
     return error is PostgrestException &&
         error.code == '23505' &&
         error.message.contains('idx_customers_tenant_phone_unique');
+  }
+
+  bool _isInsufficientInventoryError(Object error) {
+    return error is PostgrestException &&
+        error.code == '23514' &&
+        error.message.toLowerCase().contains('insufficient inventory');
   }
 
   bool _isPermanentSettlementAccountMismatch(Object error) {

@@ -842,7 +842,7 @@ class InventoryRepository {
     }
 
     try {
-      return await _fetchRemoteProducts(
+      final remoteProducts = await _fetchRemoteProducts(
         tenantId: tenantId,
         branchId: branchId,
         categoryId: categoryId,
@@ -853,6 +853,30 @@ class InventoryRepository {
         offset: offset,
         lowStockOnly: lowStockOnly,
       ).timeout(_networkTimeout);
+      // A product created/received offline is intentionally absent from the
+      // remote result until its queued mutation syncs. Keep it searchable in
+      // POS by merging the branch-local cache into the remote page.
+      if (normalizedQuery.isEmpty || lowStockOnly || supplierId != null) {
+        return remoteProducts;
+      }
+      final byId = <String, ProductModel>{
+        for (final product in remoteProducts) product.id: product,
+      };
+      final pendingInventoryIds = await _pendingInventoryProductIds(branchId);
+      for (final product in localProducts) {
+        if (pendingInventoryIds.contains(product.id)) {
+          // Local stock includes an offline receipt/adjustment that the
+          // remote row cannot see until its queued mutation is synchronized.
+          byId[product.id] = product;
+        } else {
+          byId.putIfAbsent(product.id, () => product);
+        }
+      }
+      final merged =
+          byId.values.toList()..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
+      return merged.take(limit.clamp(1, 100)).toList();
     } catch (error) {
       if (supplierId == null ||
           localProducts.isNotEmpty ||
@@ -877,6 +901,51 @@ class InventoryRepository {
         categoryId: categoryId,
       ).timeout(_networkTimeout);
     } catch (_) {}
+  }
+
+  Future<Set<String>> _pendingInventoryProductIds(String branchId) async {
+    final ids = <String>{};
+    final mutations = await OfflineStore.loadMutations(_currentUser.id);
+    for (final mutation in mutations) {
+      final payload = mutation.payload;
+      if (mutation.type == 'upsert_product') {
+        final product = payload['product'];
+        if (product is Map && product['branch_id'] == branchId) {
+          final id = product['id'];
+          if (id is String) ids.add(id);
+        }
+      } else if (mutation.type == 'stock_adjustment') {
+        final adjustment = payload['adjustment'];
+        if (adjustment is Map && adjustment['branch_id'] == branchId) {
+          final id = adjustment['product_id'];
+          if (id is String) ids.add(id);
+        }
+      } else if (mutation.type == 'receive_po_goods') {
+        final purchaseOrder = payload['po'];
+        if (purchaseOrder is! Map || purchaseOrder['branch_id'] != branchId) {
+          continue;
+        }
+        final items = purchaseOrder['items'];
+        if (items is List) {
+          for (final raw in items) {
+            if (raw is! Map) continue;
+            for (final key in const ['product_id', 'resolved_product_id']) {
+              final id = raw[key];
+              if (id is String) ids.add(id);
+            }
+          }
+        }
+        final inputs = payload['inputs'];
+        if (inputs is List) {
+          for (final raw in inputs) {
+            if (raw is Map && raw['resolved_product_id'] is String) {
+              ids.add(raw['resolved_product_id'] as String);
+            }
+          }
+        }
+      }
+    }
+    return ids;
   }
 
   /// Refreshes the current branch cache before consumers are invalidated.
