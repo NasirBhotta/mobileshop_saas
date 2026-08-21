@@ -176,7 +176,7 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
       _invalidateAuthScopedProviders(_ref);
       await _repository.signInWithPassword(email: email, password: password);
       _invalidateAuthScopedProviders(_ref);
-      state = const AsyncData(null);
+      // Keep loading state active during route navigation to prevent button flicker
       return true;
     } catch (e, st) {
       state = AsyncError(e, st);
@@ -200,7 +200,7 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
         phone: phone,
       );
       _invalidateAuthScopedProviders(_ref);
-      state = const AsyncData(null);
+      // Keep loading state active during route navigation to prevent button flicker
       return true;
     } catch (e, st) {
       state = AsyncError(e, st);
@@ -213,7 +213,7 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
     try {
       _invalidateAuthScopedProviders(_ref);
       await _repository.signInWithGoogle();
-      state = const AsyncData(null);
+      // Keep loading state active during route navigation
       return true;
     } catch (e, st) {
       state = AsyncError(e, st);
