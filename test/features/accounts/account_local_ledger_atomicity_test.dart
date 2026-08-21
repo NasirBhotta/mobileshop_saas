@@ -77,9 +77,10 @@ void main() {
   });
 
   test(
-    'account names are matched across case, spacing, and inactive rows',
+    'account names are matched across case and spacing, while inactive rows do not block reuse',
     () async {
       const inactiveId = 'ledger-inactive-duplicate-name';
+      const activeId = 'ledger-active-duplicate-name';
       await AccountsLocalStore.saveAccount(
         const AccountModel(
           id: inactiveId,
@@ -90,6 +91,26 @@ void main() {
         ),
       );
       try {
+        // Inactive account should not block the name
+        expect(
+          await AccountsLocalStore.accountNameExists(
+            branchId: _branchId,
+            name: 'reserve wallet',
+          ),
+          isFalse,
+        );
+
+        // Active account should match case-insensitively and whitespace-normalized
+        await AccountsLocalStore.saveAccount(
+          const AccountModel(
+            id: activeId,
+            tenantId: _tenantId,
+            branchId: _branchId,
+            name: '  Reserve   Wallet  ',
+            isActive: true,
+          ),
+        );
+
         expect(
           await AccountsLocalStore.accountNameExists(
             branchId: _branchId,
@@ -101,12 +122,13 @@ void main() {
           await AccountsLocalStore.accountNameExists(
             branchId: _branchId,
             name: 'RESERVE     WALLET',
-            excludingAccountId: inactiveId,
+            excludingAccountId: activeId,
           ),
           isFalse,
         );
       } finally {
         await LocalDatabase.deleteRowById(table: 'accounts', id: inactiveId);
+        await LocalDatabase.deleteRowById(table: 'accounts', id: activeId);
       }
     },
   );

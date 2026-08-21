@@ -86,6 +86,7 @@ class AccountsLocalStore {
       SELECT id, name
       FROM accounts
       WHERE branch_id = ?
+        AND is_active = 1
       ''',
       [branchId],
     );

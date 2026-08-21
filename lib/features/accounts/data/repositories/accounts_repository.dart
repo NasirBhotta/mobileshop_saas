@@ -579,8 +579,14 @@ class AccountsRepository {
         }
       } catch (e) {
         debugPrint('Accounts sync failed: $e');
-        remaining.add(mutation);
-        accountSyncError ??= e;
+        if (_isDuplicateNameError(e)) {
+          debugPrint(
+            'Discarding conflicting account mutation from sync queue: ${mutation.payload}',
+          );
+        } else {
+          remaining.add(mutation);
+          accountSyncError ??= e;
+        }
       }
     }
 
@@ -610,12 +616,12 @@ class AccountsRepository {
   Future<bool> _hasPendingOptimisticAccountMutation() async {
     final pending = await OfflineStore.loadMutations(_currentUser.id);
     return pending.any(
-      (mutation) => const {
-        'sale_checkout',
-        'customer_settlement',
-        'sale_return',
-        'sale_return_approval',
-      }.contains(mutation.type),
+      (mutation) =>
+          // Pending settlements/sales protect optimistic cash balance from stale server balance
+          mutation.type == 'customer_settlement' ||
+          mutation.type == 'sale_checkout' ||
+          mutation.type == 'sale_return' ||
+          mutation.type == 'sale_return_approval',
     );
   }
 
