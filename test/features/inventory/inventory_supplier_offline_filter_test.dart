@@ -29,9 +29,11 @@ void main() {
   tearDownAll(() async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_pathProviderChannel, null);
-    if (databaseDirectory.existsSync()) {
-      databaseDirectory.deleteSync(recursive: true);
-    }
+    try {
+      if (databaseDirectory.existsSync()) {
+        databaseDirectory.deleteSync(recursive: true);
+      }
+    } catch (_) {}
   });
 
   test(

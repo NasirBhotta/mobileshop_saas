@@ -20,11 +20,14 @@ class ProductSearchPanel extends ConsumerStatefulWidget {
 }
 
 class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
+  static const _pageSize = 50;
+
   final _searchCtrl = TextEditingController();
   final _searchFocus = FocusNode();
   Timer? _debounce;
   String _query = '';
   String _debouncedQuery = '';
+  int _visibleLimit = _pageSize;
   bool _resolvingBarcode = false;
   List<ProductModel>? _lastProducts;
 
@@ -54,7 +57,7 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
     try {
       final products = await ref
           .read(inventoryRepositoryProvider)
-          .searchProducts(query: code, limit: 20, preferRemote: true);
+          .searchProducts(query: code, limit: 20, preferRemote: false);
       final normalized = code.toLowerCase();
       final matches = products.where(
         (product) =>
@@ -98,6 +101,7 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
         setState(() {
           _query = '';
           _debouncedQuery = '';
+          _visibleLimit = _pageSize;
           _resolvingBarcode = false;
         });
         _searchFocus.requestFocus();
@@ -106,7 +110,10 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
   }
 
   void _setQuery(String value) {
-    setState(() => _query = value);
+    setState(() {
+      _query = value;
+      _visibleLimit = _pageSize;
+    });
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
@@ -128,7 +135,10 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
     );
 
     if (!mounted) return;
-    final request = ProductSearchRequest(query: _debouncedQuery, limit: 50);
+    final request = ProductSearchRequest(
+      query: _debouncedQuery,
+      limit: _visibleLimit,
+    );
     ref
       ..invalidate(allProductsProvider)
       ..invalidate(productsProvider)
@@ -142,7 +152,10 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
   Widget build(BuildContext context) {
     final productsAsync = ref.watch(
       productSearchProvider(
-        ProductSearchRequest(query: _debouncedQuery, limit: 50),
+        ProductSearchRequest(
+          query: _debouncedQuery,
+          limit: _visibleLimit,
+        ),
       ),
     );
     final visibleProductsAsync =
@@ -182,6 +195,7 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
                           setState(() {
                             _query = '';
                             _debouncedQuery = '';
+                            _visibleLimit = _pageSize;
                           });
                         },
                       )
@@ -252,6 +266,8 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
                 );
               }
 
+              final hasMore = products.length >= _visibleLimit;
+
               return RefreshIndicator(
                 onRefresh: _refreshProducts,
                 child: ListView.separated(
@@ -260,9 +276,28 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
                     horizontal: 12,
                     vertical: 4,
                   ),
-                  itemCount: products.length,
+                  itemCount: products.length + (hasMore ? 1 : 0),
                   separatorBuilder: (_, _) => const SizedBox(height: 6),
                   itemBuilder: (context, index) {
+                    if (index == products.length) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Center(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _visibleLimit += _pageSize;
+                              });
+                            },
+                            icon: const Icon(
+                              Icons.expand_more_rounded,
+                              size: 18,
+                            ),
+                            label: const Text('Load more products'),
+                          ),
+                        ),
+                      );
+                    }
                     final product = products[index];
                     return _ProductTile(product: product);
                   },

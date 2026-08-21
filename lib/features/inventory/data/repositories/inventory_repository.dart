@@ -19,7 +19,7 @@ import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_sour
 import 'package:mobileshop_saas/features/inventory/domain/inventory_entitlement_gate.dart';
 
 class InventoryRepository {
-  static const _networkTimeout = Duration(milliseconds: 1200);
+  static const _networkTimeout = Duration(seconds: 8);
   final Map<String, Future<void>> _supplierLinkSyncs = {};
   Future<void>? _offlineSyncInFlight;
   final SupabaseClient _client;

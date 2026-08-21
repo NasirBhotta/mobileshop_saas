@@ -304,7 +304,7 @@ final productSearchProvider =
             categoryId: request.categoryId,
             limit: request.limit,
             offset: request.offset,
-            preferRemote: true,
+            preferRemote: false,
           );
     });
 

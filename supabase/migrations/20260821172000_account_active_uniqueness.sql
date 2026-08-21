@@ -17,7 +17,7 @@ begin
 
   new.name := btrim(regexp_replace(new.name, '\s+', ' ', 'g'));
   if new.name = '' then
-    raise exception 'ACCOUNT_NAME_REQUIRED';
+    raise exception 'ACCOUNT_NAME_RERQUIRED';
   end if;
 
   v_normalized_name := lower(new.name);

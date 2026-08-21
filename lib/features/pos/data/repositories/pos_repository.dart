@@ -79,10 +79,24 @@ class PosRepository {
   };
 
   Future<bool> _commitSaleRemote(Map<String, dynamic> saleData) async {
-    final result = await _client
-        .rpc('commit_pos_sale_v2', params: {'p_sale': saleData})
-        .timeout(_saleCommitTimeout);
-    return result == true;
+    try {
+      final result = await _client
+          .rpc('commit_pos_sale_v2', params: {'p_sale': saleData})
+          .timeout(_saleCommitTimeout);
+      if (result == false) {
+        throw StateError('Sale database mein commit nahi ho saki. Dobara try karein.');
+      }
+      return true;
+    } on PostgrestException catch (e) {
+      final message = e.message;
+      if (message.contains('Insufficient inventory') || e.code == '23514') {
+        throw StateError(
+          'Server par stock kam hai ya kisi doosre counter se sell ho chuka hai. '
+          'Inventory refresh karke dobara check karein.',
+        );
+      }
+      throw StateError(message.isNotEmpty ? message : 'Database error: ${e.code}');
+    }
   }
 
   User get _currentUser {
@@ -398,57 +412,15 @@ class PosRepository {
     // before rejecting the sale as a missing server product/stock row.
     await _syncPendingPurchaseReceipts();
 
-    // ── Step 1: Online product and stock verification ──
+    // ── Step 1: Pre-validation of cart item quantities ──
     for (final item in costedItems) {
-      Map<String, dynamic>? product;
-      try {
-        product = await _client
-            .from('products')
-            .select('id')
-            .eq('id', item.productId)
-            .eq('tenant_id', tenantId)
-            .eq('branch_id', branchId)
-            .eq('is_active', true)
-            .maybeSingle()
-            .timeout(_saleCommitTimeout);
-      } on TimeoutException {
-        throw StateError(
-          'Database verification timeout hui. Internet available hai, '
-          'lekin server ne waqt par response nahi diya. Dobara try karein.',
-        );
+      if (item.quantity <= 0) {
+        throw StateError('${item.productName} ki quantity kam az kam 1 honi chahiye.');
       }
-      if (product == null) {
-        throw StateError(
-          '${item.productName} local cache mein hai, lekin database mein '
-          'is branch ke liye sync nahi hui. Purchase order/receipt sync '
-          'complete karke dobara try karein.',
-        );
-      }
-
-      Map<String, dynamic>? inventory;
-      try {
-        inventory = await _client
-            .from('inventory')
-            .select('quantity')
-            .eq('branch_id', branchId)
-            .eq('product_id', item.productId)
-            .maybeSingle()
-            .timeout(_saleCommitTimeout);
-      } on TimeoutException {
-        throw StateError(
-          'Inventory verification timeout hui. Dobara try karein.',
-        );
-      }
-      if (inventory == null) {
-        throw StateError(
-          '${item.productName} ka inventory record database mein nahi mila.',
-        );
-      }
-      final currentStock = (inventory['quantity'] as num?)?.toInt() ?? 0;
-      if (currentStock < item.quantity) {
+      if (item.availableStock != null && item.availableStock! < item.quantity) {
         throw StateError(
           '${item.productName} ka stock kam hai. '
-          'Available: $currentStock, Required: ${item.quantity}',
+          'Available: ${item.availableStock}, Required: ${item.quantity}',
         );
       }
     }
@@ -611,29 +583,31 @@ class PosRepository {
   }
 
   Future<void> _syncPendingPurchaseReceipts() async {
-    final mutations = await OfflineStore.loadMutations(_currentUser.id);
-    if (!mutations.any(
-      (mutation) =>
-          mutation.type == 'upsert_product' ||
-          mutation.type == 'stock_adjustment' ||
-          mutation.type == 'create_purchase_order' ||
-          mutation.type == 'receive_po_goods',
-    )) {
-      return;
-    }
     try {
+      final mutations = await OfflineStore.loadMutations(_currentUser.id);
+      if (!mutations.any(
+        (mutation) =>
+            mutation.type == 'upsert_product' ||
+            mutation.type == 'stock_adjustment' ||
+            mutation.type == 'create_purchase_order' ||
+            mutation.type == 'receive_po_goods',
+      )) {
+        return;
+      }
       // A PO can reference a product created locally just before the PO. Sync
       // that catalog prerequisite first; procurement then receives its stock.
-      await InventoryRepository(
-        client: _client,
-        entitlementEvaluator: _entitlements,
-      ).syncOfflineMutations();
-      await ProcurementRepository(
-        client: _client,
-        entitlementEvaluator: _entitlements,
-      ).syncOfflineMutations();
+      await Future.wait([
+        InventoryRepository(
+          client: _client,
+          entitlementEvaluator: _entitlements,
+        ).syncOfflineMutations(),
+        ProcurementRepository(
+          client: _client,
+          entitlementEvaluator: _entitlements,
+        ).syncOfflineMutations(),
+      ]).timeout(const Duration(milliseconds: 1000));
     } catch (error) {
-      debugPrint('Pending purchase receipt sync failed before sale: $error');
+      debugPrint('Pending purchase receipt sync non-blocking error: $error');
     }
   }
 
