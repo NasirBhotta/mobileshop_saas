@@ -1377,9 +1377,10 @@ class LocalStore {
         created_at,
         updated_at,
         archived_at,
-        archived_by
+        archived_by,
+        photo_paths
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         ticket.id,
@@ -1414,6 +1415,7 @@ class LocalStore {
         ticket.updatedAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
         ticket.archivedAt?.toIso8601String(),
         ticket.archivedBy,
+        jsonEncode(ticket.photoPaths),
       ],
     );
   }

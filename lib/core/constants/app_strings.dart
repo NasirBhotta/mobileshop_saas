@@ -460,6 +460,12 @@ class AppStrings {
       'Customer ne device mein jo problem batayi hai woh yahan likho.';
   static const String repairFaultIssue = 'Fault / issue';
   static const String repairFaultHint = 'Example: Charging nahi ho rahi';
+  static const String repairDevicePhotos = 'Device Photos (Optional)';
+  static const String repairDevicePhotosSubtitle =
+      'Mobile ki condition / crack / scratch ki tasweer save karein.';
+  static const String repairTakePhoto = 'Camera';
+  static const String repairPickGallery = 'Gallery';
+  static const String repairNoPhotosYet = 'Koi tasweer add nahi ki gayi.';
   static const String repairChargeEstimate = 'Repair Charge Estimate';
   static const String repairChargeEstimateSubtitle =
       'Estimated service/labour charge; parts completion par automatically add honge.';

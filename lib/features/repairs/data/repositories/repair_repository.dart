@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/local/local_database.dart';
@@ -205,6 +207,38 @@ class RepairRepository {
     }
   }
 
+  Future<String?> uploadRepairPhoto({
+    required String tenantId,
+    required String ticketId,
+    required String localPath,
+  }) async {
+    try {
+      if (localPath.startsWith('http://') || localPath.startsWith('https://')) {
+        return localPath;
+      }
+      final file = File(localPath);
+      if (!file.existsSync()) return null;
+
+      final extension = p.extension(localPath).toLowerCase();
+      final ext = extension.isNotEmpty ? extension : '.jpg';
+      final fileName = '${const Uuid().v4()}$ext';
+      final storagePath = '$tenantId/$ticketId/$fileName';
+
+      final bytes = await file.readAsBytes();
+      await _client.storage.from('repair-photos').uploadBinary(
+        storagePath,
+        bytes,
+        fileOptions: const FileOptions(upsert: true),
+      ).timeout(const Duration(seconds: 10));
+
+      final publicUrl = _client.storage.from('repair-photos').getPublicUrl(storagePath);
+      return publicUrl;
+    } catch (e) {
+      debugPrint('Repair photo upload failed: $e');
+      return null;
+    }
+  }
+
   Future<RepairTicketModel> createRepairTicket({
     String? customerId,
     required String customerName,
@@ -219,6 +253,7 @@ class RepairRepository {
     double? estimatedCost,
     DateTime? estimatedCompletionAt,
     String? estimateNote,
+    List<String> photoPaths = const [],
   }) async {
     await _gate.require('repairs.tickets');
     if (imei?.trim().isNotEmpty == true) {
@@ -240,14 +275,6 @@ class RepairRepository {
     final ticketNo = _generateTicketNo(ticketId, now);
 
     // Main repair ticket object.
-    //
-    // inventoryUnitId intentionally null rakha hai.
-    // Kyun?
-    //
-    // Online Supabase trigger IMEI se inventory unit find/create karega
-    // aur ticket ke saath link karega.
-    //
-    // Offline mein hum local unit separately save karenge.
     final ticket = RepairTicketModel(
       id: ticketId,
       tenantId: tenantId,
@@ -271,15 +298,13 @@ class RepairRepository {
       estimatedCompletionAt: estimatedCompletionAt,
       estimateNote:
           estimateNote?.trim().isEmpty == true ? null : estimateNote?.trim(),
+      photoPaths: photoPaths,
       createdBy: userId,
       createdAt: now,
       updatedAt: now,
     );
 
     // Initial status log.
-    //
-    // Ticket create hota hai to status:
-    // null -> received
     final initialLog = RepairStatusLogModel(
       id: const Uuid().v4(),
       ticketId: ticket.id,
@@ -292,10 +317,6 @@ class RepairRepository {
       createdAt: now,
     );
 
-    // Local IMEI unit sirf tab banayenge jab productId + IMEI dono hon.
-    //
-    // ProductId ke bina inventory unit banana safe nahi,
-    // kyunki inventory_units table product_id required rakhti hai.
     final localUnit =
         hasImei && productId != null
             ? await _buildLocalInventoryUnit(
@@ -310,9 +331,6 @@ class RepairRepository {
             : null;
 
     // Sab se pehle local save.
-    //
-    // Iska faida:
-    // Internet slow/down bhi ho to user ka ticket lose nahi hota.
     await OfflineStore.saveRepairTicketWithInitialLog(
       ticket: ticket,
       log: initialLog,
@@ -320,28 +338,39 @@ class RepairRepository {
     );
 
     try {
-      // Remote insert.
-      //
-      // Supabase trigger:
-      // - ticket_no fallback generate karega agar null ho
-      // - IMEI unit find/create karega
-      // - inventory unit ko in_repair karega
-      // - initial status log create karega
+      final uploadedPhotos = <String>[];
+      for (final path in photoPaths) {
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+          uploadedPhotos.add(path);
+        } else {
+          final uploaded = await uploadRepairPhoto(
+            tenantId: tenantId,
+            ticketId: ticketId,
+            localPath: path,
+          );
+          if (uploaded != null) {
+            uploadedPhotos.add(uploaded);
+          } else {
+            uploadedPhotos.add(path);
+          }
+        }
+      }
+
+      final ticketToCommit = uploadedPhotos.isNotEmpty
+          ? ticket.copyWith(photoPaths: uploadedPhotos)
+          : ticket;
+
       final data = await _client
           .from('repair_tickets')
-          .insert(_remoteTicketMap(ticket))
+          .insert(_remoteTicketMap(ticketToCommit))
           .select()
           .single()
-          .timeout(_networkTimeout);
+          .timeout(const Duration(seconds: 8));
 
       final savedTicket = RepairTicketModel.fromMap(data);
 
-      // Remote result local cache mein update kar do.
-      // Agar trigger ne inventory_unit_id set kiya ho to wo bhi save ho jayega.
       await OfflineStore.saveRepairTicket(savedTicket);
 
-      // Agar remote ne inventory_unit_id return kiya hai,
-      // to local inventory unit ko remote id ke saath align kar do.
       if (savedTicket.inventoryUnitId != null &&
           savedTicket.productId != null &&
           savedTicket.imei != null &&
@@ -365,9 +394,6 @@ class RepairRepository {
       return savedTicket;
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
-      // Remote fail hua, lekin local save already ho chuka hai.
-      //
-      // Ab mutation queue mein daal do taake baad mein sync ho sake.
       await OfflineStore.enqueueMutation(
         userId: userId,
         type: 'upsert_repair_ticket',
@@ -1365,6 +1391,27 @@ class RepairRepository {
     // Isliye remote insert ke waqt inventory_unit_id remove kar dete hain.
     // Supabase trigger IMEI + product_id se unit find/create kar lega.
     ticketMap.remove('inventory_unit_id');
+
+    final tenantId = ticketMap['tenant_id'] as String? ?? '';
+    final ticketId = ticketMap['id'] as String? ?? '';
+    final rawPhotos = (ticketMap['photo_paths'] as List?)?.map((e) => e.toString()).toList() ?? [];
+
+    if (rawPhotos.isNotEmpty && tenantId.isNotEmpty && ticketId.isNotEmpty) {
+      final syncedPhotos = <String>[];
+      for (final path in rawPhotos) {
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+          syncedPhotos.add(path);
+        } else {
+          final uploaded = await uploadRepairPhoto(
+            tenantId: tenantId,
+            ticketId: ticketId,
+            localPath: path,
+          );
+          syncedPhotos.add(uploaded ?? path);
+        }
+      }
+      ticketMap['photo_paths'] = syncedPhotos;
+    }
 
     final data =
         await _client

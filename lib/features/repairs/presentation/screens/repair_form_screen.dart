@@ -1,5 +1,12 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 import 'package:mobileshop_saas/core/constants/app_strings.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:go_router/go_router.dart';
@@ -28,6 +35,10 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
 
   // Repair issue
   final _faultDescriptionController = TextEditingController();
+
+  // Device Photos
+  final List<String> _photoPaths = [];
+  bool _isPickingPhoto = false;
 
   // Estimate fields
   final _estimatedCostController = TextEditingController();
@@ -119,26 +130,21 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                         productsAsync.when(
                           data: (products) {
                             return DropdownButtonFormField<String>(
-                              isExpanded: true,
                               initialValue: _selectedProductValue,
                               decoration: const InputDecoration(
                                 labelText: AppStrings.repairLinkedProduct,
                                 border: OutlineInputBorder(),
                               ),
                               items: [
-                                const DropdownMenuItem(
+                                const DropdownMenuItem<String>(
                                   value: _externalProductValue,
                                   child: Text(AppStrings.repairExternalDevice),
                                 ),
                                 ...products.map(
-                                  (product) => DropdownMenuItem(
+                                  (product) => DropdownMenuItem<String>(
                                     value: product.id,
                                     child: Text(
-                                      AppStrings.repairProductLabel(
-                                        product.name,
-                                        product.sku,
-                                        product.imeiTracked,
-                                      ),
+                                      '${product.name} (${product.sku})',
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
@@ -148,25 +154,27 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                                   isSaving
                                       ? null
                                       : (value) {
+                                        if (value == null) return;
                                         setState(() {
-                                          _selectedProductValue =
-                                              value ?? _externalProductValue;
+                                          _selectedProductValue = value;
                                         });
                                       },
                             );
                           },
-                          loading: () {
-                            return const LinearProgressIndicator();
-                          },
-                          error: (_, _) {
-                            return const Text(
-                              AppStrings.repairProductsLoadFailed,
-                            );
-                          },
+                          loading:
+                              () => const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(8.0),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ),
+                          error:
+                              (_, _) => const Text(
+                                AppStrings.repairProductsLoadFailed,
+                                style: TextStyle(color: Colors.red),
+                              ),
                         ),
-
-                        const SizedBox(height: 16),
-
+                        const SizedBox(height: 12),
                         _ResponsiveFormWrap(
                           children: [
                             _AppTextField(
@@ -195,7 +203,6 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                                 label: AppStrings.repairImeiOptional,
                                 hint: AppStrings.repairImeiHint,
                                 enabled: !isSaving,
-                                keyboardType: TextInputType.number,
                               ),
                           ],
                         ),
@@ -215,6 +222,107 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                       enabled: !isSaving,
                       maxLines: 4,
                       validator: _requiredValidator,
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  _SectionCard(
+                    title: AppStrings.repairDevicePhotos,
+                    subtitle: AppStrings.repairDevicePhotosSubtitle,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed:
+                                  (isSaving || _isPickingPhoto)
+                                      ? null
+                                      : _pickFromCamera,
+                              icon: const Icon(
+                                Icons.camera_alt_outlined,
+                                size: 18,
+                              ),
+                              label: const Text(AppStrings.repairTakePhoto),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  (isSaving || _isPickingPhoto)
+                                      ? null
+                                      : _pickFromGallery,
+                              icon: const Icon(
+                                Icons.photo_library_outlined,
+                                size: 18,
+                              ),
+                              label: const Text(AppStrings.repairPickGallery),
+                            ),
+                          ],
+                        ),
+                        if (_photoPaths.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            height: 100,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: _photoPaths.length,
+                              separatorBuilder:
+                                  (_, _) => const SizedBox(width: 10),
+                              itemBuilder: (context, index) {
+                                final path = _photoPaths[index];
+                                return Stack(
+                                  children: [
+                                    GestureDetector(
+                                      onTap: () => _previewPhoto(path),
+                                      child: Container(
+                                        width: 100,
+                                        height: 100,
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                          border: Border.all(
+                                            color:
+                                                Theme.of(context).dividerColor,
+                                          ),
+                                          image: DecorationImage(
+                                            image: FileImage(File(path)),
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 4,
+                                      right: 4,
+                                      child: GestureDetector(
+                                        onTap:
+                                            isSaving
+                                                ? null
+                                                : () => _removePhoto(index),
+                                        child: Container(
+                                          padding: const EdgeInsets.all(3),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withAlpha(180),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.close,
+                                            size: 14,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
 
@@ -301,6 +409,155 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
     context.go('/repairs');
   }
 
+  Future<void> _saveLocalImageFiles(List<String> paths) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final photosDir = Directory(p.join(appDir.path, 'repairs', 'photos'));
+    if (!photosDir.existsSync()) {
+      photosDir.createSync(recursive: true);
+    }
+    for (final srcPath in paths) {
+      if (srcPath.trim().isEmpty) continue;
+      final srcFile = File(srcPath);
+      if (!srcFile.existsSync()) continue;
+      final ext =
+          p.extension(srcPath).isNotEmpty ? p.extension(srcPath) : '.jpg';
+      final fileName = 'repair_local_${const Uuid().v4()}$ext';
+      final savedFile = await srcFile.copy(p.join(photosDir.path, fileName));
+      _photoPaths.add(savedFile.path);
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _pickFromCamera() async {
+    setState(() => _isPickingPhoto = true);
+    try {
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Camera device mobile phones aur tablets par dastiyab hai. Desktop par pictures add karne ke liye Gallery use karein.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 75,
+        maxWidth: 1280,
+        maxHeight: 1280,
+      );
+      if (picked != null) {
+        await _saveLocalImageFiles([picked.path]);
+      }
+    } catch (e) {
+      debugPrint('Camera pick error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Camera error: ${e.toString()}'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isPickingPhoto = false);
+    }
+  }
+
+  Future<void> _pickFromGallery() async {
+    setState(() => _isPickingPhoto = true);
+    try {
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        final result = await FilePicker.pickFiles(
+          type: FileType.image,
+          allowMultiple: true,
+        );
+        if (result != null && result.files.isNotEmpty) {
+          final validPaths =
+              result.files.map((f) => f.path).whereType<String>().toList();
+          await _saveLocalImageFiles(validPaths);
+        }
+      } else {
+        try {
+          final picker = ImagePicker();
+          final pickedList = await picker.pickMultiImage(
+            imageQuality: 75,
+            maxWidth: 1280,
+            maxHeight: 1280,
+          );
+          if (pickedList.isNotEmpty) {
+            await _saveLocalImageFiles(pickedList.map((p) => p.path).toList());
+          }
+        } catch (_) {
+          final result = await FilePicker.pickFiles(
+            type: FileType.image,
+            allowMultiple: true,
+          );
+          if (result != null && result.files.isNotEmpty) {
+            final validPaths =
+                result.files.map((f) => f.path).whereType<String>().toList();
+            await _saveLocalImageFiles(validPaths);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Gallery pick error: $e');
+    } finally {
+      if (mounted) setState(() => _isPickingPhoto = false);
+    }
+  }
+
+  void _removePhoto(int index) {
+    setState(() {
+      _photoPaths.removeAt(index);
+    });
+  }
+
+  void _previewPhoto(String path) {
+    showDialog<void>(
+      context: context,
+      builder:
+          (dialogCtx) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(16),
+            child: Stack(
+              alignment: Alignment.topRight,
+              children: [
+                InteractiveViewer(
+                  clipBehavior: Clip.none,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child:
+                        File(path).existsSync()
+                            ? Image.file(File(path), fit: BoxFit.contain)
+                            : Image.network(path, fit: BoxFit.contain),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(),
+                  icon: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withAlpha(180),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+    );
+  }
+
   Future<void> _pickEstimatedDate() async {
     final now = DateTime.now();
 
@@ -343,6 +600,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
       estimatedCost: estimatedCost,
       estimatedCompletionAt: _estimatedCompletionAt,
       estimateNote: _estimateNoteController.text,
+      photoPaths: _photoPaths,
     );
 
     if (!mounted) return;

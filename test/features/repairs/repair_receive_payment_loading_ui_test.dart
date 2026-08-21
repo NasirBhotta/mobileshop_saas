@@ -7,7 +7,7 @@ void main() {
     final source =
         File(
           'lib/features/repairs/presentation/screens/repairs_list_screen.dart',
-        ).readAsStringSync();
+        ).readAsStringSync().replaceAll('\r\n', '\n');
 
     expect(
       source,

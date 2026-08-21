@@ -776,6 +776,7 @@ class LocalDatabase {
         reversed_at TEXT,
         archived_at TEXT,
         archived_by TEXT,
+        photo_paths TEXT,
         UNIQUE(branch_id, ticket_no)
       )
     ''');
@@ -789,6 +790,7 @@ class LocalDatabase {
       ('reversed_at', 'TEXT'),
       ('archived_at', 'TEXT'),
       ('archived_by', 'TEXT'),
+      ('photo_paths', 'TEXT'),
     ]) {
       await _addColumnIfMissing(
         table: 'repair_tickets',

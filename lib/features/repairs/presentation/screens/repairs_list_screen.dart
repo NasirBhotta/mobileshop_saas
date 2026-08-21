@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/gestures.dart' show PointerScrollEvent;
@@ -209,16 +210,39 @@ class _RepairsListScreenState extends ConsumerState<RepairsListScreen> {
                                 .sync(),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        final isWide = constraints.maxWidth >= 850;
-                        if (isWide) {
+                        final width = constraints.maxWidth;
+                        if (width >= 1024) {
+                          // Desktop / Large screens (3-4 columns)
                           return GridView.builder(
                             padding: const EdgeInsets.all(16),
                             gridDelegate:
                                 const SliverGridDelegateWithMaxCrossAxisExtent(
                                   maxCrossAxisExtent: 420,
+                                  mainAxisSpacing: 14,
+                                  crossAxisSpacing: 14,
+                                  mainAxisExtent: 195,
+                                ),
+                            itemCount: tickets.length,
+                            itemBuilder: (context, index) {
+                              final ticket = tickets[index];
+                              return _RepairTicketCard(
+                                ticket: ticket,
+                                onTap: () {
+                                  _showTicketDetails(context, ref, ticket);
+                                },
+                              );
+                            },
+                          );
+                        } else if (width >= 600) {
+                          // iPad / Tablet (2 columns)
+                          return GridView.builder(
+                            padding: const EdgeInsets.all(16),
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
                                   mainAxisSpacing: 12,
                                   crossAxisSpacing: 12,
-                                  childAspectRatio: 1.65,
+                                  mainAxisExtent: 195,
                                 ),
                             itemCount: tickets.length,
                             itemBuilder: (context, index) {
@@ -232,6 +256,8 @@ class _RepairsListScreenState extends ConsumerState<RepairsListScreen> {
                             },
                           );
                         }
+
+                        // Mobile (< 600px)
                         return ListView.separated(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.all(12),
@@ -310,14 +336,14 @@ class _RepairsListScreenState extends ConsumerState<RepairsListScreen> {
       },
     );
 
-    if (Responsive.isDesktop(context)) {
+    if (!Responsive.isMobile(context)) {
       showDialog<void>(
         context: context,
         builder: (dialogContext) {
           return Dialog(
             insetPadding: const EdgeInsets.all(24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
+              constraints: const BoxConstraints(maxWidth: 580),
               child: details,
             ),
           );
@@ -545,6 +571,85 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                 ticket.faultDescription,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
+              if (ticket.photoPaths.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  AppStrings.repairDevicePhotos,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 80,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: ticket.photoPaths.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final path = ticket.photoPaths[index];
+                      final isLocal = File(path).existsSync();
+                      return GestureDetector(
+                        onTap: () {
+                          showDialog<void>(
+                            context: context,
+                            builder: (dialogCtx) => Dialog(
+                              backgroundColor: Colors.transparent,
+                              insetPadding: const EdgeInsets.all(16),
+                              child: Stack(
+                                alignment: Alignment.topRight,
+                                children: [
+                                  InteractiveViewer(
+                                    clipBehavior: Clip.none,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: isLocal
+                                          ? Image.file(File(path), fit: BoxFit.contain)
+                                          : Image.network(path, fit: BoxFit.contain),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: () => Navigator.of(dialogCtx).pop(),
+                                    icon: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withAlpha(180),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.close, color: Colors.white, size: 20),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                            ),
+                            child: isLocal
+                                ? Image.file(File(path), fit: BoxFit.cover)
+                                : Image.network(
+                                    path,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => const Center(
+                                      child: Icon(Icons.broken_image_outlined, size: 20),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
               OutlinedButton.icon(
                 onPressed: _isSaving ? null : _archive,
@@ -1208,14 +1313,25 @@ class _RepairTicketCard extends StatelessWidget {
         estimatedCost == null
             ? null
             : AppStrings.repairServiceEstimateAmount(estimatedCost);
+    final theme = Theme.of(context);
+    final hasPhotos = ticket.photoPaths.isNotEmpty;
+
     return Card(
       elevation: 0,
       clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: theme.dividerColor.withValues(alpha: 0.6),
+        ),
+      ),
       child: InkWell(
         onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
@@ -1225,65 +1341,112 @@ class _RepairTicketCard extends StatelessWidget {
                       ticket.ticketNo ?? AppStrings.repairNoTicketNumber,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3,
                       ),
                     ),
                   ),
                   _StatusBadge(status: ticket.status),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                ticket.customerName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                AppStrings.repairDeviceName(
-                  ticket.deviceBrand,
-                  ticket.deviceModel,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              if (imei != null && imei.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  AppStrings.repairImeiValue(imei),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-              const SizedBox(height: 8),
-              Text(
-                ticket.faultDescription,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          ticket.customerName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          AppStrings.repairDeviceName(
+                            ticket.deviceBrand,
+                            ticket.deviceModel,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.textTheme.bodySmall?.color,
+                          ),
+                        ),
+                        if (imei != null && imei.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            AppStrings.repairImeiValue(imei),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 4),
+                        Text(
+                          ticket.faultDescription,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  if (hasPhotos)
+                    _CardPhotoPreview(
+                      photoPaths: ticket.photoPaths,
+                    )
+                  else
+                    Container(
+                      width: 68,
+                      height: 68,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: theme.dividerColor.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          Icons.phone_android_rounded,
+                          size: 26,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.45),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 10),
               Row(
                 children: [
                   Icon(
-                    Icons.schedule,
-                    size: 16,
-                    color: Theme.of(context).textTheme.bodySmall?.color,
+                    Icons.schedule_rounded,
+                    size: 15,
+                    color: theme.textTheme.bodySmall?.color,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     createdDate,
-                    style: Theme.of(context).textTheme.bodySmall,
+                    style: theme.textTheme.bodySmall,
                   ),
                   if (estimate != null) ...[
                     const Spacer(),
                     Text(
                       estimate,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: theme.textTheme.bodySmall?.copyWith(
                         fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.primary,
                       ),
                     ),
                   ],
@@ -1299,6 +1462,124 @@ class _RepairTicketCard extends StatelessWidget {
   static String _formatDate(DateTime? date) {
     if (date == null) return AppStrings.repairNoDate;
     return AppStrings.repairDate(date);
+  }
+}
+
+class _CardPhotoPreview extends StatelessWidget {
+  final List<String> photoPaths;
+
+  const _CardPhotoPreview({required this.photoPaths});
+
+  @override
+  Widget build(BuildContext context) {
+    if (photoPaths.isEmpty) return const SizedBox.shrink();
+    final firstPath = photoPaths.first;
+    final isLocal = File(firstPath).existsSync();
+    final extraCount = photoPaths.length - 1;
+
+    return GestureDetector(
+      onTap: () => _openZoomDialog(context, firstPath),
+      child: Tooltip(
+        message: 'Tap to zoom photo',
+        child: Container(
+          width: 70,
+          height: 70,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.45),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8.5),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                isLocal
+                    ? Image.file(
+                        File(firstPath),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const Center(
+                          child: Icon(Icons.broken_image_outlined, size: 20),
+                        ),
+                      )
+                    : Image.network(
+                        firstPath,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const Center(
+                          child: Icon(Icons.broken_image_outlined, size: 20),
+                        ),
+                      ),
+                if (extraCount > 0)
+                  Positioned(
+                    bottom: 3,
+                    right: 3,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.75),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '+$extraCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openZoomDialog(BuildContext context, String path) {
+    final isLocal = File(path).existsSync();
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            InteractiveViewer(
+              clipBehavior: Clip.none,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: isLocal
+                    ? Image.file(File(path), fit: BoxFit.contain)
+                    : Image.network(path, fit: BoxFit.contain),
+              ),
+            ),
+            IconButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(),
+              icon: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 20),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

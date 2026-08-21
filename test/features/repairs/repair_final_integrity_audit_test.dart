@@ -12,16 +12,16 @@ void main() {
     migration =
         File(
           'supabase/migrations/20260728001500_repair_hybrid_financial_engine.sql',
-        ).readAsStringSync().toLowerCase();
+        ).readAsStringSync().toLowerCase().replaceAll('\r\n', '\n');
     repository =
         File(
           'lib/features/repairs/data/repositories/repair_repository.dart',
-        ).readAsStringSync();
+        ).readAsStringSync().replaceAll('\r\n', '\n');
     reports =
         File(
           'lib/features/reports/data/local/business_report_local_store.dart',
-        ).readAsStringSync();
-    localStore = File('lib/core/local/local_store.dart').readAsStringSync();
+        ).readAsStringSync().replaceAll('\r\n', '\n');
+    localStore = File('lib/core/local/local_store.dart').readAsStringSync().replaceAll('\r\n', '\n');
   });
 
   test('server-commit timeout can safely replay saved parts', () {

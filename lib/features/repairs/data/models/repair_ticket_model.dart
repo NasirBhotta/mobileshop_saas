@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 
 class RepairTicketModel {
@@ -36,6 +38,8 @@ class RepairTicketModel {
   final String? warrantyNote;
   final bool isWarrantyRepair;
 
+  final List<String> photoPaths;
+
   final String createdBy;
 
   final DateTime? completedAt;
@@ -71,6 +75,7 @@ class RepairTicketModel {
     this.warrantyReference,
     this.warrantyNote,
     this.isWarrantyRepair = false,
+    this.photoPaths = const [],
     required this.createdBy,
     this.completedAt,
     this.deliveredAt,
@@ -107,6 +112,26 @@ class RepairTicketModel {
       warrantyReference: map['warranty_reference'] as String?,
       warrantyNote: map['warranty_note'] as String?,
       isWarrantyRepair: _bool(map['is_warranty_repair']),
+      photoPaths: () {
+        final raw = map['photo_paths'];
+        if (raw is List) {
+          return raw.map((e) => e.toString()).toList();
+        }
+        if (raw is String && raw.trim().isNotEmpty) {
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is List) {
+              return decoded.map((e) => e.toString()).toList();
+            }
+          } catch (_) {}
+          return [raw.trim()];
+        }
+        final single = map['photo_path'];
+        if (single is String && single.trim().isNotEmpty) {
+          return [single.trim()];
+        }
+        return const <String>[];
+      }(),
       createdBy: map['created_by'] as String,
       completedAt: _date(map['completed_at']),
       deliveredAt: _date(map['delivered_at']),
@@ -144,6 +169,7 @@ class RepairTicketModel {
       'warranty_reference': warrantyReference,
       'warranty_note': warrantyNote,
       'is_warranty_repair': isWarrantyRepair,
+      'photo_paths': photoPaths,
       'created_by': createdBy,
       'completed_at': completedAt?.toIso8601String(),
       'delivered_at': deliveredAt?.toIso8601String(),
@@ -182,6 +208,7 @@ class RepairTicketModel {
     String? warrantyReference,
     String? warrantyNote,
     bool? isWarrantyRepair,
+    List<String>? photoPaths,
     String? createdBy,
     DateTime? completedAt,
     DateTime? deliveredAt,
@@ -217,6 +244,7 @@ class RepairTicketModel {
       warrantyReference: warrantyReference ?? this.warrantyReference,
       warrantyNote: warrantyNote ?? this.warrantyNote,
       isWarrantyRepair: isWarrantyRepair ?? this.isWarrantyRepair,
+      photoPaths: photoPaths ?? this.photoPaths,
       createdBy: createdBy ?? this.createdBy,
       completedAt: completedAt ?? this.completedAt,
       deliveredAt: deliveredAt ?? this.deliveredAt,

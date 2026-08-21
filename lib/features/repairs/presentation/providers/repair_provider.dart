@@ -199,6 +199,7 @@ class RepairTicketController
     double? estimatedCost,
     DateTime? estimatedCompletionAt,
     String? estimateNote,
+    List<String> photoPaths = const [],
   }) async {
     state = const AsyncLoading();
 
@@ -232,6 +233,7 @@ class RepairTicketController
         estimatedCost: estimatedCost,
         estimatedCompletionAt: estimatedCompletionAt,
         estimateNote: estimateNote,
+        photoPaths: photoPaths,
       );
 
       state = AsyncData(ticket);
