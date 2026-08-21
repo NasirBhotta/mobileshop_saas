@@ -15,7 +15,8 @@ enum MobileServiceCategory {
 
 enum MobileServiceProviderCode {
   easypaisa,
-  jazzcash;
+  jazzcash,
+  bank;
 
   String get code => name;
 
@@ -25,6 +26,8 @@ enum MobileServiceProviderCode {
         return 'Easypaisa';
       case MobileServiceProviderCode.jazzcash:
         return 'JazzCash';
+      case MobileServiceProviderCode.bank:
+        return 'Bank Transfer';
     }
   }
 
@@ -34,6 +37,8 @@ enum MobileServiceProviderCode {
         return MobileServiceProviderCode.easypaisa;
       case 'jazzcash':
         return MobileServiceProviderCode.jazzcash;
+      case 'bank':
+        return MobileServiceProviderCode.bank;
       default:
         throw ArgumentError.value(code, 'code', 'Unsupported provider');
     }

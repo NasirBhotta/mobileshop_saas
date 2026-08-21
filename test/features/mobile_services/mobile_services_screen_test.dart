@@ -16,7 +16,10 @@ void main() {
     await _pumpScreen(tester);
 
     expect(find.text('Mobile Services'), findsOneWidget);
-    expect(find.text('Configure Easypaisa or JazzCash'), findsOneWidget);
+    expect(
+      find.text('Configure Easypaisa, JazzCash, or Bank Transfer'),
+      findsOneWidget,
+    );
     expect(find.text('Cash account required'), findsNothing);
   });
 
@@ -61,6 +64,76 @@ void main() {
     expect(find.text('Rs 20.00'), findsWidgets);
     expect(find.textContaining('Rs 2000.00 → Rs 2820.00'), findsOneWidget);
     expect(find.textContaining('Rs 5000.00 → Rs 4200.00'), findsOneWidget);
+  });
+
+  testWidgets('bank provider displays linked bank account and calculates preview', (
+    tester,
+  ) async {
+    final bankProvider = MobileServiceProviderModel.fromMap({
+      'id': 'provider-bank-1',
+      'tenant_id': 'tenant-1',
+      'branch_id': 'branch-1',
+      'category': 'money_transfer',
+      'code': 'bank',
+      'name': 'HBL Account',
+      'provider_account_id': 'bank-1',
+      'is_active': true,
+      'created_by': 'user-1',
+      'created_at': '2026-08-21T10:00:00Z',
+      'updated_at': '2026-08-21T10:00:00Z',
+    });
+    final bankRule = MobileServiceChargeRuleModel.fromMap({
+      'id': 'rule-bank-1',
+      'tenant_id': 'tenant-1',
+      'branch_id': 'branch-1',
+      'provider_id': 'provider-bank-1',
+      'operation': 'send',
+      'calculation_method': 'fixed',
+      'rate_amount': 50,
+      'per_amount': null,
+      'minimum_fee': null,
+      'maximum_fee': null,
+      'is_active': true,
+      'created_by': 'user-1',
+      'created_at': '2026-08-21T10:00:00Z',
+      'updated_at': '2026-08-21T10:00:00Z',
+    });
+    const accounts = [
+      AccountModel(
+        id: 'cash-1',
+        tenantId: 'tenant-1',
+        branchId: 'branch-1',
+        name: 'Cash in Shop',
+        currentBalance: 5000,
+        isDefault: true,
+      ),
+      AccountModel(
+        id: 'bank-1',
+        tenantId: 'tenant-1',
+        branchId: 'branch-1',
+        name: 'HBL Account',
+        type: AccountType.bank,
+        currentBalance: 50000,
+      ),
+    ];
+    await _pumpScreen(
+      tester,
+      providers: [bankProvider],
+      rules: [bankRule],
+      accounts: accounts,
+    );
+
+    expect(find.text('Linked bank account'), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Amount to send'),
+      '5000',
+    );
+    await tester.pump();
+
+    expect(find.text('Customer pays'), findsOneWidget);
+    expect(find.text('Rs 5050.00'), findsWidgets);
+    expect(find.text('Rs 50.00'), findsWidgets);
   });
 }
 

@@ -139,9 +139,9 @@ class _MobileServicesContent extends StatelessWidget {
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.settings_outlined),
-                  title: const Text('Configure Easypaisa or JazzCash'),
+                  title: const Text('Configure Easypaisa, JazzCash, or Bank Transfer'),
                   subtitle: const Text(
-                    'Link a wallet and create Send/Receive charge rules.',
+                    'Link a wallet/bank account and create Send/Receive charge rules.',
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => context.push('/mobile-services/settings'),
@@ -198,7 +198,7 @@ class _Header extends StatelessWidget {
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
               ),
               SizedBox(height: 4),
-              Text('Easypaisa and JazzCash Send/Receive'),
+              Text('Easypaisa, JazzCash, and Bank Transfer Send/Receive'),
             ],
           ),
         ),
@@ -618,7 +618,20 @@ class _LinkedWalletCard extends StatelessWidget {
     if (provider == null) {
       return const SizedBox.shrink();
     }
+    final isBank = provider!.code == MobileServiceProviderCode.bank;
     final available = wallet != null && wallet!.isActive;
+    final iconData = available
+        ? (isBank
+            ? Icons.account_balance_outlined
+            : Icons.account_balance_wallet_outlined)
+        : Icons.warning_amber_rounded;
+    final accountTypeLabel = isBank ? 'bank account' : 'mobile wallet';
+    final cardTitle = available
+        ? (isBank ? 'Linked bank account' : 'Linked wallet')
+        : (isBank
+            ? 'Linked bank account unavailable'
+            : 'Linked wallet unavailable');
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -631,25 +644,21 @@ class _LinkedWalletCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            available
-                ? Icons.account_balance_wallet_outlined
-                : Icons.warning_amber_rounded,
-          ),
+          Icon(iconData),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  available ? 'Linked wallet' : 'Linked wallet unavailable',
+                  cardTitle,
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   available
                       ? '${wallet!.name} • Rs ${_money(wallet!.currentBalance)}'
-                      : '${provider!.name} ko Settings mein an active mobile wallet se link karein.',
+                      : '${provider!.name} ko Settings mein an active $accountTypeLabel se link karein.',
                 ),
               ],
             ),

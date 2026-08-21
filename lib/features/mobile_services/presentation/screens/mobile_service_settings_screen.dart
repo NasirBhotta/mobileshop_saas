@@ -85,12 +85,16 @@ class _SettingsContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final walletsById = <String, AccountModel>{};
+    final bankAccountsById = <String, AccountModel>{};
     for (final account in accounts) {
       if (account.type == AccountType.mobileWallet && account.isActive) {
         walletsById.putIfAbsent(account.id, () => account);
+      } else if (account.type == AccountType.bank && account.isActive) {
+        bankAccountsById.putIfAbsent(account.id, () => account);
       }
     }
     final wallets = walletsById.values.toList();
+    final bankAccounts = bankAccountsById.values.toList();
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -107,7 +111,7 @@ class _SettingsContent extends ConsumerWidget {
                     style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
                   ),
                   SizedBox(height: 4),
-                  Text('Link wallets and configure Send/Receive charges.'),
+                  Text('Link wallets/bank accounts and configure Send/Receive charges.'),
                 ],
               ),
             ),
@@ -119,13 +123,13 @@ class _SettingsContent extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 16),
-        if (wallets.isEmpty)
+        if (wallets.isEmpty && bankAccounts.isEmpty)
           Card(
             child: ListTile(
               leading: const Icon(Icons.warning_amber_rounded),
-              title: const Text('Create a mobile-wallet account first'),
+              title: const Text('Create a mobile-wallet or bank account first'),
               subtitle: const Text(
-                'Accounts mein Easypaisa/JazzCash wallet account create karein.',
+                'Accounts mein Easypaisa, JazzCash wallet ya Bank account create karein.',
               ),
             ),
           ),
@@ -137,7 +141,8 @@ class _SettingsContent extends ConsumerWidget {
                     .where((provider) => provider.code == code)
                     .firstOrNull,
             rules: rules,
-            wallets: wallets,
+            availableAccounts:
+                code == MobileServiceProviderCode.bank ? bankAccounts : wallets,
             saving: saving,
           ),
           const SizedBox(height: 12),
@@ -151,26 +156,33 @@ class _ProviderSettingsCard extends ConsumerWidget {
   final MobileServiceProviderCode code;
   final MobileServiceProviderModel? provider;
   final List<MobileServiceChargeRuleModel> rules;
-  final List<AccountModel> wallets;
+  final List<AccountModel> availableAccounts;
   final bool saving;
 
   const _ProviderSettingsCard({
     required this.code,
     required this.provider,
     required this.rules,
-    required this.wallets,
+    required this.availableAccounts,
     required this.saving,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final item = provider;
-    final linkedWallet =
+    final linkedAccount =
         item == null
             ? null
-            : wallets
+            : availableAccounts
                 .where((account) => account.id == item.providerAccountId)
                 .firstOrNull;
+    final isBank = code == MobileServiceProviderCode.bank;
+    final iconData = isBank
+        ? Icons.account_balance_rounded
+        : code == MobileServiceProviderCode.easypaisa
+        ? Icons.account_balance_wallet_rounded
+        : Icons.wallet_rounded;
+    final accountLabel = isBank ? 'Bank Account' : 'Wallet';
 
     return Card(
       child: Padding(
@@ -181,11 +193,7 @@ class _ProviderSettingsCard extends ConsumerWidget {
             Row(
               children: [
                 CircleAvatar(
-                  child: Icon(
-                    code == MobileServiceProviderCode.easypaisa
-                        ? Icons.account_balance_wallet_rounded
-                        : Icons.wallet_rounded,
-                  ),
+                  child: Icon(iconData),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -203,7 +211,7 @@ class _ProviderSettingsCard extends ConsumerWidget {
                         item == null
                             ? 'Not configured'
                             : item.isActive
-                            ? 'Wallet: ${linkedWallet?.name ?? 'Unavailable'}'
+                            ? '$accountLabel: ${linkedAccount?.name ?? 'Unavailable'}'
                             : 'Archived',
                       ),
                     ],
@@ -212,14 +220,14 @@ class _ProviderSettingsCard extends ConsumerWidget {
                 if (item == null || item.isActive)
                   OutlinedButton.icon(
                     onPressed:
-                        saving || wallets.isEmpty
+                        saving || availableAccounts.isEmpty
                             ? null
                             : () => _showProviderDialog(
                               context,
                               ref,
                               code: code,
                               provider: item,
-                              wallets: wallets,
+                              accounts: availableAccounts,
                             ),
                     icon: Icon(item == null ? Icons.add : Icons.edit),
                     label: Text(item == null ? 'Configure' : 'Edit'),
@@ -341,17 +349,21 @@ Future<void> _showProviderDialog(
   WidgetRef ref, {
   required MobileServiceProviderCode code,
   required MobileServiceProviderModel? provider,
-  required List<AccountModel> wallets,
+  required List<AccountModel> accounts,
 }) async {
   final nameController = TextEditingController(
     text: provider?.name ?? code.label,
   );
-  final linkedWalletId = provider?.providerAccountId;
-  var walletId =
-      linkedWalletId != null &&
-              wallets.any((wallet) => wallet.id == linkedWalletId)
-          ? linkedWalletId
-          : wallets.first.id;
+  final linkedAccountId = provider?.providerAccountId;
+  var accountId =
+      linkedAccountId != null &&
+              accounts.any((account) => account.id == linkedAccountId)
+          ? linkedAccountId
+          : accounts.first.id;
+  final isBank = code == MobileServiceProviderCode.bank;
+  final dialogTitle = isBank ? '${code.label} account' : '${code.label} wallet';
+  final dropdownLabel =
+      isBank ? 'Linked bank account' : 'Linked wallet account';
 
   final submitted = await showDialog<bool>(
     context: context,
@@ -359,7 +371,7 @@ Future<void> _showProviderDialog(
         (dialogContext) => StatefulBuilder(
           builder:
               (context, setState) => AlertDialog(
-                title: Text('${code.label} wallet'),
+                title: Text(dialogTitle),
                 content: SizedBox(
                   width: 420,
                   child: Column(
@@ -373,18 +385,19 @@ Future<void> _showProviderDialog(
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        initialValue: walletId,
-                        decoration: const InputDecoration(
-                          labelText: 'Linked wallet account',
+                        initialValue: accountId,
+                        decoration: InputDecoration(
+                          labelText: dropdownLabel,
                         ),
                         items: [
-                          for (final wallet in wallets)
+                          for (final account in accounts)
                             DropdownMenuItem(
-                              value: wallet.id,
-                              child: Text(wallet.name),
+                              value: account.id,
+                              child: Text(account.name),
                             ),
                         ],
-                        onChanged: (value) => setState(() => walletId = value!),
+                        onChanged:
+                            (value) => setState(() => accountId = value!),
                       ),
                     ],
                   ),
@@ -416,7 +429,7 @@ Future<void> _showProviderDialog(
           branchId: branchId,
           code: code,
           name: nameController.text,
-          providerAccountId: walletId,
+          providerAccountId: accountId,
         ),
       );
   nameController.dispose();

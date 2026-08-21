@@ -27,6 +27,31 @@ void main() {
     expect(provider.toMap()['code'], 'easypaisa');
   });
 
+  test('bank provider maps database codes and properties', () {
+    final provider = MobileServiceProviderModel.fromMap({
+      'id': 'provider-bank-1',
+      'tenant_id': 'tenant-1',
+      'branch_id': 'branch-1',
+      'category': 'money_transfer',
+      'code': 'bank',
+      'name': 'HBL Account',
+      'provider_account_id': 'bank-1',
+      'is_active': true,
+      'created_by': 'user-1',
+      'created_at': '2026-08-21T10:00:00Z',
+      'updated_at': '2026-08-21T10:10:00Z',
+      'archived_at': null,
+      'archived_by': null,
+    });
+
+    expect(provider.category, MobileServiceCategory.moneyTransfer);
+    expect(provider.code, MobileServiceProviderCode.bank);
+    expect(provider.code.label, 'Bank Transfer');
+    expect(provider.providerAccountId, 'bank-1');
+    expect(provider.isActive, isTrue);
+    expect(provider.toMap()['code'], 'bank');
+  });
+
   test('charge rule parses numeric strings and converts to domain rule', () {
     final model = MobileServiceChargeRuleModel.fromMap({
       'id': 'rule-1',

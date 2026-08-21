@@ -188,12 +188,12 @@ class MobileServicesLocalStore implements MobileServicesLocalDataSource {
       _validateCachedAccount(
         cash,
         transaction: transaction,
-        requiredType: 'cash',
+        requiredTypes: const {'cash'},
       );
       _validateCachedAccount(
         wallet,
         transaction: transaction,
-        requiredType: 'mobile_wallet',
+        requiredTypes: const {'mobile_wallet', 'bank'},
       );
 
       final cashBalance = _number(cash['current_balance']);
@@ -389,11 +389,11 @@ class MobileServicesLocalStore implements MobileServicesLocalDataSource {
   void _validateCachedAccount(
     Map<String, dynamic> account, {
     required MobileServiceTransactionModel transaction,
-    required String requiredType,
+    required Set<String> requiredTypes,
   }) {
     if (account['tenant_id'] != transaction.tenantId ||
         account['branch_id'] != transaction.branchId ||
-        account['account_type'] != requiredType ||
+        !requiredTypes.contains(account['account_type']) ||
         _number(account['is_active']) != 1) {
       throw StateError('Cached account does not match transaction scope.');
     }

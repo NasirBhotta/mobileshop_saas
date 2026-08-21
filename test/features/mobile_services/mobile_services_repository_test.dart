@@ -248,6 +248,70 @@ void main() {
       expect(mutationQueue.mutations.single.id, 'other-mutation');
     },
   );
+
+  test('bank transfer transaction is queued offline with matching bank account', () async {
+    remote.error = TimeoutException('offline');
+    final bankProvider = MobileServiceProviderModel.fromMap({
+      'id': 'provider-bank-1',
+      'tenant_id': 'tenant-1',
+      'branch_id': 'branch-1',
+      'category': 'money_transfer',
+      'code': 'bank',
+      'name': 'HBL Account',
+      'provider_account_id': 'bank-1',
+      'is_active': true,
+      'created_by': 'user-1',
+      'created_at': '2026-08-21T10:00:00Z',
+      'updated_at': '2026-08-21T10:00:00Z',
+    });
+    final bankRule = MobileServiceChargeRuleModel.fromMap({
+      'id': 'rule-bank-1',
+      'tenant_id': 'tenant-1',
+      'branch_id': 'branch-1',
+      'provider_id': 'provider-bank-1',
+      'operation': 'receive',
+      'calculation_method': 'fixed',
+      'rate_amount': 50,
+      'per_amount': null,
+      'minimum_fee': null,
+      'maximum_fee': null,
+      'is_active': true,
+      'created_by': 'user-1',
+      'created_at': '2026-08-21T10:00:00Z',
+      'updated_at': '2026-08-21T10:00:00Z',
+    });
+    final command = RecordMobileServiceTransactionCommand(
+      transactionId: 'offline-bank-tx-1',
+      cashLedgerTransactionId: 'offline-cash-ledger-2',
+      providerLedgerTransactionId: 'offline-bank-ledger-2',
+      providerId: 'provider-bank-1',
+      cashAccountId: 'cash-1',
+      operation: MobileServiceOperation.receive,
+      serviceAmount: 5000,
+      transactionAt: _transactionTime,
+    );
+
+    await expectLater(
+      repository.recordTransaction(
+        command,
+        queueForUserId: 'user-1',
+        provider: bankProvider,
+        rule: bankRule,
+      ),
+      throwsA(
+        isA<MobileServiceQueuedOfflineException>().having(
+          (error) => error.transactionId,
+          'transactionId',
+          'offline-bank-tx-1',
+        ),
+      ),
+    );
+
+    expect(mutationQueue.mutations, hasLength(1));
+    expect(local.transactions.single.isPendingSync, isTrue);
+    expect(local.transactions.single.customerCashAmount, 4950);
+    expect(local.transactions.single.profitAmount, 50);
+  });
 }
 
 final _transactionTime = DateTime.utc(2026, 7, 25, 11);

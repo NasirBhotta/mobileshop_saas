@@ -30,7 +30,8 @@ void main() {
     expect(find.text('Mobile Service Settings'), findsOneWidget);
     expect(find.text('Easypaisa'), findsOneWidget);
     expect(find.text('JazzCash'), findsOneWidget);
-    expect(find.text('Create a mobile-wallet account first'), findsOneWidget);
+    expect(find.text('Bank Transfer'), findsOneWidget);
+    expect(find.text('Create a mobile-wallet or bank account first'), findsOneWidget);
   });
 
   testWidgets('configured provider displays its linked wallet', (tester) async {
@@ -62,7 +63,52 @@ void main() {
     expect(find.text('Wallet: Easypaisa Wallet'), findsOneWidget);
     expect(find.text('Send Money'), findsOneWidget);
     expect(find.text('Receive Money'), findsOneWidget);
-    expect(find.text('Not configured'), findsNWidgets(3));
+    expect(find.text('Not configured'), findsNWidgets(4));
+  });
+
+  testWidgets('configured bank provider displays its linked bank account', (
+    tester,
+  ) async {
+    final bankProvider = MobileServiceProviderModel.fromMap({
+      'id': 'provider-bank-1',
+      'tenant_id': 'tenant-1',
+      'branch_id': 'branch-1',
+      'category': 'money_transfer',
+      'code': 'bank',
+      'name': 'HBL Current',
+      'provider_account_id': 'bank-1',
+      'is_active': true,
+      'created_by': 'user-1',
+      'created_at': '2026-08-21T10:00:00Z',
+      'updated_at': '2026-08-21T10:00:00Z',
+    });
+    const bankAccount = AccountModel(
+      id: 'bank-1',
+      tenantId: 'tenant-1',
+      branchId: 'branch-1',
+      name: 'HBL Current',
+      type: AccountType.bank,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mobileServiceProvidersProvider.overrideWith(
+            (ref) async => [bankProvider],
+          ),
+          mobileServiceChargeRulesProvider.overrideWith(
+            (ref) async => const <MobileServiceChargeRuleModel>[],
+          ),
+          accountsProvider.overrideWith((ref) async => const [bankAccount]),
+        ],
+        child: const MaterialApp(home: MobileServiceSettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bank Account: HBL Current'), findsOneWidget);
+    expect(find.text('Send Money'), findsOneWidget);
+    expect(find.text('Receive Money'), findsOneWidget);
   });
 }
 
