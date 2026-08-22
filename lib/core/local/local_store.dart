@@ -15,6 +15,7 @@ import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model
 import '../../features/inventory/data/models/category_model.dart';
 import '../../features/inventory/data/models/product_model.dart';
 import '../../features/onboarding/data/models/shop_setup_model.dart';
+import '../../features/buyin/data/models/customer_purchase_model.dart';
 import 'local_database.dart';
 
 class LocalStore {
@@ -1688,5 +1689,147 @@ class LocalStore {
         ticketId: ticket.id,
       );
     }
+  }
+
+  // ════════════════════════════════════════
+  // CUSTOMER PURCHASES (SECOND-HAND BUY-IN)
+  // ════════════════════════════════════════
+
+  static Future<void> saveCustomerPurchase(CustomerPurchaseModel purchase) async {
+    await LocalDatabase.execute(
+      '''
+      INSERT OR REPLACE INTO customer_purchases(
+        id, tenant_id, branch_id, seller_name, seller_cnic, seller_phone,
+        seller_address, seller_photo_url, cnic_front_url, cnic_back_url,
+        product_id, product_name, category_id, imei1, imei2, color,
+        storage, device_condition, accessories, purchase_price, expected_sale_price,
+        payment_account_id, payment_method, notes, declaration_agreed,
+        status, created_by, created_at, updated_at
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ''',
+      [
+        purchase.id,
+        purchase.tenantId,
+        purchase.branchId,
+        purchase.sellerName,
+        purchase.sellerCnic,
+        purchase.sellerPhone,
+        purchase.sellerAddress,
+        purchase.sellerPhotoUrl,
+        purchase.cnicFrontUrl,
+        purchase.cnicBackUrl,
+        purchase.productId,
+        purchase.productName,
+        purchase.categoryId,
+        purchase.imei1,
+        purchase.imei2,
+        purchase.color,
+        purchase.storage,
+        purchase.deviceCondition,
+        purchase.accessories,
+        purchase.purchasePrice,
+        purchase.expectedSalePrice,
+        purchase.paymentAccountId,
+        purchase.paymentMethod,
+        purchase.notes,
+        purchase.declarationAgreed ? 1 : 0,
+        purchase.status,
+        purchase.createdBy,
+        purchase.createdAt.toIso8601String(),
+        purchase.updatedAt?.toIso8601String(),
+      ],
+    );
+  }
+
+  static Future<void> saveCustomerPurchases(
+    String branchId,
+    List<CustomerPurchaseModel> purchases,
+  ) async {
+    for (final purchase in purchases) {
+      await saveCustomerPurchase(purchase);
+    }
+  }
+
+  static Future<List<CustomerPurchaseModel>> loadCustomerPurchases(
+    String branchId, {
+    String? query,
+    int? limit,
+  }) async {
+    String sql = '''
+      SELECT * FROM customer_purchases
+      WHERE branch_id = ?
+    ''';
+    final List<dynamic> params = [branchId];
+
+    if (query != null && query.trim().isNotEmpty) {
+      final q = '%${query.trim()}%';
+      sql += '''
+        AND (
+          seller_name LIKE ? OR
+          seller_cnic LIKE ? OR
+          seller_phone LIKE ? OR
+          imei1 LIKE ? OR
+          imei2 LIKE ? OR
+          product_name LIKE ?
+        )
+      ''';
+      params.addAll([q, q, q, q, q, q]);
+    }
+
+    sql += ' ORDER BY created_at DESC';
+
+    if (limit != null && limit > 0) {
+      sql += ' LIMIT ?';
+      params.add(limit);
+    }
+
+    final rows = await LocalDatabase.select(sql, params);
+    return rows.map((r) => CustomerPurchaseModel.fromMap(r)).toList();
+  }
+
+  static Future<CustomerPurchaseModel?> loadCustomerPurchaseById(String id) async {
+    final rows = await LocalDatabase.select(
+      'SELECT * FROM customer_purchases WHERE id = ? LIMIT 1',
+      [id],
+    );
+    if (rows.isEmpty) return null;
+    return CustomerPurchaseModel.fromMap(rows.first);
+  }
+
+  static Future<void> deleteCustomerPurchase(String id) async {
+    await LocalDatabase.execute(
+      'DELETE FROM customer_purchases WHERE id = ?',
+      [id],
+    );
+  }
+
+  static Future<List<CustomerPurchaseModel>> markCustomerPurchasesSold({
+    required String branchId,
+    required String productId,
+    int quantity = 1,
+  }) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM customer_purchases
+      WHERE branch_id = ? AND product_id = ? AND status = 'in_stock'
+      ORDER BY created_at ASC
+      LIMIT ?
+      ''',
+      [branchId, productId, quantity],
+    );
+    if (rows.isEmpty) return [];
+
+    final updatedList = <CustomerPurchaseModel>[];
+    final now = DateTime.now();
+    for (final row in rows) {
+      final purchase = CustomerPurchaseModel.fromMap(row);
+      final updated = purchase.copyWith(
+        status: 'sold',
+        updatedAt: now,
+      );
+      await saveCustomerPurchase(updated);
+      updatedList.add(updated);
+    }
+    return updatedList;
   }
 }

@@ -109,6 +109,8 @@ class InventoryUnitModel {
     );
   }
 
+  Map<String, dynamic> toMap() => toCacheMap();
+
   Map<String, dynamic> toCacheMap() {
     return {
       'id': id,

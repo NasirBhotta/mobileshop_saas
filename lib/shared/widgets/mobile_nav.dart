@@ -207,6 +207,25 @@ class MobileNav extends ConsumerWidget {
                     ),
                     ListTile(
                       leading: const Icon(
+                        Icons.assignment_turned_in_rounded,
+                        color: AppColors.primary,
+                      ),
+                      title: const Text(
+                        'Used Buy-In (Customer Purchase)',
+                        style: TextStyle(color: AppColors.primary),
+                      ),
+                      trailing:
+                          enabled['inventory.access']!
+                              ? null
+                              : const Icon(Icons.lock_outline_rounded),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        ref.read(navigationLoadingProvider.notifier).showFor();
+                        context.go('/buyin');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(
                         Icons.receipt_long_rounded,
                         color: AppColors.primary,
                       ),

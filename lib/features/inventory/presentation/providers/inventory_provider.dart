@@ -9,6 +9,7 @@ import '../../data/models/price_history_model.dart';
 import '../../data/models/product_model.dart';
 import '../../data/repositories/inventory_repository.dart';
 import '../../../onboarding/data/repositories/setup_flow_repository.dart';
+import '../../../repairs/data/models/inventory_unit_model.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../domain/inventory_entitlement_gate.dart';
 
@@ -337,6 +338,15 @@ final activeImeiUnitsProvider = FutureProvider.family<bool, String>((
   return ref
       .read(inventoryRepositoryProvider)
       .productHasActiveImeiUnits(productId);
+});
+
+final productImeiUnitsProvider = FutureProvider.family<List<InventoryUnitModel>, String>((
+  ref,
+  productId,
+) async {
+  return ref
+      .read(inventoryRepositoryProvider)
+      .fetchProductImeiUnits(productId);
 });
 
 // Product CRUD controller

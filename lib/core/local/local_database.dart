@@ -34,6 +34,7 @@ class LocalDatabase {
     'receipt_delivery_logs',
     'held_carts',
     'inventory_units',
+    'customer_purchases',
     'repair_tickets',
     'repair_status_logs',
     'repair_payments',
@@ -77,6 +78,7 @@ class LocalDatabase {
     'supplier_products',
     'inventory_supplier_options',
     'suppliers',
+    'customer_purchases',
     'repair_status_logs',
     'repair_payments',
     'repair_financial_events',
@@ -729,6 +731,43 @@ class LocalDatabase {
         created_at TEXT,
         updated_at TEXT,
         UNIQUE(branch_id, imei)
+      )
+    ''');
+
+    // ════════════════════════════════════════
+    // CUSTOMER BUY-IN / SECOND HAND PURCHASES
+    // ════════════════════════════════════════
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS customer_purchases (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        seller_name TEXT NOT NULL,
+        seller_cnic TEXT NOT NULL,
+        seller_phone TEXT NOT NULL,
+        seller_address TEXT,
+        seller_photo_url TEXT,
+        cnic_front_url TEXT,
+        cnic_back_url TEXT,
+        product_id TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        category_id TEXT,
+        imei1 TEXT NOT NULL,
+        imei2 TEXT,
+        color TEXT,
+        storage TEXT,
+        device_condition TEXT,
+        accessories TEXT,
+        purchase_price REAL NOT NULL DEFAULT 0,
+        expected_sale_price REAL NOT NULL DEFAULT 0,
+        payment_account_id TEXT,
+        payment_method TEXT,
+        notes TEXT,
+        declaration_agreed INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'in_stock',
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
       )
     ''');
 
@@ -1585,6 +1624,26 @@ class LocalDatabase {
     await _db.customStatement('''
       CREATE INDEX IF NOT EXISTS idx_inventory_units_status
       ON inventory_units(status)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_customer_purchases_branch
+      ON customer_purchases(branch_id)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_customer_purchases_imei
+      ON customer_purchases(imei1)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_customer_purchases_cnic
+      ON customer_purchases(seller_cnic)
+    ''');
+
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_customer_purchases_created_at
+      ON customer_purchases(created_at)
     ''');
 
     await _db.customStatement('''

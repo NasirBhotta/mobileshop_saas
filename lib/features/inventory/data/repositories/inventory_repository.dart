@@ -12,6 +12,7 @@ import 'package:mobileshop_saas/features/inventory/data/models/csv_import_model.
 import 'package:mobileshop_saas/features/inventory/data/models/price_history_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/stock_adjustment_model.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/inventory_unit_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
@@ -1905,6 +1906,28 @@ class InventoryRepository {
       return hasUnits == true;
     } catch (_) {
       return false;
+    }
+  }
+
+  Future<List<InventoryUnitModel>> fetchProductImeiUnits(String productId) async {
+    try {
+      final tenantId = await _currentTenantId();
+      final branchId = await _currentBranchId(tenantId);
+      final allUnits = await OfflineStore.loadInventoryUnits(branchId);
+      final matched = allUnits.where((u) => u.productId == productId).toList();
+      if (matched.isNotEmpty) return matched;
+
+      final res = await _client
+          .from('inventory_units')
+          .select()
+          .eq('product_id', productId)
+          .timeout(_networkTimeout);
+      final remoteList = (res as List)
+          .map((r) => InventoryUnitModel.fromMap(Map<String, dynamic>.from(r as Map)))
+          .toList();
+      return remoteList;
+    } catch (_) {
+      return const [];
     }
   }
 

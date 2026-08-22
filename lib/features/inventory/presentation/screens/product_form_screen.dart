@@ -13,6 +13,7 @@ import '../../../../shared/widgets/barcode_camera_scanner.dart';
 import '../../data/models/category_model.dart';
 import '../../data/models/price_history_model.dart';
 import '../../data/models/product_model.dart';
+import '../../../repairs/data/models/inventory_unit_model.dart';
 import '../providers/inventory_provider.dart';
 
 class ProductFormScreen extends ConsumerStatefulWidget {
@@ -548,6 +549,72 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                           color: AppColors.warning,
                           fontWeight: FontWeight.w600,
                         ),
+                      ),
+                    ],
+                    if (_isEdit && _imeiTracked && widget.product != null) ...[
+                      const SizedBox(height: 12),
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final unitsAsync = ref.watch(productImeiUnitsProvider(widget.product!.id));
+                          return unitsAsync.when(
+                            data: (units) {
+                              if (units.isEmpty) return const SizedBox.shrink();
+                              return Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.surfaceVariant,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: AppColors.border),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.qr_code_2_rounded, size: 18, color: AppColors.primary),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Registered IMEI Units (${units.length})',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: units.map((u) {
+                                        final isAvailable = u.status == InventoryUnitStatus.available;
+                                        return Chip(
+                                          avatar: Icon(
+                                            isAvailable ? Icons.check_circle_outline : Icons.sell_outlined,
+                                            size: 14,
+                                            color: isAvailable ? Colors.green : Colors.grey,
+                                          ),
+                                          label: Text('${u.imei} (${isAvailable ? "In Stock" : "Sold"})'),
+                                          labelStyle: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: isAvailable ? FontWeight.w600 : FontWeight.normal,
+                                          ),
+                                          backgroundColor: isAvailable
+                                              ? Colors.green.withAlpha(25)
+                                              : Colors.grey.withAlpha(30),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                            loading: () => const SizedBox.shrink(),
+                            error: (err, stack) => const SizedBox.shrink(),
+                          );
+                        },
                       ),
                     ],
                     const SizedBox(height: 32),

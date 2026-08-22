@@ -52,6 +52,12 @@ class DesktopNav extends ConsumerWidget {
       feature: 'repairs.access',
     ),
     (
+      icon: Icons.assignment_turned_in_rounded,
+      label: 'Used Buy-In',
+      path: '/buyin',
+      feature: 'inventory.access',
+    ),
+    (
       icon: Icons.local_shipping_rounded,
       label: AppStrings.navSuppliers,
       path: '/suppliers',

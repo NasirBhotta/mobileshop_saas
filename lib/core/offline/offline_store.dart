@@ -17,6 +17,7 @@ import 'package:uuid/uuid.dart';
 import '../../features/inventory/data/models/category_model.dart';
 import '../../features/inventory/data/models/product_model.dart';
 import '../../features/onboarding/data/models/shop_setup_model.dart';
+import '../../features/buyin/data/models/customer_purchase_model.dart';
 import '../local/local_store.dart';
 
 class OfflineMutation {
@@ -99,6 +100,9 @@ class OfflineStore {
 
   static String _inventoryUnitsKey(String branchId) =>
       'offline.inventory_units.$branchId';
+
+  static String _customerPurchasesKey(String branchId) =>
+      'offline.customer_purchases.$branchId';
 
   static Future<void> clearOfflinePreferences() async {
     final prefs = await SharedPreferences.getInstance();
@@ -976,6 +980,8 @@ class OfflineStore {
   }
 
   // ── Helper ──
+
+  // ── Helper ──
   static Map<String, dynamic> _saleToMap(SaleModel sale) => {
     'id': sale.id,
     'branch_id': sale.branchId,
@@ -1061,7 +1067,6 @@ class OfflineStore {
       }
     } catch (_) {}
 
-    // Step 2: SharedPreferences fallback.
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_repairTicketsKey(branchId));
 
@@ -1090,15 +1095,10 @@ class OfflineStore {
   static Future<RepairTicketModel?> loadRepairTicketById(
     String ticketId,
   ) async {
-    // Detail screen ke liye direct SQLite lookup.
     try {
       final ticket = await LocalStore.loadRepairTicketById(ticketId);
       if (ticket != null) return ticket;
     } catch (_) {}
-
-    // SharedPreferences fallback mein branchId ke bina specific ticket
-    // dhoondhna mushkil hota hai, isliye repository normally list se detail
-    // pass karegi. Later agar zaroorat hui to branchId wala overload bana lenge.
     return null;
   }
 
@@ -1149,14 +1149,11 @@ class OfflineStore {
   }
 
   static Future<void> upsertInventoryUnit(InventoryUnitModel unit) async {
-    // IMEI unit SQLite mein save/update.
     try {
       await LocalStore.upsertInventoryUnit(unit);
     } catch (_) {}
 
-    // SharedPreferences fallback mein branch ke units list update.
     final units = await loadInventoryUnits(unit.branchId);
-
     final updated = [
       for (final item in units)
         if (item.id != unit.id && item.imei != unit.imei) item,
@@ -1173,14 +1170,8 @@ class OfflineStore {
   static Future<List<InventoryUnitModel>> loadInventoryUnits(
     String branchId,
   ) async {
-    // Abhi LocalStore mein full units list method nahi banaya,
-    // isliye fallback list SharedPreferences se load kar rahe hain.
-    //
-    // Future mein agar IMEI units screen banani hui to LocalStore.loadInventoryUnits()
-    // bhi add kar lenge.
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_inventoryUnitsKey(branchId));
-
     if (raw == null) return [];
 
     return (jsonDecode(raw) as List)
@@ -1195,7 +1186,6 @@ class OfflineStore {
     required String branchId,
     required String imei,
   }) async {
-    // Step 1: SQLite mein IMEI find karo.
     try {
       final unit = await LocalStore.loadInventoryUnitByImei(
         branchId: branchId,
@@ -1204,7 +1194,6 @@ class OfflineStore {
       if (unit != null) return unit;
     } catch (_) {}
 
-    // Step 2: SharedPreferences fallback.
     final units = await loadInventoryUnits(branchId);
     final normalizedImei = imei.trim();
 
@@ -1222,17 +1211,6 @@ class OfflineStore {
     required RepairStatusLogModel log,
     InventoryUnitModel? inventoryUnit,
   }) async {
-    // Yeh create repair ticket ka local/offline bundle hai.
-    //
-    // Ismein 3 cheezen ek saath hoti hain:
-    //
-    // 1. repair ticket save
-    // 2. initial status log save
-    // 3. optional IMEI unit status in_repair save
-    //
-    // Supabase online mode mein trigger yeh kaam karega,
-    // lekin offline mode mein app ko khud local state maintain karni hoti hai.
-
     try {
       await LocalStore.saveRepairTicketWithInitialLog(
         ticket: ticket,
@@ -1312,5 +1290,136 @@ class OfflineStore {
     } catch (_) {
       return null;
     }
+  }
+
+  // ════════════════════════════════════════
+  // CUSTOMER PURCHASES (SECOND-HAND BUY-IN)
+  // ════════════════════════════════════════
+
+  static Future<void> saveCustomerPurchases(
+    String branchId,
+    List<CustomerPurchaseModel> purchases,
+  ) async {
+    try {
+      await LocalStore.saveCustomerPurchases(branchId, purchases);
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = purchases.map((p) => p.toMap()).toList();
+    await prefs.setString(_customerPurchasesKey(branchId), jsonEncode(jsonList));
+  }
+
+  static Future<void> saveCustomerPurchase(CustomerPurchaseModel purchase) async {
+    try {
+      await LocalStore.saveCustomerPurchase(purchase);
+    } catch (_) {}
+
+    final current = await loadCustomerPurchases(purchase.branchId);
+    final updated = [
+      purchase,
+      ...current.where((p) => p.id != purchase.id),
+    ];
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = updated.map((p) => p.toMap()).toList();
+    await prefs.setString(
+      _customerPurchasesKey(purchase.branchId),
+      jsonEncode(jsonList),
+    );
+  }
+
+  static Future<List<CustomerPurchaseModel>> loadCustomerPurchases(
+    String branchId, {
+    String? query,
+    int? limit,
+  }) async {
+    try {
+      final local = await LocalStore.loadCustomerPurchases(
+        branchId,
+        query: query,
+        limit: limit,
+      );
+      if (local.isNotEmpty) return local;
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_customerPurchasesKey(branchId));
+    if (raw == null) return [];
+
+    try {
+      final list = (jsonDecode(raw) as List)
+          .map((m) => CustomerPurchaseModel.fromMap(Map<String, dynamic>.from(m as Map)))
+          .toList();
+
+      if (query != null && query.trim().isNotEmpty) {
+        final q = query.trim().toLowerCase();
+        return list.where((p) {
+          return p.sellerName.toLowerCase().contains(q) ||
+              p.sellerCnic.toLowerCase().contains(q) ||
+              p.sellerPhone.toLowerCase().contains(q) ||
+              p.imei1.toLowerCase().contains(q) ||
+              (p.imei2?.toLowerCase().contains(q) ?? false) ||
+              p.productName.toLowerCase().contains(q);
+        }).toList();
+      }
+
+      if (limit != null && limit > 0 && list.length > limit) {
+        return list.sublist(0, limit);
+      }
+
+      return list;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<void> deleteCustomerPurchase(String branchId, String id) async {
+    try {
+      await LocalStore.deleteCustomerPurchase(id);
+    } catch (_) {}
+
+    final current = await loadCustomerPurchases(branchId);
+    final updated = current.where((p) => p.id != id).toList();
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = updated.map((p) => p.toMap()).toList();
+    await prefs.setString(
+      _customerPurchasesKey(branchId),
+      jsonEncode(jsonList),
+    );
+  }
+
+  static Future<List<CustomerPurchaseModel>> markCustomerPurchasesSold({
+    required String branchId,
+    required String productId,
+    int quantity = 1,
+  }) async {
+    List<CustomerPurchaseModel> localUpdated = [];
+    try {
+      localUpdated = await LocalStore.markCustomerPurchasesSold(
+        branchId: branchId,
+        productId: productId,
+        quantity: quantity,
+      );
+    } catch (_) {}
+
+    final current = await loadCustomerPurchases(branchId);
+    int remaining = quantity;
+    final now = DateTime.now();
+    final updatedAll = current.map((p) {
+      if (remaining > 0 && p.productId == productId && p.status == 'in_stock') {
+        remaining--;
+        return p.copyWith(status: 'sold', updatedAt: now);
+      }
+      return p;
+    }).toList();
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _customerPurchasesKey(branchId),
+      jsonEncode(updatedAll.map((p) => p.toMap()).toList()),
+    );
+
+    return localUpdated.isNotEmpty
+        ? localUpdated
+        : updatedAll.where((p) => p.productId == productId && p.status == 'sold').toList();
   }
 }

@@ -561,8 +561,20 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       color: AppColors.textSecondary,
                       tooltip: AppStrings.sortBy,
                     ),
-                    // Add product button
-                    if (canCreate)
+                    // Used Buy-In button
+                    if (canCreate) ...[
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          ref
+                              .read(navigationLoadingProvider.notifier)
+                              .showFor();
+                          context.push('/buyin/new');
+                        },
+                        icon: const Icon(Icons.assignment_turned_in_rounded, size: 16),
+                        label: const Text('Used Buy-In'),
+                      ),
+                      const SizedBox(width: 8),
+                      // Add product button
                       FilledButton.icon(
                         onPressed: () {
                           ref
@@ -573,6 +585,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                         icon: const Icon(Icons.add_rounded, size: 18),
                         label: const Text('Add'),
                       ),
+                    ],
                   ],
 
                   if (csvImportEnabled && canCreate)

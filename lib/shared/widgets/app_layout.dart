@@ -33,12 +33,13 @@ class AppLayout extends ConsumerWidget {
       2 => 1, // Inventory
       3 => 4, // Customers live under More on mobile
       4 => 3, // Repairs
-      5 => 4, // Suppliers live under More on mobile
-      6 => 4, // Expenses live under More on mobile
-      7 => 4, // Accounts live under More on mobile
-      8 => 4, // Mobile Services live under More on mobile
-      9 => 4, // Reports live under More on mobile
-      10 => 4, // Settings live under More on mobile
+      5 => 4, // Used Buy-In lives under More on mobile
+      6 => 4, // Suppliers live under More on mobile
+      7 => 4, // Expenses live under More on mobile
+      8 => 4, // Accounts live under More on mobile
+      9 => 4, // Mobile Services live under More on mobile
+      10 => 4, // Reports live under More on mobile
+      11 => 4, // Settings live under More on mobile
       _ => index,
     };
   }

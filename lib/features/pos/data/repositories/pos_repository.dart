@@ -519,6 +519,43 @@ class PosRepository {
         productId: item.productId,
         quantity: item.quantity,
       );
+
+      // ── Update Customer Buy-In intake record status to 'sold' ──
+      try {
+        final soldPurchases = await OfflineStore.markCustomerPurchasesSold(
+          branchId: branchId,
+          productId: item.productId,
+          quantity: item.quantity,
+        );
+
+        for (final p in soldPurchases) {
+          try {
+            await _client
+                .from('customer_purchases')
+                .update({
+                  'status': 'sold',
+                  'updated_at': DateTime.now().toIso8601String(),
+                })
+                .eq('id', p.id)
+                .timeout(Network.networkTimeout);
+          } catch (e) {
+            debugPrint('Remote customer_purchases status update queued: $e');
+            try {
+              await OfflineStore.enqueueMutation(
+                userId: user.id,
+                type: 'update_customer_buyin_status',
+                payload: {
+                  'id': p.id,
+                  'status': 'sold',
+                  'updated_at': DateTime.now().toIso8601String(),
+                },
+              );
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        debugPrint('Error updating customer buyin status on sale: $e');
+      }
     }
 
     debugPrint('✅ Sale complete remotely: $saleId, Total: ₨$total');
