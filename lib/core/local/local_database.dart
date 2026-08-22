@@ -361,6 +361,7 @@ class LocalDatabase {
           manager_discount_percent_limit REAL NOT NULL DEFAULT 25,
           discount_audit_threshold REAL NOT NULL DEFAULT 1000,
           receipt_footer TEXT,
+          receipt_config TEXT,
           updated_at TEXT
         )
     ''');
@@ -402,6 +403,11 @@ class LocalDatabase {
     await _addColumnIfMissing(
       table: 'tenant_settings',
       column: 'receipt_footer',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'tenant_settings',
+      column: 'receipt_config',
       definition: 'TEXT',
     );
 

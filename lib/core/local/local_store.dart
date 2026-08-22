@@ -537,6 +537,11 @@ class LocalStore {
   }
 
   static Future<void> saveTenantSettings(Map<String, dynamic> settings) async {
+    final receiptConfigRaw = settings['receipt_config'];
+    final receiptConfigStr = receiptConfigRaw is Map
+        ? jsonEncode(receiptConfigRaw)
+        : (receiptConfigRaw is String ? receiptConfigRaw : null);
+
     await LocalDatabase.execute(
       '''
     INSERT OR REPLACE INTO tenant_settings(
@@ -551,14 +556,15 @@ class LocalStore {
       manager_discount_percent_limit,
       discount_audit_threshold,
       receipt_footer,
+      receipt_config,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''',
       [
         settings['tenant_id'],
-        settings['adjustment_qty_threshold'],
-        settings['adjustment_value_threshold'],
+        settings['adjustment_qty_threshold'] ?? 10,
+        settings['adjustment_value_threshold'] ?? 50000,
         settings['return_approval_threshold'] ?? 25000,
         settings['return_window_days'] ?? 7,
         settings['cashier_discount_fixed_limit'] ?? 500,
@@ -567,6 +573,7 @@ class LocalStore {
         settings['manager_discount_percent_limit'] ?? 25,
         settings['discount_audit_threshold'] ?? 1000,
         settings['receipt_footer'],
+        receiptConfigStr,
         settings['updated_at'],
       ],
     );
@@ -581,6 +588,32 @@ class LocalStore {
     );
 
     return rows.isEmpty ? null : rows.first;
+  }
+
+  static Future<void> saveReceiptConfiguration({
+    required String tenantId,
+    required Map<String, dynamic> config,
+  }) async {
+    final current = await loadTenantSettings(tenantId);
+    final settings = current != null ? Map<String, dynamic>.from(current) : <String, dynamic>{};
+    settings['tenant_id'] = tenantId;
+    settings['receipt_config'] = jsonEncode(config);
+    settings['updated_at'] = DateTime.now().toIso8601String();
+    await saveTenantSettings(settings);
+  }
+
+  static Future<Map<String, dynamic>?> loadReceiptConfiguration(
+    String tenantId,
+  ) async {
+    final settings = await loadTenantSettings(tenantId);
+    if (settings == null) return null;
+    final raw = settings['receipt_config'] as String?;
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<void> saveStockAdjustment(

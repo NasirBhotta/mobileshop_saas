@@ -99,6 +99,8 @@ class _SettingsContent extends ConsumerWidget {
             const SizedBox(height: 12),
             _ShopSection(settings: settings, saving: saving),
             const SizedBox(height: 12),
+            const _ReceiptPrinterSection(),
+            const SizedBox(height: 12),
             _DashboardSummarySection(key: ValueKey(settings.selectedBranchId)),
             const SizedBox(height: 12),
             _PlanBillingSection(settings: settings),
@@ -645,6 +647,72 @@ class _ShopSectionState extends State<_ShopSection> {
           ),
         );
       },
+    );
+  }
+}
+
+class _ReceiptPrinterSection extends StatelessWidget {
+  const _ReceiptPrinterSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsCard(
+      title: 'Receipt & Thermal Printer',
+      subtitle: 'Customize thermal receipt layout, branding, logo, paper size & repair policies',
+      icon: Icons.receipt_long_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer.withAlpha(40),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary.withAlpha(50),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.receipt_long_rounded,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 32,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Global Thermal Receipt Format',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Configure 80mm/58mm roll paper layout, logo, barcode, IMEI & warranty terms.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => context.push('/settings/receipt'),
+              icon: const Icon(Icons.tune_rounded),
+              label: const Text('Configure Receipt Format & Layout'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

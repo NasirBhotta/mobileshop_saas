@@ -54,6 +54,7 @@ import 'package:mobileshop_saas/features/reports/presentation/screens/sales_repo
 import 'package:mobileshop_saas/features/reports/presentation/screens/sales_report_screen.dart';
 import 'package:mobileshop_saas/features/reports/domain/report_entitlement_gate.dart';
 import 'package:mobileshop_saas/features/settings/presentation/screens/account_settings_screen.dart';
+import 'package:mobileshop_saas/features/settings/presentation/screens/receipt_settings_screen.dart';
 import 'package:mobileshop_saas/features/suppliers/data/models/procurement_models.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/po_document_screen.dart';
 import 'package:mobileshop_saas/features/suppliers/presentation/screens/purchase_order_form_screen.dart';
@@ -500,6 +501,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/settings',
             builder: (context, state) {
               return const AccountSettingsScreen();
+            },
+          ),
+          GoRoute(
+            path: '/settings/receipt',
+            builder: (context, state) {
+              return const ReceiptSettingsScreen();
             },
           ),
           GoRoute(

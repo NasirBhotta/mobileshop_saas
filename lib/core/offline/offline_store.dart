@@ -77,6 +77,8 @@ class OfflineStore {
   static String _mutationsKey(String userId) => 'offline.mutations.$userId';
   static String _tenantSettingsKey(String tenantId) =>
       'offline.tenant_settings.$tenantId';
+  static String _receiptConfigKey(String tenantId) =>
+      'offline.receipt_config.$tenantId';
 
   static String _stockAdjustmentsKey(String branchId) =>
       'offline.stock_adjustments.$branchId';
@@ -447,36 +449,6 @@ class OfflineStore {
     return (jsonDecode(raw) as List)
         .map((row) => CategoryModel.fromMap(Map<String, dynamic>.from(row)))
         .toList();
-  }
-
-  static Future<void> saveTenantSettings(
-    String tenantId,
-    Map<String, dynamic> settings,
-  ) async {
-    try {
-      await LocalStore.saveTenantSettings(settings);
-    } catch (_) {}
-
-    final prefs = await SharedPreferences.getInstance();
-
-    await prefs.setString(_tenantSettingsKey(tenantId), jsonEncode(settings));
-  }
-
-  static Future<Map<String, dynamic>?> loadTenantSettings(
-    String tenantId,
-  ) async {
-    try {
-      final settings = await LocalStore.loadTenantSettings(tenantId);
-      if (settings != null) return settings;
-    } catch (_) {}
-
-    final prefs = await SharedPreferences.getInstance();
-
-    final raw = prefs.getString(_tenantSettingsKey(tenantId));
-
-    if (raw == null) return null;
-
-    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
   }
 
   static Future<void> saveStockAdjustments(
@@ -1274,6 +1246,71 @@ class OfflineStore {
 
     if (inventoryUnit != null) {
       await upsertInventoryUnit(inventoryUnit);
+    }
+  }
+
+  static Future<void> saveTenantSettings(
+    String tenantId,
+    Map<String, dynamic> settings,
+  ) async {
+    try {
+      await LocalStore.saveTenantSettings(settings);
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_tenantSettingsKey(tenantId), jsonEncode(settings));
+  }
+
+  static Future<Map<String, dynamic>?> loadTenantSettings(
+    String tenantId,
+  ) async {
+    try {
+      final settings = await LocalStore.loadTenantSettings(tenantId);
+      if (settings != null) return settings;
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_tenantSettingsKey(tenantId));
+    if (raw == null) return null;
+
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveReceiptConfig(
+    String tenantId,
+    Map<String, dynamic> config,
+  ) async {
+    try {
+      await LocalStore.saveReceiptConfiguration(
+        tenantId: tenantId,
+        config: config,
+      );
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_receiptConfigKey(tenantId), jsonEncode(config));
+  }
+
+  static Future<Map<String, dynamic>?> loadReceiptConfig(
+    String tenantId,
+  ) async {
+    try {
+      final config = await LocalStore.loadReceiptConfiguration(tenantId);
+      if (config != null) return config;
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_receiptConfigKey(tenantId));
+    if (raw == null) return null;
+
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
     }
   }
 }

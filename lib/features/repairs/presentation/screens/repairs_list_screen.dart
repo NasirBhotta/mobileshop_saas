@@ -15,6 +15,9 @@ import 'package:mobileshop_saas/features/accounts/data/models/account_models.dar
 import 'package:mobileshop_saas/features/accounts/presentation/providers/accounts_provider.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
 import 'package:mobileshop_saas/features/pos/domain/pos_payment_account_policy.dart';
+import 'package:mobileshop_saas/features/repairs/data/services/thermal_receipt_service.dart';
+import 'package:mobileshop_saas/features/settings/presentation/providers/receipt_settings_provider.dart';
+import 'package:mobileshop_saas/features/settings/data/models/receipt_configuration_model.dart';
 import '../../data/models/repair_ticket_model.dart';
 import '../widgets/repair_completion_dialog.dart';
 
@@ -650,7 +653,53 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                   ),
                 ),
               ],
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        ReceiptConfigurationModel? config;
+                        try {
+                          config = await ref.read(receiptConfigurationProvider.future);
+                        } catch (_) {
+                          config = ReceiptConfigurationModel.defaultConfig();
+                        }
+                        if (config != null) {
+                          await ThermalReceiptService.printRepairTicket(
+                            ticket: ticket,
+                            config: config,
+                            isDuplicate: true,
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.print_rounded, size: 18),
+                      label: const Text('Print Receipt'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.outlined(
+                    tooltip: 'Share Receipt Text',
+                    onPressed: () async {
+                      ReceiptConfigurationModel? config;
+                      try {
+                        config = await ref.read(receiptConfigurationProvider.future);
+                      } catch (_) {
+                        config = ReceiptConfigurationModel.defaultConfig();
+                      }
+                      if (config != null) {
+                        await ThermalReceiptService.shareRepairTicket(
+                          ticket: ticket,
+                          config: config,
+                          isDuplicate: true,
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.share_rounded, size: 18),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: _isSaving ? null : _archive,
                 icon: const Icon(Icons.archive_outlined),

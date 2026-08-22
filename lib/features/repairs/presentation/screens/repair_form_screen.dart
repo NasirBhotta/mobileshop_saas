@@ -12,6 +12,10 @@ import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
 import 'package:mobileshop_saas/features/repairs/presentation/providers/repair_provider.dart';
+import 'package:mobileshop_saas/features/repairs/data/services/thermal_receipt_service.dart';
+import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
+import 'package:mobileshop_saas/features/settings/presentation/providers/receipt_settings_provider.dart';
+import 'package:mobileshop_saas/features/settings/data/models/receipt_configuration_model.dart';
 
 class RepairFormScreen extends ConsumerStatefulWidget {
   const RepairFormScreen({super.key});
@@ -623,7 +627,86 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
       ),
     );
 
-    context.go('/repairs');
+    await _showCreatedSuccessDialog(ticket);
+  }
+
+  Future<void> _showCreatedSuccessDialog(RepairTicketModel ticket) async {
+    final ticketNo = ticket.ticketNo ?? ticket.id.substring(0, 8).toUpperCase();
+    ReceiptConfigurationModel? receiptConfig;
+    try {
+      receiptConfig = await ref.read(receiptConfigurationProvider.future);
+    } catch (_) {
+      receiptConfig = ReceiptConfigurationModel.defaultConfig();
+    }
+
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          icon: const Icon(
+            Icons.check_circle_rounded,
+            color: Colors.green,
+            size: 44,
+          ),
+          title: const Text('Repair Ticket Created'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Ticket #$ticketNo',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Customer: ${ticket.customerName}\nDevice: ${ticket.deviceBrand} ${ticket.deviceModel}',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
+            ],
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            OutlinedButton.icon(
+              onPressed: () async {
+                if (receiptConfig != null) {
+                  await ThermalReceiptService.shareRepairTicket(
+                    ticket: ticket,
+                    config: receiptConfig,
+                  );
+                }
+              },
+              icon: const Icon(Icons.share_rounded, size: 18),
+              label: const Text('Share'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                if (receiptConfig != null) {
+                  await ThermalReceiptService.printRepairTicket(
+                    ticket: ticket,
+                    config: receiptConfig,
+                  );
+                }
+              },
+              icon: const Icon(Icons.print_rounded, size: 18),
+              label: const Text('Print Receipt'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogCtx).pop();
+                context.go('/repairs');
+              },
+              child: const Text('Done'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   String? _requiredValidator(String? value) {
