@@ -9,6 +9,8 @@ import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../data/models/sale_model.dart';
 import '../../data/services/receipt_service.dart';
 import '../providers/pos_provider.dart';
+import '../../../settings/data/models/receipt_configuration_model.dart';
+import '../../../settings/presentation/providers/receipt_settings_provider.dart';
 
 class SaleCompleteScreen extends ConsumerWidget {
   final SaleModel sale;
@@ -350,22 +352,24 @@ class SaleCompleteScreen extends ConsumerWidget {
     ReceiptDeliveryMethod method,
     String? footer,
     WidgetRef ref,
-  ) {
+  ) async {
+    ReceiptConfigurationModel? config;
+    try {
+      config = await ref.read(receiptConfigurationProvider.future);
+    } catch (_) {
+      config = ReceiptConfigurationModel.defaultConfig();
+    }
     return ReceiptService.deliver(
       sale: sale,
       method: method,
+      config: config,
       footer: footer,
       entitlementEvaluator: ref.read(entitlementEvaluatorProvider),
     );
   }
 
   Future<void> _shareReceipt(String? footer, WidgetRef ref) {
-    return ReceiptService.deliver(
-      sale: sale,
-      method: ReceiptDeliveryMethod.whatsapp,
-      footer: footer,
-      entitlementEvaluator: ref.read(entitlementEvaluatorProvider),
-    );
+    return _deliverReceipt(ReceiptDeliveryMethod.whatsapp, footer, ref);
   }
 }
 

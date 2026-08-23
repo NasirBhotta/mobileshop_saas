@@ -1114,18 +1114,31 @@ class PosRepository {
     String? refundPaymentId,
     String? overrideReason,
   }) async {
+    final sw = Stopwatch()..start();
+    debugPrint('[DEBUG-POS-REPO] 🟢 [processReturn] Started for Sale: "${sale.id}", items: ${quantitiesByProductId.length}, refund: Rs $refundAmount');
+
+    final entStart = sw.elapsedMilliseconds;
     await _requireFeature('pos.returns');
+    debugPrint('[DEBUG-POS-REPO] ⏱️ _requireFeature took ${sw.elapsedMilliseconds - entStart}ms');
     if (sale.id == null) throw Exception('Original invoice ID missing');
 
+    final permStart = sw.elapsedMilliseconds;
     final canOverrideWindow =
         (await _permissions.can('pos.return.override')).isAllowed;
     final canApprove = (await _permissions.can('pos.return.approve')).isAllowed;
+    debugPrint('[DEBUG-POS-REPO] ⏱️ Permission checks took ${sw.elapsedMilliseconds - permStart}ms');
+
+    final settStart = sw.elapsedMilliseconds;
     final settings = await _returnSettings();
     final approvalThreshold =
         (settings['return_approval_threshold'] as num?)?.toDouble() ?? 25000;
     final returnWindowDays =
         (settings['return_window_days'] as num?)?.toInt() ?? 7;
+    debugPrint('[DEBUG-POS-REPO] ⏱️ _returnSettings took ${sw.elapsedMilliseconds - settStart}ms');
+
+    final retQtyStart = sw.elapsedMilliseconds;
     final returnedQuantities = await loadReturnedQuantities(sale.id!);
+    debugPrint('[DEBUG-POS-REPO] ⏱️ loadReturnedQuantities took ${sw.elapsedMilliseconds - retQtyStart}ms');
 
     final items = <SaleReturnItemModel>[];
     for (final saleItem in sale.items) {
@@ -1207,35 +1220,48 @@ class PosRepository {
       if (refundPaymentId == null) {
         throw Exception('Refund account select karein');
       }
+      final allocStart = sw.elapsedMilliseconds;
       saleReturn = await _withRefundAllocation(
         saleReturn,
         originalPaymentId: refundPaymentId,
       );
+      debugPrint('[DEBUG-POS-REPO] ⏱️ _withRefundAllocation took ${sw.elapsedMilliseconds - allocStart}ms');
     }
 
+    final localSaveStart = sw.elapsedMilliseconds;
     await _saveReturnLocally(
       saleReturn,
       synced: false,
       postRefund: status == SaleReturnStatus.approved,
     );
+    debugPrint('[DEBUG-POS-REPO] ⏱️ _saveReturnLocally took ${sw.elapsedMilliseconds - localSaveStart}ms');
+
     if (status == SaleReturnStatus.approved) {
+      final restockStart = sw.elapsedMilliseconds;
       await _restockReturnItems(saleReturn);
+      debugPrint('[DEBUG-POS-REPO] ⏱️ _restockReturnItems took ${sw.elapsedMilliseconds - restockStart}ms');
     }
 
     if (await _isSaleSyncPending(sale.id!)) {
+      debugPrint('[DEBUG-POS-REPO] ℹ️ Sale sync pending, queueing return mutation');
       await _queueReturnMutation(saleReturn, type: 'sale_return');
+      debugPrint('[DEBUG-POS-REPO] ✅ [processReturn] Complete in ${sw.elapsedMilliseconds}ms');
       return saleReturn;
     }
 
+    final remoteSyncStart = sw.elapsedMilliseconds;
     try {
+      debugPrint('[DEBUG-POS-REPO] 🌐 Syncing return remotely to Supabase...');
       await _syncReturnRemote(saleReturn);
       await _markReturnSynced(saleReturn.id);
+      debugPrint('[DEBUG-POS-REPO] ⏱️ _syncReturnRemote succeeded in ${sw.elapsedMilliseconds - remoteSyncStart}ms');
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
-      debugPrint('Offline return: saved locally. Queueing mutation. Error: $e');
+      debugPrint('[DEBUG-POS-REPO] ⚠️ _syncReturnRemote failed in ${sw.elapsedMilliseconds - remoteSyncStart}ms ($e). Saved locally & queued.');
       await _queueReturnMutation(saleReturn, type: 'sale_return');
     }
 
+    debugPrint('[DEBUG-POS-REPO] ✅ [processReturn] Finished in ${sw.elapsedMilliseconds}ms total');
     return saleReturn;
   }
 
@@ -1517,6 +1543,7 @@ class PosRepository {
   }
 
   Future<Map<String, dynamic>> _returnSettings() async {
+    final sw = Stopwatch()..start();
     final tenantId = await _currentTenantId();
     try {
       final settings = await _client
@@ -1527,10 +1554,13 @@ class PosRepository {
           .timeout(Network.networkTimeout);
       final resolved = settings ?? _defaultReturnSettings(tenantId);
       await OfflineStore.saveTenantSettings(tenantId, resolved);
+      debugPrint('[DEBUG-POS-REPO] ⏱️ _returnSettings (remote fetch) took ${sw.elapsedMilliseconds}ms');
       return resolved;
     } catch (_) {
-      return await OfflineStore.loadTenantSettings(tenantId) ??
+      final local = await OfflineStore.loadTenantSettings(tenantId) ??
           _defaultReturnSettings(tenantId);
+      debugPrint('[DEBUG-POS-REPO] ⏱️ _returnSettings (local cache) took ${sw.elapsedMilliseconds}ms');
+      return local;
     }
   }
 
@@ -1823,8 +1853,12 @@ class PosRepository {
     required SaleReturnItemModel item,
     required String returnedProductId,
   }) async {
-    final products = await OfflineStore.loadProducts(branchId);
-    if (products.any((product) => product.id == returnedProductId)) return;
+    final sw = Stopwatch()..start();
+    final existing = await LocalDatabase.select(
+      'SELECT 1 FROM products WHERE id = ? LIMIT 1',
+      [returnedProductId],
+    );
+    if (existing.isNotEmpty) return;
 
     final tenantId = await _currentTenantId();
     final unitRefund =
@@ -1842,11 +1876,16 @@ class PosRepository {
         stock: 0,
       ),
     );
+    debugPrint('[DEBUG-POS-REPO] ⏱️ _ensureReturnedProductCached completed in ${sw.elapsedMilliseconds}ms');
   }
 
   Future<void> _syncReturnRemote(SaleReturnModel saleReturn) async {
+    final swSync = Stopwatch()..start();
+    debugPrint('[DEBUG-POS-REPO] 🌐 [RemoteSync] Starting remote sync for Return ID: "${saleReturn.id}" (Status: ${saleReturn.status})');
+
     var remoteAlreadyApproved = false;
     try {
+      final checkStart = swSync.elapsedMilliseconds;
       final existing = await _client
           .from('sale_returns')
           .select('status')
@@ -1856,8 +1895,12 @@ class PosRepository {
           .timeout(_returnSyncTimeout);
       remoteAlreadyApproved =
           existing?['status'] == SaleReturnStatus.approved.code;
-    } catch (_) {}
+      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Check existing status took ${swSync.elapsedMilliseconds - checkStart}ms');
+    } catch (e) {
+      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Check existing status catch: $e');
+    }
 
+    final upsertStart = swSync.elapsedMilliseconds;
     await _client
         .from('sale_returns')
         .upsert({
@@ -1875,7 +1918,9 @@ class PosRepository {
           'created_at': saleReturn.createdAt.toIso8601String(),
         }, onConflict: 'id')
         .timeout(_returnSyncTimeout);
+    debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Upsert sale_returns took ${swSync.elapsedMilliseconds - upsertStart}ms');
 
+    final itemsStart = swSync.elapsedMilliseconds;
     await _client
         .from('sale_return_items')
         .delete()
@@ -1899,9 +1944,11 @@ class PosRepository {
               .toList(),
         )
         .timeout(_returnSyncTimeout);
+    debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Delete & insert sale_return_items took ${swSync.elapsedMilliseconds - itemsStart}ms');
 
     if (saleReturn.status == SaleReturnStatus.approved &&
         !remoteAlreadyApproved) {
+      final restockRemoteStart = swSync.elapsedMilliseconds;
       for (final item in saleReturn.items) {
         final returnedProductId = item.restockProductId ?? const Uuid().v4();
         await _syncReturnedProductRemote(
@@ -1927,11 +1974,13 @@ class PosRepository {
             }, onConflict: 'branch_id,product_id')
             .timeout(_returnSyncTimeout);
       }
+      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Restock products remote took ${swSync.elapsedMilliseconds - restockRemoteStart}ms');
     }
 
     if (saleReturn.status == SaleReturnStatus.approved &&
         saleReturn.refundMethod == RefundMethod.cash &&
         saleReturn.refundAmount > 0) {
+      final rpcStart = swSync.elapsedMilliseconds;
       await _client
           .rpc(
             'post_pos_return_refund',
@@ -1942,14 +1991,18 @@ class PosRepository {
             },
           )
           .timeout(_returnSyncTimeout);
+      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] RPC post_pos_return_refund took ${swSync.elapsedMilliseconds - rpcStart}ms');
     }
     if (saleReturn.status == SaleReturnStatus.approved &&
         saleReturn.refundMethod == RefundMethod.credit &&
         saleReturn.refundAmount > 0) {
+      final rpcStart = swSync.elapsedMilliseconds;
       await _client
           .rpc('post_pos_credit_return', params: {'p_return_id': saleReturn.id})
           .timeout(_returnSyncTimeout);
+      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] RPC post_pos_credit_return took ${swSync.elapsedMilliseconds - rpcStart}ms');
     }
+    debugPrint('[DEBUG-POS-REPO] ✅ [RemoteSync] Full _syncReturnRemote finished in ${swSync.elapsedMilliseconds}ms');
   }
 
   Future<void> _syncReturnedProductRemote({

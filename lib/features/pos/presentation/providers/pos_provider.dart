@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
@@ -801,16 +802,30 @@ class ReturnDraftNotifier extends StateNotifier<ReturnDraftState> {
   ReturnDraftNotifier(this._repository) : super(const ReturnDraftState());
 
   Future<SaleModel?> searchInvoice(String invoiceId) async {
+    final sw = Stopwatch()..start();
+    debugPrint('[DEBUG-POS-RETURN] 🔍 [searchInvoice] Started for: "$invoiceId"');
+    final findStart = sw.elapsedMilliseconds;
     final sale = await _repository.findSaleForReturn(invoiceId);
+    debugPrint('[DEBUG-POS-RETURN] ⏱️ findSaleForReturn took ${sw.elapsedMilliseconds - findStart}ms (found: ${sale != null})');
     if (sale == null || sale.id == null) {
       state = const ReturnDraftState();
       return null;
     }
+
+    final retStart = sw.elapsedMilliseconds;
     final returned = await _repository.loadReturnedQuantities(sale.id!);
+    debugPrint('[DEBUG-POS-RETURN] ⏱️ loadReturnedQuantities took ${sw.elapsedMilliseconds - retStart}ms');
+
+    final cashStart = sw.elapsedMilliseconds;
     final cashOptions = await _repository.loadCashRefundOptions(sale.id!);
+    debugPrint('[DEBUG-POS-RETURN] ⏱️ loadCashRefundOptions took ${sw.elapsedMilliseconds - cashStart}ms');
+
+    final creditStart = sw.elapsedMilliseconds;
     final creditCapacity = await _repository.previewCreditReturnCapacity(
       sale.id!,
     );
+    debugPrint('[DEBUG-POS-RETURN] ⏱️ previewCreditReturnCapacity took ${sw.elapsedMilliseconds - creditStart}ms');
+
     state = ReturnDraftState(
       sale: sale,
       alreadyReturnedByProductId: returned,
@@ -821,6 +836,7 @@ class ReturnDraftNotifier extends StateNotifier<ReturnDraftState> {
       selectedRefundPaymentId:
           cashOptions.length == 1 ? cashOptions.single.paymentId : null,
     );
+    debugPrint('[DEBUG-POS-RETURN] ✅ [searchInvoice] Complete in ${sw.elapsedMilliseconds}ms');
     return sale;
   }
 
@@ -942,8 +958,12 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
   ReturnController(this._repository, this._ref) : super(const AsyncData(null));
 
   Future<SaleReturnModel?> submit({String? overrideReason}) async {
+    final sw = Stopwatch()..start();
     final draft = _ref.read(returnDraftProvider);
     final sale = draft.sale;
+    debugPrint('════════════════════════════════════════════════════════════════');
+    debugPrint('[DEBUG-POS-RETURN-CONTROLLER] 🟢 [submit] Started for Invoice: "${sale?.id}" (Refund: Rs ${draft.refundAmount}, Method: ${draft.refundMethod})');
+
     if (sale == null) {
       state = AsyncError(
         Exception('Invoice pehle search karein'),
@@ -954,10 +974,14 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
 
     state = const AsyncLoading();
     try {
+      final entStart = sw.elapsedMilliseconds;
       await _requireEntitlement(
         _ref.read(entitlementEvaluatorProvider),
         'pos.returns',
       );
+      debugPrint('[DEBUG-POS-RETURN-CONTROLLER] ⏱️ Entitlement check took ${sw.elapsedMilliseconds - entStart}ms');
+
+      final procStart = sw.elapsedMilliseconds;
       final result = await _repository.processReturn(
         sale: sale,
         quantitiesByProductId: draft.quantitiesByProductId,
@@ -969,6 +993,9 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
                 : null,
         overrideReason: overrideReason,
       );
+      debugPrint('[DEBUG-POS-RETURN-CONTROLLER] ⏱️ repository.processReturn took ${sw.elapsedMilliseconds - procStart}ms (Status: ${result.status})');
+
+      final invStart = sw.elapsedMilliseconds;
       _ref.invalidate(salesHistoryProvider);
       _ref.invalidate(allSalesProvider);
       _ref.invalidate(pendingReturnsProvider);
@@ -978,18 +1005,30 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
       _ref.invalidate(accountTransactionsProvider);
       invalidateProductListProviders(_ref);
       _ref.invalidate(returnDraftProvider);
+      debugPrint('[DEBUG-POS-RETURN-CONTROLLER] ⏱️ Riverpod providers invalidation took ${sw.elapsedMilliseconds - invStart}ms');
+
       state = AsyncData(result);
+      debugPrint('[DEBUG-POS-RETURN-CONTROLLER] ✅ [submit] Finished in ${sw.elapsedMilliseconds}ms total');
+      debugPrint('════════════════════════════════════════════════════════════════');
       return result;
     } catch (e, st) {
+      debugPrint('[DEBUG-POS-RETURN-CONTROLLER] ❌ [submit] Error in ${sw.elapsedMilliseconds}ms: $e');
+      debugPrint('════════════════════════════════════════════════════════════════');
       state = AsyncError(e, st);
       return null;
     }
   }
 
   Future<SaleReturnModel?> approve(SaleReturnModel pendingReturn) async {
+    final sw = Stopwatch()..start();
+    debugPrint('[DEBUG-POS-RETURN-CONTROLLER] 🟢 [approve] Started for Return ID: "${pendingReturn.id}"');
     state = const AsyncLoading();
     try {
+      final appStart = sw.elapsedMilliseconds;
       final result = await _repository.approveReturn(pendingReturn);
+      debugPrint('[DEBUG-POS-RETURN-CONTROLLER] ⏱️ repository.approveReturn took ${sw.elapsedMilliseconds - appStart}ms');
+
+      final invStart = sw.elapsedMilliseconds;
       _ref.invalidate(salesHistoryProvider);
       _ref.invalidate(allSalesProvider);
       _ref.invalidate(pendingReturnsProvider);
@@ -998,9 +1037,13 @@ class ReturnController extends StateNotifier<AsyncValue<SaleReturnModel?>> {
       _ref.invalidate(accountsProvider);
       _ref.invalidate(accountTransactionsProvider);
       invalidateProductListProviders(_ref);
+      debugPrint('[DEBUG-POS-RETURN-CONTROLLER] ⏱️ Riverpod providers invalidation took ${sw.elapsedMilliseconds - invStart}ms');
+
       state = AsyncData(result);
+      debugPrint('[DEBUG-POS-RETURN-CONTROLLER] ✅ [approve] Finished in ${sw.elapsedMilliseconds}ms total');
       return result;
     } catch (e, st) {
+      debugPrint('[DEBUG-POS-RETURN-CONTROLLER] ❌ [approve] Error in ${sw.elapsedMilliseconds}ms: $e');
       state = AsyncError(e, st);
       return null;
     }

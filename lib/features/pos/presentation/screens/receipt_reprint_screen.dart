@@ -6,6 +6,8 @@ import '../../data/models/sale_model.dart';
 import '../../data/services/receipt_service.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../providers/pos_provider.dart';
+import '../../../settings/data/models/receipt_configuration_model.dart';
+import '../../../settings/presentation/providers/receipt_settings_provider.dart';
 
 class ReceiptReprintScreen extends ConsumerStatefulWidget {
   const ReceiptReprintScreen({super.key});
@@ -281,6 +283,11 @@ class _ReceiptPreview extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final config = ref.watch(receiptConfigurationProvider).maybeWhen(
+      data: (cfg) => cfg,
+      orElse: () => ReceiptConfigurationModel.defaultConfig(),
+    );
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -294,6 +301,7 @@ class _ReceiptPreview extends ConsumerWidget {
           Text(
             ReceiptService.formatReceipt(
               sale: sale,
+              config: config,
               footer: footer,
               duplicate: true,
             ),
@@ -310,6 +318,7 @@ class _ReceiptPreview extends ConsumerWidget {
                       () => ReceiptService.deliver(
                         sale: sale,
                         method: method,
+                        config: config,
                         footer: footer,
                         duplicate: true,
                         entitlementEvaluator: ref.read(

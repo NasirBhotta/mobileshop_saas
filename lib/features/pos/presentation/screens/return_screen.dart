@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -158,11 +159,16 @@ class _ReturnScreenState extends ConsumerState<ReturnScreen> {
   }
 
   Future<void> _searchInvoice() async {
+    final sw = Stopwatch()..start();
+    final query = _invoiceController.text.trim();
+    debugPrint('════════════════════════════════════════════════════════════════');
+    debugPrint('[DEBUG-RETURN-SCREEN] 🔍 Searching invoice: "$query"');
     setState(() => _isSearching = true);
     try {
       final sale = await ref
           .read(returnDraftProvider.notifier)
-          .searchInvoice(_invoiceController.text);
+          .searchInvoice(query);
+      debugPrint('[DEBUG-RETURN-SCREEN] ⏱️ Invoice search completed in ${sw.elapsedMilliseconds}ms (found: ${sale != null})');
       if (sale == null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
