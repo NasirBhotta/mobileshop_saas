@@ -263,15 +263,7 @@ class OfflineStore {
     String branchId,
     List<ProductModel> products,
   ) async {
-    try {
-      await LocalStore.saveProducts(branchId, products);
-    } catch (_) {}
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _productsKey(branchId),
-      jsonEncode(products.map((product) => product.toCacheMap()).toList()),
-    );
+    await LocalStore.saveProducts(branchId, products);
   }
 
   static Future<List<ProductModel>> loadProducts(String branchId) async {
@@ -365,17 +357,7 @@ class OfflineStore {
   }
 
   static Future<void> upsertCachedProduct(ProductModel product) async {
-    try {
-      await LocalStore.upsertProduct(product);
-    } catch (_) {}
-
-    final products = await loadProducts(product.branchId);
-    final nextProducts = [
-      for (final item in products)
-        if (item.id != product.id) item,
-      product,
-    ]..sort((a, b) => a.name.compareTo(b.name));
-    await saveProducts(product.branchId, nextProducts);
+    await LocalStore.upsertProduct(product);
   }
 
   static Future<void> upsertCachedProductsBatch(
@@ -383,46 +365,16 @@ class OfflineStore {
     List<ProductModel> products,
   ) async {
     if (products.isEmpty) return;
-
-    try {
-      await LocalStore.saveProducts(branchId, products);
-    } catch (_) {}
-
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_productsKey(branchId));
-    if (raw == null) return;
-
-    final existing =
-        (jsonDecode(raw) as List)
-            .map((row) => ProductModel.fromMap(Map<String, dynamic>.from(row)))
-            .toList();
-    final byId = {for (final product in existing) product.id: product};
-    for (final product in products) {
-      byId[product.id] = product;
-    }
-    final merged =
-        byId.values.toList()..sort((a, b) => a.name.compareTo(b.name));
-    await prefs.setString(
-      _productsKey(branchId),
-      jsonEncode(merged.map((product) => product.toCacheMap()).toList()),
-    );
+    await LocalStore.saveProducts(branchId, products);
   }
 
   static Future<void> deactivateCachedProduct({
     required String branchId,
     required String productId,
   }) async {
-    try {
-      await LocalStore.deactivateProduct(
-        branchId: branchId,
-        productId: productId,
-      );
-    } catch (_) {}
-
-    final products = await loadProducts(branchId);
-    await saveProducts(
-      branchId,
-      products.where((product) => product.id != productId).toList(),
+    await LocalStore.deactivateProduct(
+      branchId: branchId,
+      productId: productId,
     );
   }
 
@@ -504,17 +456,7 @@ class OfflineStore {
     String branchId,
     Map<String, dynamic> adjustment,
   ) async {
-    try {
-      await LocalStore.saveStockAdjustment(adjustment);
-    } catch (_) {}
-
-    final adjustments = await loadStockAdjustments(branchId);
-
-    adjustments.removeWhere((e) => e['id'] == adjustment['id']);
-
-    adjustments.insert(0, adjustment);
-
-    await saveStockAdjustments(branchId, adjustments);
+    await LocalStore.saveStockAdjustment(adjustment);
   }
 
   static Future<void> enqueueMutation({

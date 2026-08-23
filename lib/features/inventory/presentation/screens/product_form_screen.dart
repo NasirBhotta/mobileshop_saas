@@ -125,12 +125,23 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   }
 
   Future<void> _handleSubmit() async {
-    if (!_formKey.currentState!.validate()) return;
+    final swTotal = Stopwatch()..start();
+    debugPrint('════════════════════════════════════════════════════════════════');
+    debugPrint('[DEBUG-PRODUCT-FORM] 🟢 [_handleSubmit] Started - isEdit: $_isEdit (Product ID: ${widget.product?.id})');
+
+    final validateStart = swTotal.elapsedMilliseconds;
+    if (!_formKey.currentState!.validate()) {
+      debugPrint('[DEBUG-PRODUCT-FORM] ❌ Form validation failed in ${swTotal.elapsedMilliseconds - validateStart}ms');
+      return;
+    }
+    debugPrint('[DEBUG-PRODUCT-FORM] ⏱️ [Step 1] Form validation passed in ${swTotal.elapsedMilliseconds - validateStart}ms');
 
     if (_isEdit && widget.product!.imeiTracked && !_imeiTracked) {
+      final imeiCheckStart = swTotal.elapsedMilliseconds;
       final hasActiveImeiUnits = await ref.read(
         activeImeiUnitsProvider(widget.product!.id).future,
       );
+      debugPrint('[DEBUG-PRODUCT-FORM] ⏱️ [Step 2] Active IMEI units check took ${swTotal.elapsedMilliseconds - imeiCheckStart}ms (hasActive: $hasActiveImeiUnits)');
       if (hasActiveImeiUnits) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -160,22 +171,33 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       reorderThreshold: int.tryParse(_thresholdController.text) ?? 1,
     );
 
+    debugPrint('[DEBUG-PRODUCT-FORM] 📦 [Step 3] Model constructed: name="${product.name}", sku="${product.sku}", barcode="${product.barcode}", salePrice=${product.salePrice}, stock=${product.stock}');
+
     bool success;
+    final controllerCallStart = swTotal.elapsedMilliseconds;
     if (_isEdit) {
+      debugPrint('[DEBUG-PRODUCT-FORM] 🚀 [Step 4] Calling productController.updateProduct...');
       success = await ref
           .read(productControllerProvider.notifier)
           .updateProduct(product);
+      debugPrint('[DEBUG-PRODUCT-FORM] ⏱️ [Step 5] productController.updateProduct completed in ${swTotal.elapsedMilliseconds - controllerCallStart}ms (success: $success)');
     } else {
+      debugPrint('[DEBUG-PRODUCT-FORM] 🚀 [Step 4] Calling productController.addProduct...');
       success = await ref
           .read(productControllerProvider.notifier)
           .addProduct(product);
+      debugPrint('[DEBUG-PRODUCT-FORM] ⏱️ [Step 5] productController.addProduct completed in ${swTotal.elapsedMilliseconds - controllerCallStart}ms (success: $success)');
     }
 
     if (success && mounted) {
+      debugPrint('[DEBUG-PRODUCT-FORM] ✅ [Step 6] Popping form screen context. Total UI execution time: ${swTotal.elapsedMilliseconds}ms');
+      debugPrint('════════════════════════════════════════════════════════════════');
       context.pop();
     } else if (mounted) {
       final state = ref.read(productControllerProvider);
       final message = state.whenOrNull(error: (error, _) => error.toString());
+      debugPrint('[DEBUG-PRODUCT-FORM] ❌ [Step 6] Product save failed in ${swTotal.elapsedMilliseconds}ms: $message');
+      debugPrint('════════════════════════════════════════════════════════════════');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message ?? 'Product save nahi ho saka')),
       );

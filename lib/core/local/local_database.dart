@@ -58,9 +58,11 @@ class LocalDatabase {
     'business_report_schedules',
     'business_report_delivery_jobs',
     'business_report_cache',
+    'product_price_history',
   };
 
   static const List<String> _deleteOrder = [
+    'product_price_history',
     'mobile_service_transactions',
     'mobile_service_charge_rules',
     'mobile_service_providers',
@@ -320,6 +322,12 @@ class LocalDatabase {
     ''');
 
     await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_products_branch_sku
+      ON products(branch_id, sku COLLATE NOCASE)
+      WHERE sku IS NOT NULL AND trim(sku) <> ''
+    ''');
+
+    await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS inventory (
         id TEXT PRIMARY KEY,
         branch_id TEXT NOT NULL,
@@ -349,6 +357,23 @@ class LocalDatabase {
           unit_cost REAL,
           total_value REAL
         )
+    ''');
+    await _db.customStatement('''   
+      CREATE TABLE IF NOT EXISTS product_price_history (
+          id TEXT PRIMARY KEY,
+          product_id TEXT NOT NULL,
+          tenant_id TEXT NOT NULL,
+          branch_id TEXT NOT NULL,
+          old_price REAL,
+          new_price REAL,
+          changed_by TEXT,
+          changed_at TEXT,
+          change_source TEXT
+        )
+    ''');
+    await _db.customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_price_history_product
+      ON product_price_history(product_id, changed_at DESC)
     ''');
     await _db.customStatement('''   
       CREATE TABLE IF NOT EXISTS tenant_settings (

@@ -13,6 +13,7 @@ import 'package:mobileshop_saas/features/repairs/data/models/repair_status_log_m
 import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
 
 import '../../features/inventory/data/models/category_model.dart';
+import '../../features/inventory/data/models/price_history_model.dart';
 import '../../features/inventory/data/models/product_model.dart';
 import '../../features/onboarding/data/models/shop_setup_model.dart';
 import '../../features/buyin/data/models/customer_purchase_model.dart';
@@ -145,9 +146,12 @@ class LocalStore {
     String branchId,
     List<ProductModel> products,
   ) async {
-    for (final product in products) {
-      await upsertProduct(product);
-    }
+    if (products.isEmpty) return;
+    await LocalDatabase.runInTransaction(() async {
+      for (final product in products) {
+        await upsertProduct(product);
+      }
+    });
   }
 
   static Future<List<ProductModel>> loadProducts(String branchId) async {
@@ -471,6 +475,82 @@ class LocalStore {
     );
   }
 
+  static Future<bool> barcodeExists({
+    required String branchId,
+    required String barcode,
+    String? excludingProductId,
+  }) async {
+    final trimmed = barcode.trim();
+    if (trimmed.isEmpty) return false;
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT 1 FROM products
+      WHERE branch_id = ?
+        AND barcode = ? COLLATE NOCASE
+        AND (? IS NULL OR id <> ?)
+        AND COALESCE(is_active, 1) = 1
+      LIMIT 1
+      ''',
+      [branchId, trimmed, excludingProductId, excludingProductId],
+    );
+    return rows.isNotEmpty;
+  }
+
+  static Future<bool> skuExists({
+    required String branchId,
+    required String sku,
+    String? excludingProductId,
+  }) async {
+    final trimmed = sku.trim();
+    if (trimmed.isEmpty) return false;
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT 1 FROM products
+      WHERE branch_id = ?
+        AND sku = ? COLLATE NOCASE
+        AND (? IS NULL OR id <> ?)
+        AND COALESCE(is_active, 1) = 1
+      LIMIT 1
+      ''',
+      [branchId, trimmed, excludingProductId, excludingProductId],
+    );
+    return rows.isNotEmpty;
+  }
+
+  static Future<void> updateBranchThreshold({
+    required String branchId,
+    required String productId,
+    required int threshold,
+  }) async {
+    await LocalDatabase.execute(
+      '''
+      INSERT INTO inventory(id, branch_id, product_id, quantity, reorder_threshold, updated_at)
+      VALUES(?, ?, ?, 0, ?, ?)
+      ON CONFLICT(branch_id, product_id) DO UPDATE SET
+        reorder_threshold = excluded.reorder_threshold,
+        updated_at = excluded.updated_at
+      ''',
+      [
+        productId,
+        branchId,
+        productId,
+        threshold,
+        DateTime.now().toIso8601String(),
+      ],
+    );
+  }
+
+  static Future<void> updateCategoryThreshold({
+    required String branchId,
+    required String categoryId,
+    required int threshold,
+  }) async {
+    await LocalDatabase.execute(
+      'UPDATE categories SET default_reorder_threshold = ? WHERE branch_id = ? AND id = ?',
+      [threshold, branchId, categoryId],
+    );
+  }
+
   static Future<void> saveCategories(
     String branchId,
     List<CategoryModel> categories,
@@ -672,7 +752,9 @@ class LocalStore {
   static Future<List<Map<String, dynamic>>> loadStockAdjustments(
     String branchId, {
     String? productId,
+    int? limit,
   }) async {
+    final limitSql = limit != null && limit > 0 ? 'LIMIT $limit' : '';
     if (productId == null) {
       return LocalDatabase.select(
         '''
@@ -681,6 +763,7 @@ class LocalStore {
       LEFT JOIN products p ON p.id = sa.product_id
       WHERE sa.branch_id = ?
       ORDER BY sa.created_at DESC
+      $limitSql
       ''',
         [branchId],
       );
@@ -694,9 +777,74 @@ class LocalStore {
     WHERE sa.branch_id = ?
       AND sa.product_id = ?
     ORDER BY sa.created_at DESC
+    $limitSql
     ''',
       [branchId, productId],
     );
+  }
+
+  // ════════════════════════════════════════
+  // PRODUCT PRICE HISTORY
+  // ════════════════════════════════════════
+
+  static Future<void> saveProductPriceHistory(
+    List<PriceHistoryModel> historyList,
+  ) async {
+    for (final item in historyList) {
+      await LocalDatabase.execute(
+        '''
+        INSERT OR REPLACE INTO product_price_history(
+          id,
+          product_id,
+          tenant_id,
+          branch_id,
+          old_price,
+          new_price,
+          changed_by,
+          changed_at,
+          change_source
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''',
+        [
+          item.id,
+          item.productId,
+          item.tenantId,
+          item.branchId,
+          item.oldPrice,
+          item.newPrice,
+          item.changedBy,
+          item.changedAt.toIso8601String(),
+          item.changeSource,
+        ],
+      );
+    }
+  }
+
+  static Future<List<PriceHistoryModel>> loadProductPriceHistory(
+    String productId,
+  ) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM product_price_history
+      WHERE product_id = ?
+      ORDER BY changed_at DESC
+      ''',
+      [productId],
+    );
+    return rows.map((row) => PriceHistoryModel.fromMap(row)).toList();
+  }
+
+  static Future<bool> productHasActiveImeiUnits(String productId) async {
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT 1 FROM inventory_units
+      WHERE product_id = ? AND status = ?
+      LIMIT 1
+      ''',
+      [productId, InventoryUnitStatus.available.code],
+    );
+    return rows.isNotEmpty;
   }
 
   // ════════════════════════════════════════

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/core/extensions/product_sort_ext.dart';
@@ -362,50 +363,84 @@ class ProductController extends StateNotifier<AsyncValue<void>> {
   ProductController(this._repository, this._ref) : super(const AsyncData(null));
 
   Future<bool> addProduct(ProductModel product) async {
+    final sw = Stopwatch()..start();
+    debugPrint('[DEBUG-PRODUCT-CONTROLLER] 🟢 [addProduct] Started for "${product.name}"');
     state = const AsyncLoading();
     try {
       if (product.imeiTracked) {
+        final gateStart = sw.elapsedMilliseconds;
         await InventoryEntitlementGate(
           _ref.read(entitlementEvaluatorProvider),
         ).require('inventory.imei_tracking');
+        debugPrint('[DEBUG-PRODUCT-CONTROLLER] ⏱️ IMEI entitlement check took ${sw.elapsedMilliseconds - gateStart}ms');
       }
+      final repoStart = sw.elapsedMilliseconds;
       await _repository.addProduct(product);
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ⏱️ Repository addProduct took ${sw.elapsedMilliseconds - repoStart}ms');
+
+      final invStart = sw.elapsedMilliseconds;
       invalidateProductListProviders(_ref);
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ⏱️ Provider invalidation took ${sw.elapsedMilliseconds - invStart}ms');
+
       state = const AsyncData(null);
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ✅ [addProduct] Completed in ${sw.elapsedMilliseconds}ms');
       return true;
     } catch (e, st) {
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ❌ [addProduct] Error in ${sw.elapsedMilliseconds}ms: $e');
       state = AsyncError(e, st);
       return false;
     }
   }
 
   Future<bool> updateProduct(ProductModel product) async {
+    final sw = Stopwatch()..start();
+    debugPrint('[DEBUG-PRODUCT-CONTROLLER] 🟢 [updateProduct] Started for "${product.name}" (ID: ${product.id})');
     state = const AsyncLoading();
     try {
       if (product.imeiTracked) {
+        final gateStart = sw.elapsedMilliseconds;
         await InventoryEntitlementGate(
           _ref.read(entitlementEvaluatorProvider),
         ).require('inventory.imei_tracking');
+        debugPrint('[DEBUG-PRODUCT-CONTROLLER] ⏱️ IMEI entitlement check took ${sw.elapsedMilliseconds - gateStart}ms');
       }
+      final repoStart = sw.elapsedMilliseconds;
       await _repository.updateProduct(product);
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ⏱️ Repository updateProduct took ${sw.elapsedMilliseconds - repoStart}ms');
+
+      final invStart = sw.elapsedMilliseconds;
       invalidateProductListProviders(_ref);
       _ref.invalidate(productPriceHistoryProvider(product.id));
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ⏱️ Provider invalidation took ${sw.elapsedMilliseconds - invStart}ms');
+
       state = const AsyncData(null);
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ✅ [updateProduct] Completed in ${sw.elapsedMilliseconds}ms');
       return true;
     } catch (e, st) {
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ❌ [updateProduct] Error in ${sw.elapsedMilliseconds}ms: $e');
       state = AsyncError(e, st);
       return false;
     }
   }
 
   Future<bool> deleteProduct(String productId) async {
+    final sw = Stopwatch()..start();
+    debugPrint('[DEBUG-PRODUCT-CONTROLLER] 🟢 [deleteProduct] Started for ID: $productId');
     state = const AsyncLoading();
     try {
+      final repoStart = sw.elapsedMilliseconds;
       await _repository.deleteProduct(productId);
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ⏱️ Repository deleteProduct took ${sw.elapsedMilliseconds - repoStart}ms');
+
+      final invStart = sw.elapsedMilliseconds;
       invalidateProductListProviders(_ref);
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ⏱️ Provider invalidation took ${sw.elapsedMilliseconds - invStart}ms');
+
       state = const AsyncData(null);
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ✅ [deleteProduct] Completed in ${sw.elapsedMilliseconds}ms');
       return true;
     } catch (e, st) {
+      debugPrint('[DEBUG-PRODUCT-CONTROLLER] ❌ [deleteProduct] Error in ${sw.elapsedMilliseconds}ms: $e');
       state = AsyncError(e, st);
       return false;
     }
