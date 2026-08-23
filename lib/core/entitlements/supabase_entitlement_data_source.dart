@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
@@ -19,6 +20,17 @@ class SupabaseEntitlementDataSource implements EntitlementDataSource {
 
   @override
   Future<TenantEntitlementContext?> loadTenantContext(String userId) async {
+    final cachedProfile = await OfflineStore.loadProfile(userId);
+    final cachedTenantId = cachedProfile?['tenant_id'] as String?;
+    if (cachedTenantId != null) {
+      final cachedTenant = await OfflineStore.loadTenant(cachedTenantId);
+      unawaited(_refreshTenantContextOnline(userId));
+      return TenantEntitlementContext(
+        tenantId: cachedTenantId,
+        compatibilityPlanKey: cachedTenant?['plan'] as String?,
+      );
+    }
+
     try {
       final profile = await _client
           .from('users')
@@ -52,8 +64,38 @@ class SupabaseEntitlementDataSource implements EntitlementDataSource {
     }
   }
 
+  Future<void> _refreshTenantContextOnline(String userId) async {
+    try {
+      final profile = await _client
+          .from('users')
+          .select('tenant_id')
+          .eq('id', userId)
+          .maybeSingle()
+          .timeout(Network.networkTimeout);
+      final tenantId = profile?['tenant_id'] as String?;
+      if (tenantId == null) return;
+      final tenant = await _client
+          .from('tenants')
+          .select('id, plan')
+          .eq('id', tenantId)
+          .maybeSingle()
+          .timeout(Network.networkTimeout);
+      if (tenant != null) await OfflineStore.saveTenant(tenantId, tenant);
+    } catch (_) {}
+  }
+
   @override
   Future<TenantEntitlementSnapshot> loadSnapshot(String tenantId) async {
+    final savedSnapshot = await _loadSavedSnapshot(tenantId);
+    if (savedSnapshot != null) {
+      unawaited(_refreshSnapshotOnline(tenantId));
+      return savedSnapshot;
+    }
+
+    return _fetchAndSaveSnapshotOnline(tenantId);
+  }
+
+  Future<TenantEntitlementSnapshot> _fetchAndSaveSnapshotOnline(String tenantId) async {
     try {
       final subscription = await _client
           .from('tenant_subscriptions')
@@ -108,6 +150,58 @@ class SupabaseEntitlementDataSource implements EntitlementDataSource {
       return await _loadSavedSnapshot(tenantId) ??
           const TenantEntitlementSnapshot(subscriptionPlanKey: null);
     }
+  }
+
+  Future<void> _refreshSnapshotOnline(String tenantId) async {
+    try {
+      final subscription = await _client
+          .from('tenant_subscriptions')
+          .select('plan_id, plans!inner(key)')
+          .eq('tenant_id', tenantId)
+          .eq('is_active', true)
+          .isFilter('deleted_at', null)
+          .maybeSingle()
+          .timeout(Network.networkTimeout);
+      if (subscription == null) {
+        const snapshot = TenantEntitlementSnapshot(subscriptionPlanKey: null);
+        await _saveSnapshot(tenantId, snapshot);
+        return;
+      }
+
+      final planId = subscription['plan_id'] as String;
+      final plan = subscription['plans'] as Map<String, dynamic>;
+      final results = await Future.wait([
+        _client
+            .from('plan_features')
+            .select(
+              'enabled, is_active, starts_at, expires_at, deleted_at, features!inner(key)',
+            )
+            .eq('plan_id', planId),
+        _client
+            .from('plan_limits')
+            .select('key, value, is_active, starts_at, expires_at, deleted_at')
+            .eq('plan_id', planId),
+        _client
+            .from('tenant_feature_overrides')
+            .select(
+              'enabled, is_active, starts_at, expires_at, deleted_at, features!inner(key)',
+            )
+            .eq('tenant_id', tenantId),
+        _client
+            .from('tenant_limit_overrides')
+            .select('key, value, is_active, starts_at, expires_at, deleted_at')
+            .eq('tenant_id', tenantId),
+      ]).timeout(Network.networkTimeout);
+
+      final snapshot = TenantEntitlementSnapshot(
+        subscriptionPlanKey: plan['key'] as String,
+        planFeatures: _featureValues(results[0]),
+        planLimits: _limitValues(results[1]),
+        featureOverrides: _featureValues(results[2]),
+        limitOverrides: _limitValues(results[3]),
+      );
+      await _saveSnapshot(tenantId, snapshot);
+    } catch (_) {}
   }
 
   Future<void> _saveSnapshot(

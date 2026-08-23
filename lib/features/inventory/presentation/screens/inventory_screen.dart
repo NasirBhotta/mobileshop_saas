@@ -514,8 +514,10 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       _isSelectionMode
                           ? '${_selectedProductIds.length} selected'
                           : AppStrings.inventoryTitle,
-                      style: const TextStyle(
-                        fontSize: 22,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: isDesktop ? 22 : 20,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textPrimary,
                       ),
@@ -523,23 +525,38 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                   ),
                   if (_isSelectionMode) ...[
                     IconButton(
+                      visualDensity: VisualDensity.compact,
                       onPressed: isUpdating ? null : _clearSelection,
                       icon: const Icon(Icons.close_rounded),
                       tooltip: 'Clear selection',
                     ),
-                    if (bulkPricingEnabled && canUpdate)
-                      FilledButton.icon(
-                        onPressed:
-                            isUpdating
-                                ? null
-                                : () => _showBulkPriceUpdate(context),
-                        icon: const Icon(Icons.percent_rounded, size: 18),
-                        label: const Text('Price'),
-                      ),
+                    if (bulkPricingEnabled && canUpdate) ...[
+                      const SizedBox(width: 4),
+                      if (isDesktop)
+                        FilledButton.icon(
+                          onPressed:
+                              isUpdating
+                                  ? null
+                                  : () => _showBulkPriceUpdate(context),
+                          icon: const Icon(Icons.percent_rounded, size: 18),
+                          label: const Text('Price'),
+                        )
+                      else
+                        IconButton.filled(
+                          visualDensity: VisualDensity.compact,
+                          onPressed:
+                              isUpdating
+                                  ? null
+                                  : () => _showBulkPriceUpdate(context),
+                          icon: const Icon(Icons.percent_rounded, size: 18),
+                          tooltip: 'Bulk Price',
+                        ),
+                    ],
                   ] else ...[
                     // Categories button
                     if (canViewCategories)
                       IconButton(
+                        visualDensity: VisualDensity.compact,
                         onPressed: () {
                           ref
                               .read(navigationLoadingProvider.notifier)
@@ -552,6 +569,7 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       ),
 
                     IconButton(
+                      visualDensity: VisualDensity.compact,
                       onPressed:
                           () =>
                               isDesktop
@@ -561,40 +579,68 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                       color: AppColors.textSecondary,
                       tooltip: AppStrings.sortBy,
                     ),
-                    // Used Buy-In button
+
+                    if (csvImportEnabled && canCreate)
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => context.push('/inventory/import'),
+                        icon: const Icon(Icons.upload_file_rounded),
+                        color: AppColors.textSecondary,
+                        tooltip: 'CSV Import',
+                      ),
+
+                    // Used Buy-In & Add product buttons
                     if (canCreate) ...[
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          ref
-                              .read(navigationLoadingProvider.notifier)
-                              .showFor();
-                          context.push('/buyin/new');
-                        },
-                        icon: const Icon(Icons.assignment_turned_in_rounded, size: 16),
-                        label: const Text('Used Buy-In'),
-                      ),
-                      const SizedBox(width: 8),
-                      // Add product button
-                      FilledButton.icon(
-                        onPressed: () {
-                          ref
-                              .read(navigationLoadingProvider.notifier)
-                              .showFor();
-                          context.push('/inventory/add');
-                        },
-                        icon: const Icon(Icons.add_rounded, size: 18),
-                        label: const Text('Add'),
-                      ),
+                      const SizedBox(width: 4),
+                      if (isDesktop) ...[
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            ref
+                                .read(navigationLoadingProvider.notifier)
+                                .showFor();
+                            context.push('/buyin/new');
+                          },
+                          icon: const Icon(Icons.assignment_turned_in_rounded, size: 16),
+                          label: const Text('Used Buy-In'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: () {
+                            ref
+                                .read(navigationLoadingProvider.notifier)
+                                .showFor();
+                            context.push('/inventory/add');
+                          },
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('Add'),
+                        ),
+                      ] else ...[
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            ref
+                                .read(navigationLoadingProvider.notifier)
+                                .showFor();
+                            context.push('/buyin/new');
+                          },
+                          icon: const Icon(Icons.assignment_turned_in_rounded),
+                          color: AppColors.primary,
+                          tooltip: 'Used Buy-In',
+                        ),
+                        IconButton.filled(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            ref
+                                .read(navigationLoadingProvider.notifier)
+                                .showFor();
+                            context.push('/inventory/add');
+                          },
+                          icon: const Icon(Icons.add_rounded),
+                          tooltip: 'Add Product',
+                        ),
+                      ],
                     ],
                   ],
-
-                  if (csvImportEnabled && canCreate)
-                    IconButton(
-                      onPressed: () => context.push('/inventory/import'),
-                      icon: const Icon(Icons.upload_file_rounded),
-                      color: AppColors.textSecondary,
-                      tooltip: 'CSV Import',
-                    ),
                 ],
               ),
             ),

@@ -1320,6 +1320,29 @@ class PosRepository {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
 
+    final localRows = await LocalDatabase.select(
+      '''
+      SELECT * FROM sale_returns
+      WHERE branch_id = ? AND status = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+      ''',
+      [branchId, SaleReturnStatus.approved.code, limit],
+    );
+    final localReturns = <SaleReturnModel>[];
+    for (final row in localRows) {
+      final items = await LocalDatabase.select(
+        'SELECT * FROM sale_return_items WHERE return_id = ?',
+        [row['id']],
+      );
+      localReturns.add(SaleReturnModel.fromMap({...row, 'items': items}));
+    }
+
+    if (localReturns.isNotEmpty) {
+      unawaited(_refreshApprovedReturnsOnline(branchId, limit: limit));
+      return localReturns;
+    }
+
     try {
       final rows = await _client
           .from('sale_returns')
@@ -1339,26 +1362,31 @@ class PosRepository {
         await _saveReturnLocally(saleReturn, synced: true);
       }
       return returns;
-    } catch (_) {}
-
-    final rows = await LocalDatabase.select(
-      '''
-      SELECT * FROM sale_returns
-      WHERE branch_id = ? AND status = ?
-      ORDER BY created_at DESC
-      LIMIT ?
-      ''',
-      [branchId, SaleReturnStatus.approved.code, limit],
-    );
-    final returns = <SaleReturnModel>[];
-    for (final row in rows) {
-      final items = await LocalDatabase.select(
-        'SELECT * FROM sale_return_items WHERE return_id = ?',
-        [row['id']],
-      );
-      returns.add(SaleReturnModel.fromMap({...row, 'items': items}));
+    } catch (_) {
+      return localReturns;
     }
-    return returns;
+  }
+
+  Future<void> _refreshApprovedReturnsOnline(String branchId, {int limit = 100}) async {
+    try {
+      final rows = await _client
+          .from('sale_returns')
+          .select('*, sale_return_items(*)')
+          .eq('branch_id', branchId)
+          .eq('status', SaleReturnStatus.approved.code)
+          .order('created_at', ascending: false)
+          .limit(limit)
+          .timeout(Network.networkTimeout);
+      final returns =
+          (rows as List).map((row) {
+            final map = Map<String, dynamic>.from(row as Map);
+            map['items'] = map['sale_return_items'];
+            return SaleReturnModel.fromMap(map);
+          }).toList();
+      for (final saleReturn in returns) {
+        await _saveReturnLocally(saleReturn, synced: true);
+      }
+    } catch (_) {}
   }
 
   Future<SaleReturnModel> approveReturn(SaleReturnModel pendingReturn) async {
@@ -2006,6 +2034,11 @@ class PosRepository {
       query: query,
     );
 
+    if (localCustomers.isNotEmpty) {
+      unawaited(_refreshCustomersOnline(branchId, query: query));
+      return localCustomers;
+    }
+
     try {
       var request = _client
           .from('customers')
@@ -2031,6 +2064,31 @@ class PosRepository {
     } catch (_) {
       return localCustomers;
     }
+  }
+
+  Future<void> _refreshCustomersOnline(String branchId, {String query = ''}) async {
+    try {
+      var request = _client
+          .from('customers')
+          .select()
+          .eq('branch_id', branchId);
+      if (query.trim().isNotEmpty) {
+        request = request.or(
+          'full_name.ilike.%$query%,phone.ilike.%$query%,email.ilike.%$query%',
+        );
+      }
+      final data = await request
+          .order('full_name')
+          .limit(100)
+          .timeout(Network.networkTimeout);
+      final customers =
+          (data as List)
+              .map((e) => CustomerModel.fromMap(e as Map<String, dynamic>))
+              .toList();
+      for (final customer in customers) {
+        await OfflineStore.saveCustomer(customer);
+      }
+    } catch (_) {}
   }
 
   Future<CustomerModel> addCustomer({
@@ -2478,6 +2536,24 @@ class PosRepository {
   }) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
+
+    final customers = await OfflineStore.loadCustomers(branchId: branchId);
+    final localSettlements = <CustomerSettlementModel>[];
+    for (final customer in customers) {
+      final customerId = customer.id;
+      if (customerId == null) continue;
+      localSettlements.addAll(
+        await OfflineStore.loadCustomerSettlements(customerId),
+      );
+    }
+    localSettlements.removeWhere((settlement) => settlement.branchId != branchId);
+    localSettlements.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    if (localSettlements.isNotEmpty) {
+      unawaited(_refreshCustomerSettlementsOnline(branchId, limit: limit));
+      return localSettlements.take(limit).toList();
+    }
+
     try {
       final data = await _client
           .from('customer_settlements')
@@ -2498,19 +2574,30 @@ class PosRepository {
       }
       return settlements;
     } catch (_) {
-      final customers = await OfflineStore.loadCustomers(branchId: branchId);
-      final settlements = <CustomerSettlementModel>[];
-      for (final customer in customers) {
-        final customerId = customer.id;
-        if (customerId == null) continue;
-        settlements.addAll(
-          await OfflineStore.loadCustomerSettlements(customerId),
-        );
-      }
-      settlements.removeWhere((settlement) => settlement.branchId != branchId);
-      settlements.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return settlements.take(limit).toList();
+      return localSettlements.take(limit).toList();
     }
+  }
+
+  Future<void> _refreshCustomerSettlementsOnline(String branchId, {int limit = 1000}) async {
+    try {
+      final data = await _client
+          .from('customer_settlements')
+          .select()
+          .eq('branch_id', branchId)
+          .order('created_at', ascending: false)
+          .limit(limit)
+          .timeout(Network.networkTimeout);
+      final settlements =
+          (data as List)
+              .map(
+                (e) =>
+                    CustomerSettlementModel.fromMap(e as Map<String, dynamic>),
+              )
+              .toList();
+      for (final settlement in settlements) {
+        await OfflineStore.saveCustomerSettlement(settlement, synced: true);
+      }
+    } catch (_) {}
   }
 
   Future<CustomerSettlementModel> settleCustomerDues({
@@ -2659,6 +2746,22 @@ class PosRepository {
     // Trigger offline sync in background
     unawaited(syncOfflineMutations());
 
+    if (localSales.isNotEmpty) {
+      unawaited(_refreshSalesOnline(branchId, limit: limit, status: status));
+      final filtered =
+          localSales
+              .where((sale) => status == null || sale.status == status)
+              .toList()
+            ..sort((a, b) {
+              final aDate =
+                  a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bDate =
+                  b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return bDate.compareTo(aDate);
+            });
+      return filtered.take(limit).toList();
+    }
+
     try {
       var query = _client
           .from('sales')
@@ -2687,7 +2790,9 @@ class PosRepository {
       // Cache locally
       for (final sale in sales) {
         await OfflineStore.saveSale(sale);
-        await LocalStore.markSaleSynced(sale.id!);
+        if (sale.id != null) {
+          await LocalStore.markSaleSynced(sale.id!);
+        }
       }
       final mergedById = <String, SaleModel>{
         for (final sale in sales)
@@ -2715,6 +2820,45 @@ class PosRepository {
           .take(limit)
           .toList();
     }
+  }
+
+  Future<void> _refreshSalesOnline(
+    String branchId, {
+    int limit = 50,
+    SaleStatus? status,
+  }) async {
+    try {
+      var query = _client
+          .from('sales')
+          .select('''
+            *,
+            customers(full_name),
+            sale_items(*),
+            sale_payments(*)
+          ''')
+          .eq('branch_id', branchId);
+
+      if (status != null) {
+        query = query.eq('status', status.code);
+      }
+
+      final data = await query
+          .order('created_at', ascending: false)
+          .limit(limit)
+          .timeout(Network.networkTimeout);
+
+      final sales =
+          (data as List)
+              .map((e) => SaleModel.fromMap(e as Map<String, dynamic>))
+              .toList();
+
+      for (final sale in sales) {
+        await OfflineStore.saveSale(sale);
+        if (sale.id != null) {
+          await LocalStore.markSaleSynced(sale.id!);
+        }
+      }
+    } catch (_) {}
   }
 
   // ════════════════════════════════════════

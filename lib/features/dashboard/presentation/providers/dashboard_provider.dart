@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -178,12 +179,20 @@ Future<MobileServiceProfitSummary> _loadMobileServiceDashboardSummary(
   final dayStart = DateTime(today.year, today.month, today.day);
   final dayEnd = dayStart.add(const Duration(days: 1));
   try {
-    final summary = await MobileServicesRepository().fetchProfitSummary(
+    final repo = MobileServicesRepository();
+    final cached = await repo.loadCachedProfitSummary(
       branchId: branchId,
       dayStart: dayStart,
       dayEnd: dayEnd,
     );
-    return summary;
+    unawaited(
+      repo.fetchProfitSummary(
+        branchId: branchId,
+        dayStart: dayStart,
+        dayEnd: dayEnd,
+      ).catchError((_) => cached),
+    );
+    return cached;
   } catch (error) {
     debugPrint('Mobile Services dashboard profit unavailable: $error');
     return const MobileServiceProfitSummary(todayProfit: 0, totalProfit: 0);
