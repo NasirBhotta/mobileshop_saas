@@ -41,10 +41,20 @@ class _AppIntroScreenState extends ConsumerState<AppIntroScreen> {
     if (currentPage < IntroData.pages.length - 1) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 350),
-        curve: Curves.easeInOut,
+        curve: Curves.easeInOutCubic,
       );
     } else {
       _finishIntro();
+    }
+  }
+
+  void _previousPage() {
+    final currentPage = ref.read(introControllerProvider);
+    if (currentPage > 0) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOutCubic,
+      );
     }
   }
 
@@ -53,6 +63,8 @@ class _AppIntroScreenState extends ConsumerState<AppIntroScreen> {
     final currentPage = ref.watch(introControllerProvider);
     final isLastPage = currentPage == IntroData.pages.length - 1;
     final isDesktop = Responsive.isDesktop(context);
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isSmallScreen = screenHeight < 700;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -60,11 +72,11 @@ class _AppIntroScreenState extends ConsumerState<AppIntroScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxWidth: isDesktop ? 560 : double.infinity,
+              maxWidth: isDesktop ? 620 : double.infinity,
             ),
             child: Column(
               children: [
-                // ── Skip Button ──
+                // ── Minimal Top Bar (Skip Only) ──
                 Align(
                   alignment: Alignment.topRight,
                   child: Padding(
@@ -74,12 +86,37 @@ class _AppIntroScreenState extends ConsumerState<AppIntroScreen> {
                     ),
                     child: TextButton(
                       onPressed: _finishIntro,
-                      child: const Text(
-                        'Skip',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w600,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 6,
                         ),
+                        backgroundColor: AppColors.surface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          side: BorderSide(
+                            color: AppColors.border.withValues(alpha: 0.7),
+                          ),
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Skip',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          SizedBox(width: 2),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            size: 16,
+                            color: AppColors.textSecondary,
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -99,34 +136,108 @@ class _AppIntroScreenState extends ConsumerState<AppIntroScreen> {
                   ),
                 ),
 
-                // ── Indicator ──
-                SmoothPageIndicator(
-                  controller: _pageController,
-                  count: IntroData.pages.length,
-                  effect: const ExpandingDotsEffect(
-                    activeDotColor: AppColors.primary,
-                    dotColor: AppColors.border,
-                    dotHeight: 8,
-                    dotWidth: 8,
-                    expansionFactor: 3,
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // ── Next / Get Started Button ──
-                Padding(
+                // ── Indicator & Bottom Controls ──
+                Container(
                   padding: EdgeInsets.symmetric(
-                    horizontal: isDesktop ? 48 : 24,
+                    horizontal: isDesktop ? 36 : 20,
+                    vertical: isSmallScreen ? 12 : 16,
                   ),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _nextPage,
-                      child: Text(isLastPage ? 'Get Started' : 'Next'),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    border: Border(
+                      top: BorderSide(
+                        color: AppColors.border.withValues(alpha: 0.5),
+                        width: 1,
+                      ),
                     ),
                   ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Smooth Page Indicator
+                      SmoothPageIndicator(
+                        controller: _pageController,
+                        count: IntroData.pages.length,
+                        effect: const ExpandingDotsEffect(
+                          activeDotColor: AppColors.primary,
+                          dotColor: AppColors.border,
+                          dotHeight: 7,
+                          dotWidth: 7,
+                          expansionFactor: 3.5,
+                          spacing: 5,
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 12 : 16),
+
+                      // Action Buttons
+                      Row(
+                        children: [
+                          // Previous Button (visible after slide 0)
+                          if (currentPage > 0) ...[
+                            IconButton.outlined(
+                              onPressed: _previousPage,
+                              icon: const Icon(
+                                Icons.arrow_back_rounded,
+                                size: 20,
+                                color: AppColors.textPrimary,
+                              ),
+                              style: IconButton.styleFrom(
+                                side: const BorderSide(color: AppColors.border),
+                                backgroundColor: AppColors.surface,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                padding: const EdgeInsets.all(12),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+
+                          // Next / Get Started Button
+                          Expanded(
+                            child: SizedBox(
+                              height: 48,
+                              child: ElevatedButton(
+                                onPressed: _nextPage,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  elevation: isLastPage ? 4 : 1,
+                                  shadowColor: AppColors.primary.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      isLastPage ? 'Get Started' : 'Next',
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.2,
+                                      ),
+                                    ),
+                                    if (!isLastPage) ...[
+                                      const SizedBox(width: 6),
+                                      const Icon(
+                                        Icons.arrow_forward_rounded,
+                                        size: 18,
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 24),
               ],
             ),
           ),

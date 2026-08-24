@@ -187,7 +187,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         }
 
         final prefs = await SharedPreferences.getInstance();
+
         final seenIntro = prefs.getBool('intro_seen') ?? false;
+
+        // final seenIntro = false;
 
         if (!seenIntro) {
           return location == '/intro' ? null : '/intro';

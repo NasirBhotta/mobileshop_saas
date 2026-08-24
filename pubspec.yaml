@@ -60,40 +60,9 @@ flutter_launcher_icons:
 
   min_sdk_android: 21
 
- 
- 
-
- 
 flutter:
   uses-material-design: true
 
-   
-   
-   
-   
-
-   
-   
-
-   
-   
-
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
+  assets:
+    - assets/icon/
+    - assets/intro/
