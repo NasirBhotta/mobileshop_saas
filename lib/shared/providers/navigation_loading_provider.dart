@@ -6,7 +6,7 @@ final navigationLoadingProvider =
     StateNotifierProvider<NavigationLoadingController, bool>((ref) {
       return NavigationLoadingController();
     });
-
+// updated
 class NavigationLoadingController extends StateNotifier<bool> {
   NavigationLoadingController() : super(false);
 
