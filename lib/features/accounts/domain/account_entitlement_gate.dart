@@ -4,7 +4,7 @@ import '../../../core/entitlements/entitlement_provider.dart';
 class AccountEntitlementGate {
   final EntitlementEvaluator _evaluator;
   const AccountEntitlementGate(this._evaluator);
-
+// this is account entitlement gate
   Future<void> require(String key) async {
     if (!await hasFeatureWithCompatibility(_evaluator, key)) {
       throw EntitlementDeniedException(key);

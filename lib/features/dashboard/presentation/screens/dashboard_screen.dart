@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-
+// updated
 import '../../../../core/authorization/permission_locked_screen.dart';
 import '../../../../core/authorization/branch_permission_shadow_provider.dart';
 import '../../../../core/constants/app_colors.dart';
@@ -21,7 +21,7 @@ import '../widgets/stat_card.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
-
+// updates
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(dashboardAccountLifecycleRefreshProvider);

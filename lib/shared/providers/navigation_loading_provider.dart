@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/legacy.dart';
-
+// comment added
 final navigationLoadingProvider =
     StateNotifierProvider<NavigationLoadingController, bool>((ref) {
       return NavigationLoadingController();
     });
-
+// updated
 class NavigationLoadingController extends StateNotifier<bool> {
   NavigationLoadingController() : super(false);
 
