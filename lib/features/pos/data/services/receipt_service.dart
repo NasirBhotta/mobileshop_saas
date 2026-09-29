@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/sale_model.dart';
 import '../models/cart_item_model.dart';
 import '../models/sale_payment_model.dart';
+import '../models/customer_dashboard_model.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/features/pos/domain/pos_entitlement_gate.dart';
 import 'package:mobileshop_saas/features/settings/data/models/receipt_configuration_model.dart';
@@ -627,6 +628,759 @@ class ReceiptService {
       footer: footer,
       duplicate: duplicate,
       entitlementEvaluator: entitlementEvaluator,
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // CUSTOMER SETTLEMENT (UDHAAR PAYMENT) RECEIPT & STATEMENT METHODS
+  // ══════════════════════════════════════════════════════════════════
+
+  static Future<Uint8List> generateCustomerSettlementReceiptPdf({
+    required ReceiptConfigurationModel config,
+    required String customerName,
+    String? customerPhone,
+    required String settlementId,
+    required DateTime date,
+    required double previousBalance,
+    required double amountPaid,
+    required double remainingBalance,
+    required String paymentMethod,
+    String? notes,
+    String? footer,
+    bool isDuplicate = false,
+  }) async {
+    final pdf = pw.Document();
+    final is58mm = config.paperSize.toLowerCase().contains('58');
+    final slipNo = ReceiptLayout.identifier(settlementId, 'ST');
+    final dateFormat = DateFormat('dd-MMM-yyyy hh:mm a');
+    final formattedDate = dateFormat.format(date.toLocal());
+
+    pw.ImageProvider? logoImage;
+    if (config.showLogo && config.logoPath != null) {
+      logoImage = await _loadLogoImage(config.logoPath);
+    }
+
+    final fonts = await ReceiptLayout.fonts();
+    final regular = pw.TextStyle(
+      font: fonts.regular,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 7 : 8.5,
+    );
+    final bold = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 7 : 8.5,
+    );
+    final titleStyle = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 13 : 16,
+    );
+    final subHeaderStyle = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 8.5 : 10.5,
+    );
+    final highlightStyle = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 8 : 9.5,
+    );
+    final small = pw.TextStyle(
+      font: fonts.regular,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 6 : 7,
+    );
+
+    pw.Widget divider() => pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
+      child: pw.Divider(thickness: 0.8, color: PdfColors.grey700),
+    );
+
+    pw.Widget dashedDivider() => pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
+      child: pw.Text(
+        '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+        textAlign: pw.TextAlign.center,
+        style: small,
+        maxLines: 1,
+      ),
+    );
+
+    pw.Widget infoRow(String label, String value, {bool isBold = false}) {
+      final style = isBold ? bold : regular;
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 1.2),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(label, style: bold),
+            pw.SizedBox(width: 4),
+            pw.Expanded(
+              child: pw.Text(
+                value,
+                textDirection: ReceiptLayout.direction(value),
+                textAlign: pw.TextAlign.right,
+                style: style,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    pw.Widget amountBox(
+      String label,
+      double amount, {
+      bool isHighlight = false,
+      PdfColor? bgColor,
+    }) {
+      return pw.Container(
+        margin: const pw.EdgeInsets.symmetric(vertical: 1.5),
+        padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3.5),
+        decoration: pw.BoxDecoration(
+          color: bgColor ?? (isHighlight ? PdfColors.grey200 : null),
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+          border: pw.Border.all(
+            width: isHighlight ? 0.8 : 0.4,
+            color: isHighlight ? PdfColors.black : PdfColors.grey400,
+          ),
+        ),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(label, style: isHighlight ? highlightStyle : bold),
+            pw.Text(
+              'Rs ${ReceiptLayout.money(amount)}',
+              style: isHighlight ? highlightStyle : bold,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final pageFormat = ReceiptLayout.pageFormat(config);
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: pageFormat,
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              if (logoImage != null) ...[
+                pw.Center(
+                  child: pw.Container(
+                    height: is58mm ? 32 : 44,
+                    width: is58mm ? 90 : 130,
+                    child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                  ),
+                ),
+                pw.SizedBox(height: 3),
+              ],
+              ReceiptLayout.header(
+                config,
+                title: titleStyle,
+                regular: regular,
+                small: small,
+              ),
+              divider(),
+              pw.Center(
+                child: pw.Text(
+                  isDuplicate
+                      ? 'DUPLICATE KHATA RECEIPT'
+                      : 'KHATA / UDHAAR PAYMENT RECEIPT',
+                  style: subHeaderStyle,
+                ),
+              ),
+              pw.SizedBox(height: 2),
+              infoRow('Receipt #', 'ST-$slipNo', isBold: true),
+              infoRow('Date & Time', formattedDate),
+              infoRow('Customer', customerName, isBold: true),
+              if (customerPhone != null && customerPhone.trim().isNotEmpty)
+                infoRow('Phone', customerPhone.trim()),
+              infoRow('Payment Via', paymentMethod.toUpperCase()),
+              if (notes != null && notes.trim().isNotEmpty)
+                infoRow('Remarks', notes.trim()),
+              divider(),
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                child: pw.Text(
+                  'KHATA / BALANCE SUMMARY',
+                  textAlign: pw.TextAlign.center,
+                  style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                ),
+              ),
+              if (previousBalance > 0)
+                amountBox('Kul Udhaar (Total Dues):', previousBalance),
+              amountBox(
+                'Wasool Shuda (Paid Amount):',
+                amountPaid,
+                isHighlight: true,
+                bgColor: PdfColors.grey100,
+              ),
+              amountBox(
+                'Baaqi Udhaar (Remaining Due):',
+                remainingBalance,
+                isHighlight: true,
+                bgColor: PdfColors.grey200,
+              ),
+              dashedDivider(),
+              pw.SizedBox(height: 12),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    children: [
+                      pw.Container(
+                        width: is58mm ? 50 : 70,
+                        height: 0.5,
+                        color: PdfColors.grey600,
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text('Customer Sign', style: small),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Container(
+                        width: is58mm ? 50 : 70,
+                        height: 0.5,
+                        color: PdfColors.grey600,
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text('Authorized Sign', style: small),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 6),
+              if (footer?.trim().isNotEmpty == true ||
+                  config.footerMessage?.trim().isNotEmpty == true) ...[
+                dashedDivider(),
+                pw.Text(
+                  (footer ?? config.footerMessage)!.trim(),
+                  style: small,
+                  textAlign: pw.TextAlign.center,
+                ),
+              ],
+              pw.Text(
+                'Computer generated payment receipt',
+                style: small.copyWith(color: PdfColors.grey600),
+                textAlign: pw.TextAlign.center,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  static String formatCustomerSettlementText({
+    required ReceiptConfigurationModel config,
+    required String customerName,
+    String? customerPhone,
+    required String settlementId,
+    required DateTime date,
+    required double previousBalance,
+    required double amountPaid,
+    required double remainingBalance,
+    required String paymentMethod,
+    String? notes,
+  }) {
+    final slipNo = ReceiptLayout.identifier(settlementId, 'ST');
+    final dateFormat = DateFormat('dd-MMM-yyyy hh:mm a');
+    final formattedDate = dateFormat.format(date.toLocal());
+    final shopName = config.shopName;
+    final shopPhone = config.phone ?? '';
+
+    final buffer = StringBuffer();
+    buffer.writeln('================================');
+    buffer.writeln(shopName.toUpperCase());
+    buffer.writeln('UDHAAR PAYMENT RECEIPT');
+    buffer.writeln('================================');
+    buffer.writeln('Slip #: ST-$slipNo');
+    buffer.writeln('Date: $formattedDate');
+    buffer.writeln(
+      'Customer: $customerName${customerPhone != null && customerPhone.isNotEmpty ? ' ($customerPhone)' : ''}',
+    );
+    buffer.writeln('Payment Via: ${paymentMethod.toUpperCase()}');
+    buffer.writeln('--------------------------------');
+    if (previousBalance > 0) {
+      buffer.writeln('Kul Udhaar (Total Dues): Rs. ${ReceiptLayout.money(previousBalance)}');
+    }
+    buffer.writeln('Wasool Shuda (Paid):     Rs. ${ReceiptLayout.money(amountPaid)}');
+    buffer.writeln('--------------------------------');
+    buffer.writeln('BAAQI UDHAAR (Due):      Rs. ${ReceiptLayout.money(remainingBalance)}');
+    buffer.writeln('--------------------------------');
+    if (notes != null && notes.trim().isNotEmpty) {
+      buffer.writeln('Remarks: ${notes.trim()}');
+    }
+    buffer.writeln('Shukriya!');
+    if (shopPhone.isNotEmpty) {
+      buffer.writeln(shopPhone);
+    }
+    buffer.write('================================');
+    return buffer.toString();
+  }
+
+  static Future<bool> printCustomerSettlementReceipt({
+    required ReceiptConfigurationModel config,
+    required String customerName,
+    String? customerPhone,
+    required String settlementId,
+    required DateTime date,
+    required double previousBalance,
+    required double amountPaid,
+    required double remainingBalance,
+    required String paymentMethod,
+    String? notes,
+    String? footer,
+    bool isDuplicate = false,
+    required EntitlementEvaluator entitlementEvaluator,
+  }) async {
+    try {
+      await PosEntitlementGate(
+        entitlementEvaluator,
+      ).require('pos.receipt_printing');
+
+      final bytes = await generateCustomerSettlementReceiptPdf(
+        config: config,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        settlementId: settlementId,
+        date: date,
+        previousBalance: previousBalance,
+        amountPaid: amountPaid,
+        remainingBalance: remainingBalance,
+        paymentMethod: paymentMethod,
+        notes: notes,
+        footer: footer,
+        isDuplicate: isDuplicate,
+      );
+
+      final format = ReceiptLayout.pageFormat(config);
+      final slipNo = ReceiptLayout.identifier(settlementId, 'ST');
+      await Printing.layoutPdf(
+        name: '${isDuplicate ? 'duplicate_' : ''}khata_receipt_$slipNo.pdf',
+        format: format,
+        usePrinterSettings: true,
+        onLayout: (_) async => bytes,
+      );
+      return true;
+    } catch (e) {
+      debugPrint('Print customer settlement receipt error: $e');
+      rethrow;
+    }
+  }
+
+  static Future<void> shareCustomerSettlementText({
+    required ReceiptConfigurationModel config,
+    required String customerName,
+    String? customerPhone,
+    required String settlementId,
+    required DateTime date,
+    required double previousBalance,
+    required double amountPaid,
+    required double remainingBalance,
+    required String paymentMethod,
+    String? notes,
+  }) async {
+    final text = formatCustomerSettlementText(
+      config: config,
+      customerName: customerName,
+      customerPhone: customerPhone,
+      settlementId: settlementId,
+      date: date,
+      previousBalance: previousBalance,
+      amountPaid: amountPaid,
+      remainingBalance: remainingBalance,
+      paymentMethod: paymentMethod,
+      notes: notes,
+    );
+    final slipNo = ReceiptLayout.identifier(settlementId, 'ST');
+    await SharePlus.instance.share(
+      ShareParams(
+        text: text,
+        subject: 'Khata Receipt #ST-$slipNo - ${config.shopName}',
+      ),
+    );
+  }
+
+  static Future<Uint8List> generateCustomerStatementPdf({
+    required ReceiptConfigurationModel config,
+    required CustomerDashboardModel dashboard,
+    String? footer,
+  }) async {
+    final pdf = pw.Document();
+    final is58mm = config.paperSize.toLowerCase().contains('58');
+    final customer = dashboard.customer;
+    final dateFormat = DateFormat('dd-MMM-yyyy hh:mm a');
+    final formattedDate = dateFormat.format(DateTime.now());
+
+    pw.ImageProvider? logoImage;
+    if (config.showLogo && config.logoPath != null) {
+      logoImage = await _loadLogoImage(config.logoPath);
+    }
+
+    final fonts = await ReceiptLayout.fonts();
+    final regular = pw.TextStyle(
+      font: fonts.regular,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 7 : 8.5,
+    );
+    final bold = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 7 : 8.5,
+    );
+    final titleStyle = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 13 : 16,
+    );
+    final subHeaderStyle = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 8.5 : 10.5,
+    );
+    final highlightStyle = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 8 : 9.5,
+    );
+    final small = pw.TextStyle(
+      font: fonts.regular,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 6 : 7,
+    );
+
+    pw.Widget divider() => pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
+      child: pw.Divider(thickness: 0.8, color: PdfColors.grey700),
+    );
+
+    pw.Widget dashedDivider() => pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
+      child: pw.Text(
+        '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+        textAlign: pw.TextAlign.center,
+        style: small,
+        maxLines: 1,
+      ),
+    );
+
+    pw.Widget infoRow(String label, String value, {bool isBold = false}) {
+      final style = isBold ? bold : regular;
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 1.2),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(label, style: bold),
+            pw.SizedBox(width: 4),
+            pw.Expanded(
+              child: pw.Text(
+                value,
+                textDirection: ReceiptLayout.direction(value),
+                textAlign: pw.TextAlign.right,
+                style: style,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final totalSettled = dashboard.settlements.fold<double>(
+      0,
+      (sum, s) => sum + s.amount,
+    );
+
+    final pageFormat = ReceiptLayout.pageFormat(config);
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: pageFormat,
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              if (logoImage != null) ...[
+                pw.Center(
+                  child: pw.Container(
+                    height: is58mm ? 32 : 44,
+                    width: is58mm ? 90 : 130,
+                    child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                  ),
+                ),
+                pw.SizedBox(height: 3),
+              ],
+              ReceiptLayout.header(
+                config,
+                title: titleStyle,
+                regular: regular,
+                small: small,
+              ),
+              divider(),
+              pw.Center(
+                child: pw.Text(
+                  'CUSTOMER KHATA STATEMENT',
+                  style: subHeaderStyle,
+                ),
+              ),
+              pw.SizedBox(height: 2),
+              infoRow('Date & Time', formattedDate),
+              infoRow('Customer', customer.fullName, isBold: true),
+              if (customer.phone != null && customer.phone!.isNotEmpty)
+                infoRow('Phone', customer.phone!),
+              divider(),
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                child: pw.Text(
+                  'KHATA OVERVIEW',
+                  textAlign: pw.TextAlign.center,
+                  style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                ),
+              ),
+              pw.Container(
+                margin: const pw.EdgeInsets.symmetric(vertical: 2),
+                padding: const pw.EdgeInsets.all(5),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(width: 0.5, color: PdfColors.grey500),
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+                ),
+                child: pw.Column(
+                  children: [
+                    infoRow(
+                      'Total Purchases (Kharidari):',
+                      'Rs ${ReceiptLayout.money(dashboard.lifetimeValue)}',
+                    ),
+                    infoRow(
+                      'Total Paid (Wasooli):',
+                      'Rs ${ReceiptLayout.money(totalSettled)}',
+                    ),
+                    pw.Divider(thickness: 0.4, color: PdfColors.grey400),
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text('BAAQI UDHAAR (Dues):', style: highlightStyle),
+                        pw.Text(
+                          'Rs ${ReceiptLayout.money(dashboard.outstandingDues)}',
+                          style: highlightStyle,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (dashboard.settlements.isNotEmpty) ...[
+                pw.SizedBox(height: 4),
+                pw.Text(
+                  'RECENT PAYMENTS (WASOOLI)',
+                  style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Table(
+                  border: pw.TableBorder.all(width: 0.3, color: PdfColors.grey400),
+                  children: [
+                    pw.TableRow(
+                      decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(2),
+                          child: pw.Text(
+                            'Date',
+                            style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(2),
+                          child: pw.Text(
+                            'Method',
+                            style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                          ),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(2),
+                          child: pw.Text(
+                            'Amount',
+                            textAlign: pw.TextAlign.right,
+                            style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    for (final s in dashboard.settlements.take(5))
+                      pw.TableRow(
+                        children: [
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(2),
+                            child: pw.Text(
+                              DateFormat('dd/MM/yy').format(s.createdAt.toLocal()),
+                              style: small,
+                            ),
+                          ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(2),
+                            child: pw.Text(s.method.toUpperCase(), style: small),
+                          ),
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.all(2),
+                            child: pw.Text(
+                              'Rs ${ReceiptLayout.money(s.amount)}',
+                              textAlign: pw.TextAlign.right,
+                              style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ],
+              dashedDivider(),
+              pw.SizedBox(height: 12),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    children: [
+                      pw.Container(
+                        width: is58mm ? 50 : 70,
+                        height: 0.5,
+                        color: PdfColors.grey600,
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text('Customer Sign', style: small),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Container(
+                        width: is58mm ? 50 : 70,
+                        height: 0.5,
+                        color: PdfColors.grey600,
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text('Authorized Sign', style: small),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 6),
+              if (footer?.trim().isNotEmpty == true ||
+                  config.footerMessage?.trim().isNotEmpty == true) ...[
+                dashedDivider(),
+                pw.Text(
+                  (footer ?? config.footerMessage)!.trim(),
+                  style: small,
+                  textAlign: pw.TextAlign.center,
+                ),
+              ],
+              pw.Text(
+                'Computer generated statement',
+                style: small.copyWith(color: PdfColors.grey600),
+                textAlign: pw.TextAlign.center,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  static String formatCustomerStatementText({
+    required ReceiptConfigurationModel config,
+    required CustomerDashboardModel dashboard,
+  }) {
+    final customer = dashboard.customer;
+    final dateFormat = DateFormat('dd-MMM-yyyy hh:mm a');
+    final formattedDate = dateFormat.format(DateTime.now());
+    final shopName = config.shopName;
+    final shopPhone = config.phone ?? '';
+
+    final totalSettled = dashboard.settlements.fold<double>(
+      0,
+      (sum, s) => sum + s.amount,
+    );
+
+    final buffer = StringBuffer();
+    buffer.writeln('================================');
+    buffer.writeln(shopName.toUpperCase());
+    buffer.writeln('CUSTOMER KHATA STATEMENT');
+    buffer.writeln('================================');
+    buffer.writeln('Date: $formattedDate');
+    buffer.writeln(
+      'Customer: ${customer.fullName}${customer.phone != null && customer.phone!.isNotEmpty ? ' (${customer.phone})' : ''}',
+    );
+    buffer.writeln('--------------------------------');
+    buffer.writeln('Total Purchases (Kharidari): Rs. ${ReceiptLayout.money(dashboard.lifetimeValue)}');
+    buffer.writeln('Total Paid (Wasooli):        Rs. ${ReceiptLayout.money(totalSettled)}');
+    buffer.writeln('--------------------------------');
+    buffer.writeln('BAAQI UDHAAR (Due):          Rs. ${ReceiptLayout.money(dashboard.outstandingDues)}');
+    buffer.writeln('================================');
+    buffer.writeln('Shukriya!');
+    if (shopPhone.isNotEmpty) {
+      buffer.writeln(shopPhone);
+    }
+    return buffer.toString();
+  }
+
+  static Future<bool> printCustomerStatement({
+    required ReceiptConfigurationModel config,
+    required CustomerDashboardModel dashboard,
+    String? footer,
+    required EntitlementEvaluator entitlementEvaluator,
+  }) async {
+    try {
+      await PosEntitlementGate(
+        entitlementEvaluator,
+      ).require('pos.receipt_printing');
+
+      final bytes = await generateCustomerStatementPdf(
+        config: config,
+        dashboard: dashboard,
+        footer: footer,
+      );
+
+      final format = ReceiptLayout.pageFormat(config);
+      final customerId = ReceiptLayout.identifier(
+        dashboard.customer.id,
+        'CUST',
+      );
+      await Printing.layoutPdf(
+        name: 'khata_statement_$customerId.pdf',
+        format: format,
+        usePrinterSettings: true,
+        onLayout: (_) async => bytes,
+      );
+      return true;
+    } catch (e) {
+      debugPrint('Print customer statement error: $e');
+      rethrow;
+    }
+  }
+
+  static Future<void> shareCustomerStatementText({
+    required ReceiptConfigurationModel config,
+    required CustomerDashboardModel dashboard,
+  }) async {
+    final text = formatCustomerStatementText(
+      config: config,
+      dashboard: dashboard,
+    );
+    await SharePlus.instance.share(
+      ShareParams(
+        text: text,
+        subject:
+            'Khata Statement - ${dashboard.customer.fullName} - ${config.shopName}',
+      ),
     );
   }
 }

@@ -656,17 +656,17 @@ class CustomerSettlementController extends StateNotifier<AsyncValue<void>> {
   CustomerSettlementController(this._repository, this._ref)
     : super(const AsyncData(null));
 
-  Future<bool> settle({
+  Future<CustomerSettlementModel?> settle({
     required String customerId,
     required double amount,
     required String method,
     required String accountId,
     String? notes,
   }) async {
-    if (state.isLoading) return false;
+    if (state.isLoading) return null;
     state = const AsyncLoading();
     try {
-      await _repository.settleCustomerDues(
+      final settlement = await _repository.settleCustomerDues(
         customerId: customerId,
         amount: amount,
         method: method,
@@ -678,10 +678,10 @@ class CustomerSettlementController extends StateNotifier<AsyncValue<void>> {
       _ref.invalidate(allCustomerSettlementsProvider);
       _ref.invalidate(customerDashboardProvider(customerId));
       state = const AsyncData(null);
-      return true;
+      return settlement;
     } catch (e, st) {
       state = AsyncError(e, st);
-      return false;
+      return null;
     }
   }
 }

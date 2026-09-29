@@ -11,6 +11,10 @@ import '../../data/models/sale_payment_model.dart';
 import '../../domain/pos_payment_account_policy.dart';
 import '../../../accounts/data/models/account_models.dart';
 import '../../../accounts/presentation/providers/accounts_provider.dart';
+import '../../../settings/data/models/receipt_configuration_model.dart';
+import '../../../settings/presentation/providers/receipt_settings_provider.dart';
+import '../../../../core/entitlements/entitlement_provider.dart';
+import '../../data/services/receipt_service.dart';
 import '../providers/pos_provider.dart';
 
 class CustomersScreen extends ConsumerWidget {
@@ -207,6 +211,26 @@ class CustomerDetailScreen extends ConsumerWidget {
         title: Text(customer.fullName),
         actions: [
           IconButton(
+            onPressed: () {
+              final data = dashboard.asData?.value;
+              if (data != null) {
+                _printCustomerStatement(context, ref, data);
+              }
+            },
+            icon: const Icon(Icons.print_rounded),
+            tooltip: 'Print Khata Statement',
+          ),
+          IconButton(
+            onPressed: () {
+              final data = dashboard.asData?.value;
+              if (data != null) {
+                _shareCustomerStatement(context, ref, data);
+              }
+            },
+            icon: const Icon(Icons.share_rounded),
+            tooltip: 'Share Khata on WhatsApp',
+          ),
+          IconButton(
             onPressed:
                 () => showModalBottomSheet<void>(
                   context: context,
@@ -339,11 +363,11 @@ class CustomerDetailScreen extends ConsumerWidget {
                     const SizedBox(height: 16),
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        final stacked = constraints.maxWidth < 560;
+                        final stacked = constraints.maxWidth < 640;
                         final buttonWidth =
                             stacked
                                 ? constraints.maxWidth
-                                : (constraints.maxWidth - 12) / 2;
+                                : (constraints.maxWidth - 24) / 3;
                         return Wrap(
                           spacing: 12,
                           runSpacing: 10,
@@ -359,6 +383,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                                             context,
                                             (isDialog) => _SettleDuesSheet(
                                               customerId: data.customer.id!,
+                                              customer: data.customer,
                                               outstanding: data.outstandingDues,
                                               isDialog: isDialog,
                                             ),
@@ -371,6 +396,22 @@ class CustomerDetailScreen extends ConsumerWidget {
                                 label: const Text(
                                   AppStrings.customerSettleDues,
                                 ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: buttonWidth,
+                              child: OutlinedButton.icon(
+                                onPressed:
+                                    () => _printCustomerStatement(
+                                      context,
+                                      ref,
+                                      data,
+                                    ),
+                                icon: const Icon(
+                                  Icons.receipt_long_rounded,
+                                  size: 18,
+                                ),
+                                label: const Text('Print Khata Slip'),
                               ),
                             ),
                             SizedBox(
@@ -481,13 +522,40 @@ class CustomerDetailScreen extends ConsumerWidget {
                                   ),
                               ],
                             ),
-                            trailing:
-                                settlement.syncError == null
-                                    ? null
-                                    : const Icon(
-                                      Icons.warning_amber_rounded,
-                                      color: AppColors.warning,
-                                    ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.print_outlined),
+                                  tooltip: 'Print Payment Slip',
+                                  onPressed:
+                                      () => _printSettlementSlip(
+                                        context,
+                                        ref,
+                                        customer: data.customer,
+                                        settlement: settlement,
+                                        currentDues: data.outstandingDues,
+                                      ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.share_outlined),
+                                  tooltip: 'Share on WhatsApp',
+                                  onPressed:
+                                      () => _shareSettlementSlip(
+                                        context,
+                                        ref,
+                                        customer: data.customer,
+                                        settlement: settlement,
+                                        currentDues: data.outstandingDues,
+                                      ),
+                                ),
+                                if (settlement.syncError != null)
+                                  const Icon(
+                                    Icons.warning_amber_rounded,
+                                    color: AppColors.warning,
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -535,6 +603,149 @@ class CustomerDetailScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  Future<void> _printSettlementSlip(
+    BuildContext context,
+    WidgetRef ref, {
+    required CustomerModel customer,
+    required CustomerSettlementModel settlement,
+    required double currentDues,
+  }) async {
+    try {
+      ReceiptConfigurationModel? config;
+      try {
+        config = await ref.read(receiptConfigurationProvider.future);
+      } catch (_) {
+        config = ReceiptConfigurationModel.defaultConfig();
+      }
+      final resolvedConfig = config ?? ReceiptConfigurationModel.defaultConfig();
+
+      await ReceiptService.printCustomerSettlementReceipt(
+        config: resolvedConfig,
+        customerName: customer.fullName,
+        customerPhone: customer.phone,
+        settlementId: settlement.id,
+        date: settlement.createdAt,
+        previousBalance: 0,
+        amountPaid: settlement.amount,
+        remainingBalance: currentDues,
+        paymentMethod: settlement.method,
+        notes: settlement.notes,
+        isDuplicate: true,
+        entitlementEvaluator: ref.read(entitlementEvaluatorProvider),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Print error: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _shareSettlementSlip(
+    BuildContext context,
+    WidgetRef ref, {
+    required CustomerModel customer,
+    required CustomerSettlementModel settlement,
+    required double currentDues,
+  }) async {
+    try {
+      ReceiptConfigurationModel? config;
+      try {
+        config = await ref.read(receiptConfigurationProvider.future);
+      } catch (_) {
+        config = ReceiptConfigurationModel.defaultConfig();
+      }
+      final resolvedConfig = config ?? ReceiptConfigurationModel.defaultConfig();
+
+      await ReceiptService.shareCustomerSettlementText(
+        config: resolvedConfig,
+        customerName: customer.fullName,
+        customerPhone: customer.phone,
+        settlementId: settlement.id,
+        date: settlement.createdAt,
+        previousBalance: 0,
+        amountPaid: settlement.amount,
+        remainingBalance: currentDues,
+        paymentMethod: settlement.method,
+        notes: settlement.notes,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Share error: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _printCustomerStatement(
+    BuildContext context,
+    WidgetRef ref,
+    CustomerDashboardModel data,
+  ) async {
+    try {
+      ReceiptConfigurationModel? config;
+      try {
+        config = await ref.read(receiptConfigurationProvider.future);
+      } catch (_) {
+        config = ReceiptConfigurationModel.defaultConfig();
+      }
+      final resolvedConfig = config ?? ReceiptConfigurationModel.defaultConfig();
+
+      await ReceiptService.printCustomerStatement(
+        config: resolvedConfig,
+        dashboard: data,
+        entitlementEvaluator: ref.read(entitlementEvaluatorProvider),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Print error: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _shareCustomerStatement(
+    BuildContext context,
+    WidgetRef ref,
+    CustomerDashboardModel data,
+  ) async {
+    try {
+      ReceiptConfigurationModel? config;
+      try {
+        config = await ref.read(receiptConfigurationProvider.future);
+      } catch (_) {
+        config = ReceiptConfigurationModel.defaultConfig();
+      }
+      final resolvedConfig = config ?? ReceiptConfigurationModel.defaultConfig();
+
+      await ReceiptService.shareCustomerStatementText(
+        config: resolvedConfig,
+        dashboard: data,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Share error: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 }
 
@@ -1057,11 +1268,13 @@ class _CreditLimitSheetState extends ConsumerState<_CreditLimitSheet> {
 
 class _SettleDuesSheet extends ConsumerStatefulWidget {
   final String customerId;
+  final CustomerModel? customer;
   final double outstanding;
   final bool isDialog;
 
   const _SettleDuesSheet({
     required this.customerId,
+    this.customer,
     required this.outstanding,
     this.isDialog = false,
   });
@@ -1076,6 +1289,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
   String _method = 'cash';
   String? _accountId;
   bool _submitting = false;
+  bool _printReceipt = true;
 
   @override
   void initState() {
@@ -1202,7 +1416,26 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
               labelText: AppStrings.customerNotesLabel,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
+          CheckboxListTile(
+            value: _printReceipt,
+            onChanged:
+                isSubmitting
+                    ? null
+                    : (val) => setState(() => _printReceipt = val ?? true),
+            title: const Text(
+              'Print payment slip / رسید پرنٹ کریں',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              'Slip showing total udhaar, paid & remaining due',
+              style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+          ),
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: FilledButton(
@@ -1248,7 +1481,7 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
 
     setState(() => _submitting = true);
     try {
-      final ok = await ref
+      final settlement = await ref
           .read(customerSettlementControllerProvider.notifier)
           .settle(
             customerId: widget.customerId,
@@ -1258,17 +1491,58 @@ class _SettleDuesSheetState extends ConsumerState<_SettleDuesSheet> {
             notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
           );
       if (!mounted) return;
-      if (!ok) {
+      if (settlement == null) {
         final error = ref.read(customerSettlementControllerProvider).error;
         _showError(_settlementErrorMessage(error));
         return;
       }
 
       final messenger = ScaffoldMessenger.of(context);
+      final customerName = widget.customer?.fullName ?? 'Customer';
+      final customerPhone = widget.customer?.phone;
+      final previousDues = widget.outstanding;
+      final remainingDues = (widget.outstanding - amount).clamp(
+        0.0,
+        double.infinity,
+      );
+      final method = _method;
+      final notes = _notes.text.trim().isEmpty ? null : _notes.text.trim();
+      final shouldPrint = _printReceipt;
+
       Navigator.pop(context);
       messenger.showSnackBar(
-        const SnackBar(content: Text(AppStrings.customerSettlementSuccess)),
+        SnackBar(
+          content: Text(
+            'Settlement of Rs. ${amount.toStringAsFixed(0)} recorded. Baaqi: Rs. ${remainingDues.toStringAsFixed(0)}',
+          ),
+        ),
       );
+
+      if (shouldPrint) {
+        ReceiptConfigurationModel? config;
+        try {
+          config = await ref.read(receiptConfigurationProvider.future);
+        } catch (_) {}
+        final resolvedConfig =
+            config ?? ReceiptConfigurationModel.defaultConfig();
+        try {
+          await ReceiptService.printCustomerSettlementReceipt(
+            config: resolvedConfig,
+            customerName: customerName,
+            customerPhone: customerPhone,
+            settlementId: settlement.id,
+            date: settlement.createdAt,
+            previousBalance: previousDues,
+            amountPaid: amount,
+            remainingBalance: remainingDues,
+            paymentMethod: method,
+            notes: notes,
+            entitlementEvaluator: ref.read(entitlementEvaluatorProvider),
+          );
+        } catch (e) {
+          debugPrint('Error printing settlement slip: $e');
+        }
+      }
     } catch (error) {
       if (mounted) {
         _showError(_settlementErrorMessage(error));

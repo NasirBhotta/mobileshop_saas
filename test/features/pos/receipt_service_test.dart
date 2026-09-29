@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/features/pos/data/models/cart_item_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/customer_model.dart';
+import 'package:mobileshop_saas/features/pos/data/models/customer_dashboard_model.dart';
 import 'package:mobileshop_saas/features/pos/data/services/receipt_service.dart';
 import 'package:mobileshop_saas/features/settings/data/models/receipt_configuration_model.dart';
 
@@ -145,6 +147,114 @@ void main() {
       expect(text, contains('MOBILE CARE & SERVICES'));
       expect(text, contains('SALES RECEIPT'));
       expect(text, contains('TOTAL: Rs 93500'));
+    });
+
+    test('generateCustomerSettlementReceiptPdf generates valid PDF bytes with udhaar summary', () async {
+      final config = ReceiptConfigurationModel.defaultConfig(
+        shopName: 'Ali Electronics & Mobile',
+        phone: '0300-1234567',
+        address: 'Bano Bazar, Lahore',
+      );
+
+      final bytes = await ReceiptService.generateCustomerSettlementReceiptPdf(
+        config: config,
+        customerName: 'Muhammad Amir',
+        customerPhone: '0321-7654321',
+        settlementId: 'settle-uuid-112233',
+        date: DateTime(2026, 9, 29, 17, 30),
+        previousBalance: 25000,
+        amountPaid: 10000,
+        remainingBalance: 15000,
+        paymentMethod: 'cash',
+        notes: 'Partial khata payment',
+      );
+
+      expect(bytes, isA<Uint8List>());
+      expect(bytes.isNotEmpty, isTrue);
+      expect(String.fromCharCodes(bytes.take(4)), equals('%PDF'));
+    });
+
+    test('formatCustomerSettlementText contains total udhaar, paid amount and remaining balance', () {
+      final config = ReceiptConfigurationModel.defaultConfig(
+        shopName: 'Bhotta Mobile Centre',
+        phone: '0300-5555555',
+      );
+
+      final text = ReceiptService.formatCustomerSettlementText(
+        config: config,
+        customerName: 'Ali Raza',
+        customerPhone: '0345-9998877',
+        settlementId: 'st-998877',
+        date: DateTime(2026, 9, 29, 16, 0),
+        previousBalance: 50000,
+        amountPaid: 20000,
+        remainingBalance: 30000,
+        paymentMethod: 'jazzcash',
+        notes: 'Monthly installment received',
+      );
+
+      expect(text, contains('BHOTTA MOBILE CENTRE'));
+      expect(text, contains('UDHAAR PAYMENT RECEIPT'));
+      expect(text, contains('Ali Raza'));
+      expect(text, contains('(0345-9998877)'));
+      expect(text, contains('Payment Via: JAZZCASH'));
+      expect(text, contains('Kul Udhaar (Total Dues): Rs. 50,000'));
+      expect(text, contains('Wasool Shuda (Paid):     Rs. 20,000'));
+      expect(text, contains('BAAQI UDHAAR (Due):      Rs. 30,000'));
+      expect(text, contains('Monthly installment received'));
+      expect(text, contains('Shukriya!'));
+    });
+
+    test('generateCustomerStatementPdf and formatCustomerStatementText produce statement', () async {
+      final config = ReceiptConfigurationModel.defaultConfig(
+        shopName: 'Master Telecom',
+        phone: '0311-2223334',
+      );
+
+      final dashboard = CustomerDashboardModel(
+        customer: const CustomerModel(
+          id: 'cust-001',
+          tenantId: 'tenant-1',
+          branchId: 'b-1',
+          fullName: 'Tariq Mehmood',
+          phone: '0301-4445556',
+        ),
+        lifetimeValue: 120000,
+        outstandingDues: 35000,
+        activeRepairTickets: 1,
+        settlements: [
+          CustomerSettlementModel(
+            id: 'st-01',
+            customerId: 'cust-001',
+            branchId: 'b-1',
+            userId: 'u-1',
+            amount: 25000,
+            method: 'cash',
+            createdAt: DateTime(2026, 9, 20),
+          ),
+        ],
+      );
+
+      final pdfBytes = await ReceiptService.generateCustomerStatementPdf(
+        config: config,
+        dashboard: dashboard,
+      );
+
+      expect(pdfBytes, isA<Uint8List>());
+      expect(pdfBytes.isNotEmpty, isTrue);
+      expect(String.fromCharCodes(pdfBytes.take(4)), equals('%PDF'));
+
+      final text = ReceiptService.formatCustomerStatementText(
+        config: config,
+        dashboard: dashboard,
+      );
+
+      expect(text, contains('MASTER TELECOM'));
+      expect(text, contains('CUSTOMER KHATA STATEMENT'));
+      expect(text, contains('Tariq Mehmood'));
+      expect(text, contains('Total Purchases (Kharidari): Rs. 120,000'));
+      expect(text, contains('Total Paid (Wasooli):        Rs. 25,000'));
+      expect(text, contains('BAAQI UDHAAR (Due):          Rs. 35,000'));
     });
   });
 }
