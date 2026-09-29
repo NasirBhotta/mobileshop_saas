@@ -290,6 +290,10 @@ class SetupFlowRepository {
   Future<Map<String, dynamic>?> loadProfile(String userId) async {
     final cachedProfile = await OfflineStore.loadProfile(userId);
     if (cachedProfile != null) {
+      final selectedBranchId = await OfflineStore.loadSelectedBranchId(userId);
+      if (selectedBranchId != null) {
+        cachedProfile['branch_id'] = selectedBranchId;
+      }
       if (cachedProfile['tenant_id'] == null) {
         try {
           final profile = await _remoteProfile(userId).timeout(_networkTimeout);
@@ -338,10 +342,19 @@ class SetupFlowRepository {
     String userId,
     Map<String, dynamic> profile,
   ) async {
+    final cachedSelectedBranch =
+        await OfflineStore.loadSelectedBranchId(userId);
     final serverBranchId = profile['branch_id'] as String?;
 
-    if (serverBranchId != null && serverBranchId.isNotEmpty) {
-      await OfflineStore.selectBranch(userId: userId, branchId: serverBranchId);
+    if (cachedSelectedBranch == null || cachedSelectedBranch.isEmpty) {
+      if (serverBranchId != null && serverBranchId.isNotEmpty) {
+        await OfflineStore.selectBranch(
+          userId: userId,
+          branchId: serverBranchId,
+        );
+      }
+    } else {
+      profile['branch_id'] = cachedSelectedBranch;
     }
 
     await OfflineStore.saveProfile(userId, Map<String, dynamic>.from(profile));

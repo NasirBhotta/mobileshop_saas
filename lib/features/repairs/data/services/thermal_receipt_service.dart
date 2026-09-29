@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+import 'package:mobileshop_saas/core/printing/receipt_layout.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -14,29 +15,13 @@ import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 class ThermalReceiptService {
   const ThermalReceiptService._();
 
-  static PdfPageFormat _calculatePageFormat(
-    ReceiptConfigurationModel config, {
-    int contentLines = 25,
-  }) {
-    final is58mm = config.paperSize.toLowerCase().contains('58');
-    final rollWidthMm = is58mm ? 58.0 : 80.0;
-    final marginMm = is58mm ? 2.5 : 4.0;
-
-    // Approximate height calculation for continuous thermal paper roll
-    final estimatedHeightMm = (85 + (contentLines * 5.5)).clamp(120.0, 800.0);
-
-    return PdfPageFormat(
-      rollWidthMm * PdfPageFormat.mm,
-      estimatedHeightMm * PdfPageFormat.mm,
-      marginAll: marginMm * PdfPageFormat.mm,
-    );
-  }
-
   static Future<pw.ImageProvider?> _loadLogoImage(String? logoPath) async {
     if (logoPath == null || logoPath.trim().isEmpty) return null;
     try {
       if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) {
-        final netImage = await networkImage(logoPath);
+        final netImage = await networkImage(
+          logoPath,
+        ).timeout(const Duration(seconds: 2));
         return netImage;
       }
       final file = File(logoPath);
@@ -58,7 +43,8 @@ class ThermalReceiptService {
   }) async {
     final pdf = pw.Document();
     final is58mm = config.paperSize.toLowerCase().contains('58');
-    final ticketNo = ticket.ticketNo ?? ticket.id.substring(0, 8).toUpperCase();
+    final ticketNo =
+        ticket.ticketNo ?? ReceiptLayout.identifier(ticket.id, 'REPAIR');
     final dateFormat = DateFormat('dd-MMM-yyyy hh:mm a');
     final createdDate = ticket.createdAt?.toLocal() ?? DateTime.now();
     final formattedDate = dateFormat.format(createdDate);
@@ -68,33 +54,42 @@ class ThermalReceiptService {
       logoImage = await _loadLogoImage(config.logoPath);
     }
 
-    // Unicode supported font styles
-    pw.Font fontRegular = pw.Font.courier();
-    pw.Font fontBold = pw.Font.courierBold();
-    try {
-      fontRegular = await PdfGoogleFonts.robotoRegular();
-      fontBold = await PdfGoogleFonts.robotoBold();
-    } catch (_) {}
-
-    final regular = pw.TextStyle(font: fontRegular, fontSize: is58mm ? 7.0 : 8.5);
-    final bold = pw.TextStyle(font: fontBold, fontSize: is58mm ? 7.5 : 9.0);
-    final titleStyle = pw.TextStyle(font: fontBold, fontSize: is58mm ? 11.0 : 13.5);
-    final small = pw.TextStyle(font: fontRegular, fontSize: is58mm ? 6.0 : 7.0);
+    final fonts = await ReceiptLayout.fonts();
+    final regular = pw.TextStyle(
+      font: fonts.regular,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 7 : 8.5,
+    );
+    final bold = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 7 : 8.5,
+    );
+    final titleStyle = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 13 : 17,
+    );
+    final small = pw.TextStyle(
+      font: fonts.regular,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 6 : 7,
+    );
 
     pw.Widget divider() => pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
-          child: pw.Divider(thickness: 0.8, color: PdfColors.grey700),
-        );
+      padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
+      child: pw.Divider(thickness: 0.8, color: PdfColors.grey700),
+    );
 
     pw.Widget dashedDivider() => pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
-          child: pw.Text(
-            '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
-            textAlign: pw.TextAlign.center,
-            style: small,
-            maxLines: 1,
-          ),
-        );
+      padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
+      child: pw.Text(
+        '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+        textAlign: pw.TextAlign.center,
+        style: small,
+        maxLines: 1,
+      ),
+    );
 
     pw.Widget infoRow(String label, String value, {bool isBold = false}) {
       final style = isBold ? bold : regular;
@@ -109,6 +104,7 @@ class ThermalReceiptService {
             pw.Expanded(
               child: pw.Text(
                 value,
+                textDirection: ReceiptLayout.direction(value),
                 textAlign: pw.TextAlign.right,
                 style: style,
               ),
@@ -124,7 +120,7 @@ class ThermalReceiptService {
 
     pdf.addPage(
       pw.Page(
-        pageFormat: _calculatePageFormat(config, contentLines: 30),
+        pageFormat: ReceiptLayout.pageFormat(config),
         build: (context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -141,41 +137,21 @@ class ThermalReceiptService {
                 pw.SizedBox(height: 3),
               ],
 
-              // 2. Shop Header
-              pw.Text(
-                config.shopName,
-                textAlign: pw.TextAlign.center,
-                style: titleStyle,
+              ReceiptLayout.header(
+                config,
+                title: titleStyle,
+                regular: regular,
+                small: small,
               ),
-              if (config.subtitle?.trim().isNotEmpty == true) ...[
-                pw.SizedBox(height: 1),
-                pw.Text(
-                  config.subtitle!.trim(),
-                  textAlign: pw.TextAlign.center,
-                  style: regular,
-                ),
-              ],
-              if (config.phone?.trim().isNotEmpty == true) ...[
-                pw.Text(
-                  'Tel: ${config.phone!.trim()}',
-                  textAlign: pw.TextAlign.center,
-                  style: small,
-                ),
-              ],
-              if (config.address?.trim().isNotEmpty == true) ...[
-                pw.Text(
-                  config.address!.trim(),
-                  textAlign: pw.TextAlign.center,
-                  style: small,
-                ),
-              ],
 
               divider(),
 
               // 3. Ticket Intake Header
               pw.Center(
                 child: pw.Text(
-                  isDuplicate ? 'DUPLICATE REPAIR RECEIPT' : 'REPAIR INTAKE RECEIPT',
+                  isDuplicate
+                      ? 'DUPLICATE REPAIR RECEIPT'
+                      : 'REPAIR INTAKE RECEIPT',
                   style: bold,
                 ),
               ),
@@ -188,23 +164,34 @@ class ThermalReceiptService {
 
               // 4. Customer Details
               infoRow('Customer', ticket.customerName, isBold: true),
-              if (config.showCustomerPhone && ticket.customerPhone?.trim().isNotEmpty == true)
+              if (config.showCustomerPhone &&
+                  ticket.customerPhone?.trim().isNotEmpty == true)
                 infoRow('Phone', ticket.customerPhone!),
 
               dashedDivider(),
 
               // 5. Device Details
-              infoRow('Device', '${ticket.deviceBrand} ${ticket.deviceModel}'.trim(), isBold: true),
-              if (config.showDeviceColor && ticket.deviceColor?.trim().isNotEmpty == true)
+              infoRow(
+                'Device',
+                '${ticket.deviceBrand} ${ticket.deviceModel}'.trim(),
+                isBold: true,
+              ),
+              if (config.showDeviceColor &&
+                  ticket.deviceColor?.trim().isNotEmpty == true)
                 infoRow('Color', ticket.deviceColor!),
-              if (config.showDeviceImei && ticket.imei?.trim().isNotEmpty == true)
+              if (config.showDeviceImei &&
+                  ticket.imei?.trim().isNotEmpty == true)
                 infoRow('IMEI / Serial', ticket.imei!),
-              if (config.showTechnician && ticket.technicianId?.trim().isNotEmpty == true)
+              if (config.showTechnician &&
+                  ticket.technicianId?.trim().isNotEmpty == true)
                 infoRow('Technician', ticket.technicianId!),
-              if (config.showEstimatedDate && ticket.estimatedCompletionAt != null)
+              if (config.showEstimatedDate &&
+                  ticket.estimatedCompletionAt != null)
                 infoRow(
                   'Est. Completion',
-                  DateFormat('dd-MMM-yyyy').format(ticket.estimatedCompletionAt!.toLocal()),
+                  DateFormat(
+                    'dd-MMM-yyyy',
+                  ).format(ticket.estimatedCompletionAt!.toLocal()),
                 ),
 
               divider(),
@@ -216,27 +203,35 @@ class ThermalReceiptService {
                 padding: const pw.EdgeInsets.all(3.0),
                 decoration: pw.BoxDecoration(
                   border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(2),
+                  ),
                 ),
-                child: pw.Text(ticket.faultDescription, style: regular),
+                child: pw.Text(
+                  ticket.faultDescription,
+                  style: regular,
+                  textDirection: ReceiptLayout.direction(
+                    ticket.faultDescription,
+                  ),
+                ),
               ),
 
               divider(),
 
               // 7. Cost & Payment Details
               if (cost != null && cost > 0) ...[
-                infoRow(
+                ReceiptLayout.total(
                   ticket.totalCost != null ? 'Total Bill' : 'Estimated Cost',
-                  'Rs ${cost.toStringAsFixed(0)}',
-                  isBold: true,
+                  cost,
+                  bold,
                 ),
               ],
-              if (paid > 0) ...[
-                infoRow('Advance Paid', 'Rs ${paid.toStringAsFixed(0)}'),
+              if (advancePaid != null) ...[
+                infoRow('Advance Paid', 'Rs ${ReceiptLayout.money(paid)}'),
                 if (balance != null)
                   infoRow(
                     'Balance Due',
-                    'Rs ${balance.toStringAsFixed(0)}',
+                    'Rs ${ReceiptLayout.money(balance)}',
                     isBold: true,
                   ),
               ],
@@ -245,34 +240,37 @@ class ThermalReceiptService {
               if (config.showBarcode || config.showQrCode) ...[
                 pw.SizedBox(height: 4),
                 pw.Center(
-                  child: config.showQrCode
-                      ? pw.BarcodeWidget(
-                          barcode: pw.Barcode.qrCode(),
-                          data: ticketNo,
-                          width: is58mm ? 45 : 55,
-                          height: is58mm ? 45 : 55,
-                        )
-                      : pw.BarcodeWidget(
-                          barcode: pw.Barcode.code128(),
-                          data: ticketNo,
-                          width: is58mm ? 130 : 170,
-                          height: is58mm ? 26 : 32,
-                          drawText: false,
-                        ),
+                  child:
+                      config.showQrCode
+                          ? pw.BarcodeWidget(
+                            barcode: pw.Barcode.qrCode(),
+                            data: ticketNo,
+                            width: is58mm ? 45 : 55,
+                            height: is58mm ? 45 : 55,
+                          )
+                          : pw.BarcodeWidget(
+                            barcode: pw.Barcode.code128(),
+                            data: ticketNo,
+                            width: is58mm ? 130 : 170,
+                            height: is58mm ? 26 : 32,
+                            drawText: false,
+                          ),
                 ),
                 if (!config.showQrCode)
-                  pw.Center(
-                    child: pw.Text(ticketNo, style: small),
-                  ),
+                  pw.Center(child: pw.Text(ticketNo, style: small)),
               ],
 
               // 9. Terms and Conditions
-              if (config.showTerms && config.termsAndConditions.trim().isNotEmpty) ...[
+              if (config.showTerms &&
+                  config.termsAndConditions.trim().isNotEmpty) ...[
                 dashedDivider(),
                 pw.Text('Terms & Conditions:', style: bold),
                 pw.SizedBox(height: 1),
                 pw.Text(
                   config.termsAndConditions.trim(),
+                  textDirection: ReceiptLayout.direction(
+                    config.termsAndConditions,
+                  ),
                   style: small,
                 ),
               ],
@@ -294,6 +292,9 @@ class ThermalReceiptService {
                 pw.Center(
                   child: pw.Text(
                     config.footerMessage!.trim(),
+                    textDirection: ReceiptLayout.direction(
+                      config.footerMessage!,
+                    ),
                     textAlign: pw.TextAlign.center,
                     style: regular,
                   ),
@@ -323,7 +324,8 @@ class ThermalReceiptService {
       deviceModel: 'Galaxy S23 Ultra',
       deviceColor: 'Phantom Black',
       imei: '864209040123456',
-      faultDescription: 'Screen glass broken, touch working fine. Display replacement requested.',
+      faultDescription:
+          'Screen glass broken, touch working fine. Display replacement requested.',
       status: RepairTicketStatus.inProgress,
       estimatedCost: 18500,
       technicianId: 'Master Tech Asif',
@@ -348,7 +350,8 @@ class ThermalReceiptService {
     bool isDuplicate = false,
   }) async {
     try {
-      final ticketNo = ticket.ticketNo ?? ticket.id.substring(0, 8).toUpperCase();
+      final ticketNo =
+          ticket.ticketNo ?? ReceiptLayout.identifier(ticket.id, 'REPAIR');
       final bytes = await generateRepairTicketPdf(
         ticket: ticket,
         config: config,
@@ -356,7 +359,7 @@ class ThermalReceiptService {
         isDuplicate: isDuplicate,
       );
 
-      final format = _calculatePageFormat(config);
+      final format = ReceiptLayout.pageFormat(config);
 
       return await Printing.layoutPdf(
         name: 'RepairTicket_$ticketNo.pdf',
@@ -375,7 +378,7 @@ class ThermalReceiptService {
   }) async {
     try {
       final bytes = await generateTestReceiptPdf(config: config);
-      final format = _calculatePageFormat(config);
+      final format = ReceiptLayout.pageFormat(config);
 
       return await Printing.layoutPdf(
         name: 'TestReceipt_${config.shopName}.pdf',
@@ -395,28 +398,36 @@ class ThermalReceiptService {
     double? advancePaid,
     bool isDuplicate = false,
   }) {
-    final ticketNo = ticket.ticketNo ?? ticket.id.substring(0, 8).toUpperCase();
+    final ticketNo =
+        ticket.ticketNo ?? ReceiptLayout.identifier(ticket.id, 'REPAIR');
     final dateFormat = DateFormat('dd-MMM-yyyy hh:mm a');
     final createdDate = ticket.createdAt?.toLocal() ?? DateTime.now();
     final formattedDate = dateFormat.format(createdDate);
 
-    final buffer = StringBuffer()
-      ..writeln('================================')
-      ..writeln(config.shopName.toUpperCase())
-      ..writeln(config.subtitle ?? 'Expert Smartphone Repairs')
-      ..writeln('================================')
-      ..writeln(isDuplicate ? 'DUPLICATE REPAIR RECEIPT' : 'REPAIR INTAKE RECEIPT')
-      ..writeln('Ticket #: $ticketNo')
-      ..writeln('Date: $formattedDate')
-      ..writeln('Status: ${ticket.status.label}')
-      ..writeln('--------------------------------')
-      ..writeln('Customer: ${ticket.customerName}')
-      ..writeln('Device: ${ticket.deviceBrand} ${ticket.deviceModel}');
+    final buffer =
+        StringBuffer()
+          ..writeln('================================')
+          ..writeln(config.shopName.toUpperCase())
+          ..writeln(config.subtitle ?? 'Expert Smartphone Repairs')
+          ..writeln('================================')
+          ..writeln(
+            isDuplicate ? 'DUPLICATE REPAIR RECEIPT' : 'REPAIR INTAKE RECEIPT',
+          )
+          ..writeln('Ticket #: $ticketNo')
+          ..writeln('Date: $formattedDate')
+          ..writeln('Status: ${ticket.status.label}')
+          ..writeln('--------------------------------')
+          ..writeln('Customer: ${ticket.customerName}')
+          ..writeln('Device: ${ticket.deviceBrand} ${ticket.deviceModel}');
 
-    if (ticket.customerPhone != null && ticket.customerPhone!.isNotEmpty) {
+    if (config.showCustomerPhone &&
+        ticket.customerPhone != null &&
+        ticket.customerPhone!.isNotEmpty) {
       buffer.writeln('Phone: ${ticket.customerPhone}');
     }
-    if (ticket.imei != null && ticket.imei!.isNotEmpty) {
+    if (config.showDeviceImei &&
+        ticket.imei != null &&
+        ticket.imei!.isNotEmpty) {
       buffer.writeln('IMEI: ${ticket.imei}');
     }
 
@@ -460,7 +471,8 @@ class ThermalReceiptService {
     double? advancePaid,
     bool isDuplicate = false,
   }) async {
-    final ticketNo = ticket.ticketNo ?? ticket.id.substring(0, 8).toUpperCase();
+    final ticketNo =
+        ticket.ticketNo ?? ReceiptLayout.identifier(ticket.id, 'REPAIR');
     final text = formatRepairTicketText(
       ticket: ticket,
       config: config,

@@ -64,5 +64,16 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/fonts/
     - assets/icon/
     - assets/intro/
+
+  fonts:
+    - family: ReceiptSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+        - asset: assets/fonts/NotoSans-Bold.ttf
+          weight: 700
+    - family: ReceiptArabic
+      fonts:
+        - asset: assets/fonts/NotoNaskhArabic-Regular.ttf

@@ -28,6 +28,7 @@ import '../../domain/held_cart_identity.dart';
 import '../../../accounts/data/local/accounts_local_store.dart';
 import '../../../suppliers/data/repositories/procurement_repository.dart';
 import 'sale_return_parent_recovery.dart';
+import 'sale_customer_resolver.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/core/entitlements/supabase_entitlement_data_source.dart';
 import 'package:mobileshop_saas/features/pos/domain/pos_entitlement_gate.dart';
@@ -108,6 +109,12 @@ class PosRepository {
   Future<Map<String, dynamic>> _currentProfile() async {
     final cachedProfile = await OfflineStore.loadProfile(_currentUser.id);
     if (cachedProfile != null) {
+      final selectedBranchId = await OfflineStore.loadSelectedBranchId(
+        _currentUser.id,
+      );
+      if (selectedBranchId != null) {
+        cachedProfile['branch_id'] = selectedBranchId;
+      }
       unawaited(_refreshProfileCache());
       return cachedProfile;
     }
@@ -383,25 +390,19 @@ class PosRepository {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
     final user = _currentUser;
-    var effectiveCustomerId = customerId;
-    var effectiveCustomerName = customerName;
-    if (customerId != null) {
-      var resolvedCustomer = await _loadCustomerById(customerId);
-      final phone = attachedCustomer?.phone;
-      if (resolvedCustomer == null &&
-          phone != null &&
-          phone.trim().isNotEmpty) {
-        resolvedCustomer = await _findCustomerByPhone(
-          tenantId: tenantId,
-          branchId: branchId,
-          phone: phone.trim(),
-        );
-      }
-      if (resolvedCustomer != null) {
-        effectiveCustomerId = resolvedCustomer.id;
-        effectiveCustomerName = resolvedCustomer.fullName;
-      }
+    final selectedCustomerId = customerId ?? attachedCustomer?.id;
+    if (attachedCustomer != null && selectedCustomerId == null) {
+      throw StateError(
+        'Customer save nahi hua. Customer list se dobara select karein.',
+      );
     }
+    final resolvedCustomer =
+        selectedCustomerId == null
+            ? null
+            : await _resolveSaleCustomer(selectedCustomerId, tenantId,
+                attachedCustomer: attachedCustomer);
+    final effectiveCustomerId = resolvedCustomer?.id;
+    final effectiveCustomerName = resolvedCustomer?.fullName ?? customerName;
     final costedItems = await _withUnitCostsAtSale(
       branchId: branchId,
       items: items,
@@ -460,6 +461,7 @@ class PosRepository {
     if (creditAmount > 0) {
       await _validateCreditCheckout(
         customerId: effectiveCustomerId,
+        resolvedCustomer: resolvedCustomer,
         creditAmount: creditAmount,
       );
     }
@@ -648,14 +650,89 @@ class PosRepository {
     }
   }
 
+  Future<CustomerModel> _resolveSaleCustomer(String id, String tenantId, {
+    CustomerModel? attachedCustomer,
+  }) {
+    Future<CustomerModel?> find(String column, String value) async {
+      final row = await _client
+          .from('customers')
+          .select()
+          .eq('tenant_id', tenantId)
+          .eq(column, value)
+          .maybeSingle()
+          .timeout(_saleCommitTimeout);
+      return row == null ? null : CustomerModel.fromMap(row);
+    }
+
+    return SaleCustomerResolver(
+      resolveId: LocalStore.resolveCustomerId,
+      findRemote: (id) => find('id', id),
+      loadLocal: (id) async {
+        final customer = await OfflineStore.loadCustomerById(id) ??
+            (attachedCustomer?.id == id ? attachedCustomer : null);
+        return customer?.tenantId == tenantId ? customer : null;
+      },
+      findByPhone: (phone) => find('phone', phone),
+      pendingCreation: (id) async {
+        final mutations = await OfflineStore.loadMutations(_currentUser.id);
+        for (final mutation in mutations) {
+          if (mutation.type == 'add_customer' &&
+              mutation.payload['id'] == id &&
+              mutation.payload['tenant_id'] == tenantId) {
+            return Map<String, dynamic>.from(mutation.payload);
+          }
+        }
+        return null;
+      },
+      createIfMissing: (payload) async {
+        // An insert-only retry cannot reset an existing customer's dues.
+        final creation = <String, dynamic>{
+          for (final key in [
+            'id',
+            'tenant_id',
+            'branch_id',
+            'full_name',
+            'phone',
+            'email',
+            'notes',
+            'credit_limit',
+            'created_at',
+          ])
+            key: payload[key],
+          'outstanding_balance': 0,
+        };
+        try {
+          await _client
+              .from('customers')
+              .upsert(creation, onConflict: 'id', ignoreDuplicates: true)
+              .timeout(_saleCommitTimeout);
+        } catch (error) {
+          if (!_isMissingCustomerCreditSchema(error)) rethrow;
+          creation.remove('credit_limit');
+          creation.remove('outstanding_balance');
+          await _client
+              .from('customers')
+              .upsert(creation, onConflict: 'id', ignoreDuplicates: true)
+              .timeout(_saleCommitTimeout);
+        }
+      },
+      rememberAlias:
+          (localId, remoteId) => LocalStore.reassignCustomerId(
+            localCustomerId: localId,
+            remoteCustomerId: remoteId,
+          ),
+    ).resolve(id);
+  }
+
   Future<void> _validateCreditCheckout({
     required String? customerId,
     required double creditAmount,
+    CustomerModel? resolvedCustomer,
   }) async {
     if (customerId == null) {
       throw Exception('Khata sale ke liye customer attach karna zaroori hai.');
     }
-    final customer = await _loadCustomerById(customerId);
+    final customer = resolvedCustomer ?? await _loadCustomerById(customerId);
     if (customer == null) {
       throw Exception('Customer profile nahi mila.');
     }
@@ -676,18 +753,17 @@ class PosRepository {
   Future<CustomerModel?> _loadCustomerById(String customerId) async {
     final resolvedCustomerId = await LocalStore.resolveCustomerId(customerId);
     final tenantId = await _currentTenantId();
-    final branchId = await _currentBranchId(tenantId);
     try {
       final data = await _client
           .from('customers')
           .select()
           .eq('id', resolvedCustomerId)
-          .eq('branch_id', branchId)
+          .eq('tenant_id', tenantId)
           .maybeSingle()
           .timeout(Network.networkTimeout);
       if (data == null) {
         final local = await OfflineStore.loadCustomerById(resolvedCustomerId);
-        if (local == null || local.branchId != branchId) return null;
+        if (local == null || local.tenantId != tenantId) return null;
 
         // A phone conflict can reconcile an offline UUID to an existing remote
         // customer. Recover that mapping even if the original sync completed
@@ -710,7 +786,7 @@ class PosRepository {
       return customer;
     } catch (_) {
       final local = await OfflineStore.loadCustomerById(resolvedCustomerId);
-      return local?.branchId == branchId ? local : null;
+      return local?.tenantId == tenantId ? local : null;
     }
   }
 
@@ -2046,6 +2122,7 @@ class PosRepository {
     final branchId = await _currentBranchId(tenantId);
     unawaited(syncOfflineMutations());
     final localCustomers = await OfflineStore.searchCustomers(
+      tenantId: tenantId,
       branchId: branchId,
       query: query,
     );
@@ -2054,7 +2131,7 @@ class PosRepository {
       final data = await _client
           .from('customers')
           .select()
-          .eq('branch_id', branchId)
+          .eq('tenant_id', tenantId)
           .or('full_name.ilike.%$query%,phone.ilike.%$query%')
           .limit(10)
           .timeout(Network.networkTimeout);
@@ -2083,12 +2160,13 @@ class PosRepository {
     final branchId = await _currentBranchId(tenantId);
     unawaited(syncOfflineMutations());
     final localCustomers = await OfflineStore.loadCustomers(
+      tenantId: tenantId,
       branchId: branchId,
       query: query,
     );
 
     if (localCustomers.isNotEmpty) {
-      unawaited(_refreshCustomersOnline(branchId, query: query));
+      unawaited(_refreshCustomersOnline(tenantId, query: query));
       return localCustomers;
     }
 
@@ -2096,7 +2174,7 @@ class PosRepository {
       var request = _client
           .from('customers')
           .select()
-          .eq('branch_id', branchId);
+          .eq('tenant_id', tenantId);
       if (query.trim().isNotEmpty) {
         request = request.or(
           'full_name.ilike.%$query%,phone.ilike.%$query%,email.ilike.%$query%',
@@ -2119,12 +2197,12 @@ class PosRepository {
     }
   }
 
-  Future<void> _refreshCustomersOnline(String branchId, {String query = ''}) async {
+  Future<void> _refreshCustomersOnline(String tenantId, {String query = ''}) async {
     try {
       var request = _client
           .from('customers')
           .select()
-          .eq('branch_id', branchId);
+          .eq('tenant_id', tenantId);
       if (query.trim().isNotEmpty) {
         request = request.or(
           'full_name.ilike.%$query%,phone.ilike.%$query%,email.ilike.%$query%',
@@ -2273,7 +2351,6 @@ class PosRepository {
           .from('customers')
           .select()
           .eq('tenant_id', tenantId)
-          .eq('branch_id', branchId)
           .eq('phone', phone)
           .maybeSingle()
           .timeout(Network.networkTimeout);
@@ -2282,7 +2359,7 @@ class PosRepository {
           tenantId: tenantId,
           phone: phone,
         );
-        return local?.branchId == branchId ? local : null;
+        return local;
       }
       return CustomerModel.fromMap(data);
     } catch (_) {
@@ -2290,7 +2367,7 @@ class PosRepository {
         tenantId: tenantId,
         phone: phone,
       );
-      return local?.branchId == branchId ? local : null;
+      return local;
     }
   }
 
@@ -2590,7 +2667,7 @@ class PosRepository {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
 
-    final customers = await OfflineStore.loadCustomers(branchId: branchId);
+    final customers = await OfflineStore.loadCustomers(tenantId: tenantId, branchId: branchId);
     final localSettlements = <CustomerSettlementModel>[];
     for (final customer in customers) {
       final customerId = customer.id;
@@ -2979,6 +3056,15 @@ class PosRepository {
                 mutation.payload['sale_data'] as Map,
               );
               final saleId = mutation.payload['sale_id'] as String;
+              final customerId = saleData['customer_id'] as String?;
+              if (customerId != null) {
+                final customer = await _resolveSaleCustomer(
+                  customerId,
+                  await _currentTenantId(),
+                );
+                saleData['customer_id'] = customer.id;
+                mutation.payload['sale_data'] = saleData;
+              }
               await _commitSaleRemote(saleData);
               await LocalStore.markSaleSynced(saleId);
               break;
@@ -3024,18 +3110,25 @@ class PosRepository {
             case 'add_customer':
               final payload = Map<String, dynamic>.from(mutation.payload);
               try {
-                await _client.from('customers').upsert({
-                  'id': payload['id'],
-                  'tenant_id': payload['tenant_id'],
-                  'branch_id': payload['branch_id'],
-                  'full_name': payload['full_name'],
-                  'phone': payload['phone'],
-                  'email': payload['email'],
-                  'notes': payload['notes'],
-                  'credit_limit': payload['credit_limit'],
-                  'outstanding_balance': payload['outstanding_balance'] ?? 0,
-                  'created_at': payload['created_at'],
-                }, onConflict: 'id');
+                await _client
+                    .from('customers')
+                    .upsert(
+                      {
+                        'id': payload['id'],
+                        'tenant_id': payload['tenant_id'],
+                        'branch_id': payload['branch_id'],
+                        'full_name': payload['full_name'],
+                        'phone': payload['phone'],
+                        'email': payload['email'],
+                        'notes': payload['notes'],
+                        'credit_limit': payload['credit_limit'],
+                        'outstanding_balance':
+                            payload['outstanding_balance'] ?? 0,
+                        'created_at': payload['created_at'],
+                      },
+                      onConflict: 'id',
+                      ignoreDuplicates: true,
+                    );
               } catch (e) {
                 if (_isCustomerPhoneConflict(e)) {
                   final localCustomerId = payload['id'] as String;
@@ -3060,16 +3153,22 @@ class PosRepository {
                 }
 
                 if (!_isMissingCustomerCreditSchema(e)) rethrow;
-                await _client.from('customers').upsert({
-                  'id': payload['id'],
-                  'tenant_id': payload['tenant_id'],
-                  'branch_id': payload['branch_id'],
-                  'full_name': payload['full_name'],
-                  'phone': payload['phone'],
-                  'email': payload['email'],
-                  'notes': payload['notes'],
-                  'created_at': payload['created_at'],
-                }, onConflict: 'id');
+                await _client
+                    .from('customers')
+                    .upsert(
+                      {
+                        'id': payload['id'],
+                        'tenant_id': payload['tenant_id'],
+                        'branch_id': payload['branch_id'],
+                        'full_name': payload['full_name'],
+                        'phone': payload['phone'],
+                        'email': payload['email'],
+                        'notes': payload['notes'],
+                        'created_at': payload['created_at'],
+                      },
+                      onConflict: 'id',
+                      ignoreDuplicates: true,
+                    );
               }
               break;
 

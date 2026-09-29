@@ -174,8 +174,19 @@ class CartNotifier extends StateNotifier<CartState> {
 
   // Item remove karo
   void removeItem(String productId) {
+    final remaining =
+        state.items.where((item) => item.productId != productId).toList();
+    if (remaining.length == state.items.length) return;
+    if (remaining.isEmpty) {
+      clearCart();
+      return;
+    }
     state = state.copyWith(
-      items: state.items.where((item) => item.productId != productId).toList(),
+      items: remaining,
+      discountApprovals:
+          state.discountApprovals
+              .where((approval) => approval.productId != productId)
+              .toList(),
     );
   }
 

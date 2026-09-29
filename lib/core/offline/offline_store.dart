@@ -813,23 +813,30 @@ class OfflineStore {
   }
 
   static Future<List<CustomerModel>> searchCustomers({
-    required String branchId,
+    String? branchId,
+    String? tenantId,
     required String query,
   }) async {
     try {
-      return await LocalStore.searchCustomers(branchId: branchId, query: query);
+      return await LocalStore.searchCustomers(
+        branchId: branchId,
+        tenantId: tenantId,
+        query: query,
+      );
     } catch (_) {}
     return [];
   }
 
   static Future<List<CustomerModel>> loadCustomers({
-    required String branchId,
+    String? branchId,
+    String? tenantId,
     String query = '',
     int limit = 100,
   }) async {
     try {
       return await LocalStore.loadCustomers(
         branchId: branchId,
+        tenantId: tenantId,
         query: query,
         limit: limit,
       );

@@ -1200,20 +1200,24 @@ class LocalStore {
   }
 
   static Future<List<CustomerModel>> searchCustomers({
-    required String branchId,
+    String? branchId,
+    String? tenantId,
     required String query,
   }) async {
+    final useTenant = tenantId != null && tenantId.isNotEmpty;
+    final filterCol = useTenant ? 'tenant_id' : 'branch_id';
+    final filterVal = useTenant ? tenantId : (branchId ?? '');
     final rows = await LocalDatabase.select(
       '''
     SELECT * FROM customers
-    WHERE branch_id = ?
+    WHERE $filterCol = ?
     AND (
       LOWER(full_name) LIKE ?
       OR phone LIKE ?
     )
     LIMIT 10
   ''',
-      [branchId, '%${query.toLowerCase()}%', '%$query%'],
+      [filterVal, '%${query.toLowerCase()}%', '%$query%'],
     );
 
     return rows
@@ -1239,15 +1243,19 @@ class LocalStore {
   }
 
   static Future<List<CustomerModel>> loadCustomers({
-    required String branchId,
+    String? branchId,
+    String? tenantId,
     String query = '',
     int limit = 100,
   }) async {
     final normalized = query.trim().toLowerCase();
+    final useTenant = tenantId != null && tenantId.isNotEmpty;
+    final filterCol = useTenant ? 'tenant_id' : 'branch_id';
+    final filterVal = useTenant ? tenantId : (branchId ?? '');
     final rows = await LocalDatabase.select(
       '''
       SELECT * FROM customers
-      WHERE branch_id = ?
+      WHERE $filterCol = ?
       AND (
         ? = ''
         OR LOWER(full_name) LIKE ?
@@ -1258,7 +1266,7 @@ class LocalStore {
       LIMIT ?
       ''',
       [
-        branchId,
+        filterVal,
         normalized,
         '%$normalized%',
         '%${query.trim()}%',

@@ -1,14 +1,15 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+import 'package:mobileshop_saas/core/printing/receipt_layout.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/sale_model.dart';
+import '../models/cart_item_model.dart';
 import '../models/sale_payment_model.dart';
 import 'package:mobileshop_saas/core/entitlements/entitlement_evaluator.dart';
 import 'package:mobileshop_saas/features/pos/domain/pos_entitlement_gate.dart';
@@ -43,29 +44,54 @@ extension ReceiptDeliveryMethodX on ReceiptDeliveryMethod {
 class ReceiptService {
   const ReceiptService._();
 
-  static PdfPageFormat _calculatePageFormat(
-    ReceiptConfigurationModel config, {
-    int contentLines = 25,
-  }) {
-    final is58mm = config.paperSize.toLowerCase().contains('58');
-    final rollWidthMm = is58mm ? 58.0 : 80.0;
-    final marginMm = is58mm ? 2.5 : 4.0;
+  /// Khata is an amount owed, never money received.
+  static double paidAmount(SaleModel sale) => sale.payments
+      .where((payment) => payment.method != PaymentMethod.credit)
+      .fold<double>(0, (sum, payment) => sum + payment.amount);
 
-    // Approximate height calculation for continuous thermal paper roll
-    final estimatedHeightMm = (90 + (contentLines * 6.5)).clamp(120.0, 1000.0);
+  static double balanceDue(SaleModel sale) =>
+      (sale.total - paidAmount(sale)).clamp(0.0, double.infinity);
 
-    return PdfPageFormat(
-      rollWidthMm * PdfPageFormat.mm,
-      estimatedHeightMm * PdfPageFormat.mm,
-      marginAll: marginMm * PdfPageFormat.mm,
-    );
-  }
+  static pw.TableRow _itemRow(
+    List<String> cells,
+    pw.TextStyle style, {
+    bool heading = false,
+  }) => pw.TableRow(
+    decoration:
+        heading ? const pw.BoxDecoration(color: PdfColors.grey200) : null,
+    children: [
+      for (var i = 0; i < cells.length; i++)
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+          child:
+              i == 1
+                  ? pw.Text(
+                    cells[i],
+                    style: style,
+                    textDirection: ReceiptLayout.direction(cells[i]),
+                  )
+                  : pw.SizedBox(
+                    height: (style.fontSize ?? 7) * 1.4,
+                    child: pw.FittedBox(
+                      fit: pw.BoxFit.scaleDown,
+                      alignment:
+                          i < 3
+                              ? pw.Alignment.center
+                              : pw.Alignment.centerRight,
+                      child: pw.Text(cells[i], style: style),
+                    ),
+                  ),
+        ),
+    ],
+  );
 
   static Future<pw.ImageProvider?> _loadLogoImage(String? logoPath) async {
     if (logoPath == null || logoPath.trim().isEmpty) return null;
     try {
       if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) {
-        final netImage = await networkImage(logoPath);
+        final netImage = await networkImage(
+          logoPath,
+        ).timeout(const Duration(seconds: 2));
         return netImage;
       }
       final file = File(logoPath);
@@ -87,7 +113,7 @@ class ReceiptService {
   }) async {
     final pdf = pw.Document();
     final is58mm = config.paperSize.toLowerCase().contains('58');
-    final invoice = sale.id?.substring(0, 8).toUpperCase() ?? 'SALE';
+    final invoice = ReceiptLayout.identifier(sale.id, 'SALE');
     final dateFormat = DateFormat('dd-MMM-yyyy hh:mm a');
     final createdDate = sale.createdAt?.toLocal() ?? DateTime.now();
     final formattedDate = dateFormat.format(createdDate);
@@ -97,33 +123,42 @@ class ReceiptService {
       logoImage = await _loadLogoImage(config.logoPath);
     }
 
-    // Unicode TrueType font setup with graceful fallback
-    pw.Font fontRegular = pw.Font.courier();
-    pw.Font fontBold = pw.Font.courierBold();
-    try {
-      fontRegular = await PdfGoogleFonts.robotoRegular();
-      fontBold = await PdfGoogleFonts.robotoBold();
-    } catch (_) {}
-
-    final regular = pw.TextStyle(font: fontRegular, fontSize: is58mm ? 7.0 : 8.5);
-    final bold = pw.TextStyle(font: fontBold, fontSize: is58mm ? 7.5 : 9.0);
-    final titleStyle = pw.TextStyle(font: fontBold, fontSize: is58mm ? 11.0 : 13.5);
-    final small = pw.TextStyle(font: fontRegular, fontSize: is58mm ? 6.0 : 7.0);
+    final fonts = await ReceiptLayout.fonts();
+    final regular = pw.TextStyle(
+      font: fonts.regular,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 7 : 8.5,
+    );
+    final bold = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 7 : 8.5,
+    );
+    final titleStyle = pw.TextStyle(
+      font: fonts.bold,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 13 : 17,
+    );
+    final small = pw.TextStyle(
+      font: fonts.regular,
+      fontFallback: [fonts.arabic],
+      fontSize: is58mm ? 6 : 7,
+    );
 
     pw.Widget divider() => pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
-          child: pw.Divider(thickness: 0.8, color: PdfColors.grey700),
-        );
+      padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
+      child: pw.Divider(thickness: 0.8, color: PdfColors.grey700),
+    );
 
     pw.Widget dashedDivider() => pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
-          child: pw.Text(
-            '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
-            textAlign: pw.TextAlign.center,
-            style: small,
-            maxLines: 1,
-          ),
-        );
+      padding: const pw.EdgeInsets.symmetric(vertical: 3.0),
+      child: pw.Text(
+        '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+        textAlign: pw.TextAlign.center,
+        style: small,
+        maxLines: 1,
+      ),
+    );
 
     pw.Widget infoRow(String label, String value, {bool isBold = false}) {
       final style = isBold ? bold : regular;
@@ -138,6 +173,7 @@ class ReceiptService {
             pw.Expanded(
               child: pw.Text(
                 value,
+                textDirection: ReceiptLayout.direction(value),
                 textAlign: pw.TextAlign.right,
                 style: style,
               ),
@@ -147,8 +183,7 @@ class ReceiptService {
       );
     }
 
-    final totalLines = 20 + (sale.items.length * 2) + sale.payments.length;
-    final pageFormat = _calculatePageFormat(config, contentLines: totalLines);
+    final pageFormat = ReceiptLayout.pageFormat(config);
 
     pdf.addPage(
       pw.Page(
@@ -169,41 +204,12 @@ class ReceiptService {
                 pw.SizedBox(height: 3),
               ],
 
-              // 2. Shop Header
-              pw.Text(
-                config.shopName,
-                textAlign: pw.TextAlign.center,
-                style: titleStyle,
+              ReceiptLayout.header(
+                config,
+                title: titleStyle,
+                regular: regular,
+                small: small,
               ),
-              if (config.subtitle?.trim().isNotEmpty == true) ...[
-                pw.SizedBox(height: 1),
-                pw.Text(
-                  config.subtitle!.trim(),
-                  textAlign: pw.TextAlign.center,
-                  style: regular,
-                ),
-              ],
-              if (config.phone?.trim().isNotEmpty == true) ...[
-                pw.Text(
-                  'Tel: ${config.phone!.trim()}',
-                  textAlign: pw.TextAlign.center,
-                  style: small,
-                ),
-              ],
-              if (config.email?.trim().isNotEmpty == true) ...[
-                pw.Text(
-                  'Email: ${config.email!.trim()}',
-                  textAlign: pw.TextAlign.center,
-                  style: small,
-                ),
-              ],
-              if (config.address?.trim().isNotEmpty == true) ...[
-                pw.Text(
-                  config.address!.trim(),
-                  textAlign: pw.TextAlign.center,
-                  style: small,
-                ),
-              ],
 
               divider(),
 
@@ -215,130 +221,120 @@ class ReceiptService {
                 ),
               ),
               pw.SizedBox(height: 2),
-              infoRow('Invoice #', invoice, isBold: true),
+              infoRow('Bill #', invoice, isBold: true),
               infoRow('Date & Time', formattedDate),
 
-              // 4. Customer Details
-              if (sale.customerName != null && sale.customerName!.trim().isNotEmpty) ...[
-                dashedDivider(),
-                infoRow('Customer', sale.customerName!.trim(), isBold: true),
-              ],
-
+              infoRow(
+                'Customer',
+                sale.customerName?.trim().isNotEmpty == true
+                    ? sale.customerName!.trim()
+                    : 'COUNTER SALE',
+                isBold: true,
+              ),
+              if (sale.notes?.trim().isNotEmpty == true)
+                infoRow('Remarks', sale.notes!.trim()),
               divider(),
 
-              // 5. Items Header
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              // Per-unit discount matches CartItemModel's pricing semantics.
+              pw.Table(
+                border: pw.TableBorder.all(width: 0.4),
+                columnWidths: const {
+                  0: pw.FlexColumnWidth(0.4),
+                  1: pw.FlexColumnWidth(2.5),
+                  2: pw.FlexColumnWidth(0.55),
+                  3: pw.FlexColumnWidth(1.2),
+                  4: pw.FlexColumnWidth(0.9),
+                  5: pw.FlexColumnWidth(1.45),
+                },
                 children: [
-                  pw.Expanded(
-                    flex: 3,
-                    child: pw.Text('Item Description', style: bold),
+                  _itemRow(
+                    ['#', 'Item Details', 'Qty', 'Price', 'Dis.', 'Amount'],
+                    small.copyWith(fontWeight: pw.FontWeight.bold),
+                    heading: true,
                   ),
-                  pw.Expanded(
-                    flex: 1,
-                    child: pw.Text('Qty', textAlign: pw.TextAlign.center, style: bold),
-                  ),
-                  pw.Expanded(
-                    flex: 2,
-                    child: pw.Text('Total', textAlign: pw.TextAlign.right, style: bold),
-                  ),
+                  for (var i = 0; i < sale.items.length; i++)
+                    _itemRow([
+                      '${i + 1}',
+                      sale.items[i].productName,
+                      '${sale.items[i].quantity}',
+                      ReceiptLayout.money(sale.items[i].unitPrice),
+                      ReceiptLayout.money(sale.items[i].discountAmount),
+                      ReceiptLayout.money(sale.items[i].lineTotal),
+                    ], small),
                 ],
               ),
-              dashedDivider(),
-
-              // 6. Items Rows
-              ...sale.items.map((item) {
-                return pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-                    children: [
-                      pw.Text(item.productName, style: bold),
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          pw.Expanded(
-                            flex: 3,
-                            child: pw.Text(
-                              '@ Rs ${item.unitPrice.toStringAsFixed(0)}${item.discountAmount > 0 ? " (Disc: Rs ${item.discountAmount.toStringAsFixed(0)})" : ""}',
-                              style: small,
-                            ),
-                          ),
-                          pw.Expanded(
-                            flex: 1,
-                            child: pw.Text(
-                              '${item.quantity}',
-                              textAlign: pw.TextAlign.center,
-                              style: regular,
-                            ),
-                          ),
-                          pw.Expanded(
-                            flex: 2,
-                            child: pw.Text(
-                              'Rs ${item.lineTotal.toStringAsFixed(0)}',
-                              textAlign: pw.TextAlign.right,
-                              style: bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              }),
-
-              divider(),
-
-              // 7. Totals Summary
-              infoRow('Subtotal', 'Rs ${sale.subtotal.toStringAsFixed(0)}'),
+              pw.SizedBox(height: 3),
+              infoRow(
+                'Total Qty',
+                '${sale.items.fold<int>(0, (sum, item) => sum + item.quantity)}',
+              ),
+              infoRow('Subtotal', 'Rs ${ReceiptLayout.money(sale.subtotal)}'),
               if (sale.discountAmount > 0)
-                infoRow('Discount', '-Rs ${sale.discountAmount.toStringAsFixed(0)}'),
+                infoRow(
+                  'Discount',
+                  '-Rs ${ReceiptLayout.money(sale.discountAmount)}',
+                ),
               if (sale.taxAmount > 0)
-                infoRow('Tax', 'Rs ${sale.taxAmount.toStringAsFixed(0)}'),
-
-              divider(),
-              infoRow('GRAND TOTAL', 'Rs ${sale.total.toStringAsFixed(0)}', isBold: true),
-              divider(),
-
-              // 8. Payment Breakdown
-              pw.Text('Payment Details:', style: bold),
-              pw.SizedBox(height: 1),
+                infoRow('Tax', 'Rs ${ReceiptLayout.money(sale.taxAmount)}'),
+              pw.SizedBox(height: 3),
+              ReceiptLayout.total('GRAND TOTAL', sale.total, bold),
+              infoRow(
+                'Bill Paid',
+                'Rs ${ReceiptLayout.money(paidAmount(sale))}',
+              ),
+              infoRow(
+                'Balance Due',
+                'Rs ${ReceiptLayout.money(balanceDue(sale))}',
+                isBold: true,
+              ),
+              if (paidAmount(sale) > sale.total)
+                infoRow(
+                  'Return / Change',
+                  'Rs ${ReceiptLayout.money(paidAmount(sale) - sale.total)}',
+                ),
+              dashedDivider(),
               ...sale.payments.map(
-                (p) => infoRow(p.method.label, 'Rs ${p.amount.toStringAsFixed(0)}'),
+                (p) => infoRow(
+                  p.method.label,
+                  'Rs ${ReceiptLayout.money(p.amount)}',
+                ),
               ),
 
               // 9. Barcode or QR Code
               if (config.showBarcode || config.showQrCode) ...[
                 pw.SizedBox(height: 5),
                 pw.Center(
-                  child: config.showQrCode
-                      ? pw.BarcodeWidget(
-                          barcode: pw.Barcode.qrCode(),
-                          data: invoice,
-                          width: is58mm ? 45 : 55,
-                          height: is58mm ? 45 : 55,
-                        )
-                      : pw.BarcodeWidget(
-                          barcode: pw.Barcode.code128(),
-                          data: invoice,
-                          width: is58mm ? 130 : 170,
-                          height: is58mm ? 26 : 32,
-                          drawText: false,
-                        ),
+                  child:
+                      config.showQrCode
+                          ? pw.BarcodeWidget(
+                            barcode: pw.Barcode.qrCode(),
+                            data: invoice,
+                            width: is58mm ? 45 : 55,
+                            height: is58mm ? 45 : 55,
+                          )
+                          : pw.BarcodeWidget(
+                            barcode: pw.Barcode.code128(),
+                            data: invoice,
+                            width: is58mm ? 130 : 170,
+                            height: is58mm ? 26 : 32,
+                            drawText: false,
+                          ),
                 ),
                 if (!config.showQrCode)
-                  pw.Center(
-                    child: pw.Text(invoice, style: small),
-                  ),
+                  pw.Center(child: pw.Text(invoice, style: small)),
               ],
 
               // 10. Terms and Conditions
-              if (config.showTerms && config.termsAndConditions.trim().isNotEmpty) ...[
+              if (config.showTerms &&
+                  config.termsAndConditions.trim().isNotEmpty) ...[
                 dashedDivider(),
                 pw.Text('Terms & Conditions:', style: bold),
                 pw.SizedBox(height: 1),
                 pw.Text(
                   config.termsAndConditions.trim(),
+                  textDirection: ReceiptLayout.direction(
+                    config.termsAndConditions,
+                  ),
                   style: small,
                 ),
               ],
@@ -356,11 +352,12 @@ class ReceiptService {
 
               // 12. Footer Message
               () {
-                final resolvedFooter = footer?.trim().isNotEmpty == true
-                    ? footer!.trim()
-                    : (config.footerMessage?.trim().isNotEmpty == true
-                        ? config.footerMessage!.trim()
-                        : null);
+                final resolvedFooter =
+                    footer?.trim().isNotEmpty == true
+                        ? footer!.trim()
+                        : (config.footerMessage?.trim().isNotEmpty == true
+                            ? config.footerMessage!.trim()
+                            : null);
                 if (resolvedFooter != null) {
                   return pw.Column(
                     children: [
@@ -368,6 +365,9 @@ class ReceiptService {
                       pw.Center(
                         child: pw.Text(
                           resolvedFooter,
+                          textDirection: ReceiptLayout.direction(
+                            resolvedFooter,
+                          ),
                           textAlign: pw.TextAlign.center,
                           style: regular,
                         ),
@@ -394,14 +394,15 @@ class ReceiptService {
     bool duplicate = false,
   }) {
     final cfg = config ?? ReceiptConfigurationModel.defaultConfig();
-    final invoice = sale.id?.substring(0, 8).toUpperCase() ?? 'SALE';
+    final invoice = ReceiptLayout.identifier(sale.id, 'SALE');
     final dateFormat = DateFormat('dd-MMM-yyyy hh:mm a');
     final createdDate = sale.createdAt?.toLocal() ?? DateTime.now();
     final formattedDate = dateFormat.format(createdDate);
 
-    final buffer = StringBuffer()
-      ..writeln('================================')
-      ..writeln(cfg.shopName.toUpperCase());
+    final buffer =
+        StringBuffer()
+          ..writeln('================================')
+          ..writeln(cfg.shopName.toUpperCase());
 
     if (cfg.subtitle != null && cfg.subtitle!.trim().isNotEmpty) {
       buffer.writeln(cfg.subtitle!.trim());
@@ -423,11 +424,18 @@ class ReceiptService {
       buffer.writeln('Customer: ${sale.customerName!.trim()}');
     }
 
+    if (sale.notes?.trim().isNotEmpty == true) {
+      buffer.writeln('Remarks: ${sale.notes!.trim()}');
+    }
     buffer
       ..writeln('--------------------------------')
       ..writeln('Items:');
 
+    var itemNumber = 0;
     for (final item in sale.items) {
+      buffer.writeln(
+        '#${++itemNumber} | Price: Rs ${ReceiptLayout.money(item.unitPrice)} | Dis.: Rs ${ReceiptLayout.money(item.discountAmount)}',
+      );
       buffer.writeln(
         '${item.productName} x ${item.quantity} - Rs ${item.lineTotal.toStringAsFixed(0)}',
       );
@@ -435,6 +443,9 @@ class ReceiptService {
 
     buffer
       ..writeln('--------------------------------')
+      ..writeln(
+        'Total Qty: ${sale.items.fold<int>(0, (sum, item) => sum + item.quantity)}',
+      )
       ..writeln('Subtotal: Rs ${sale.subtotal.toStringAsFixed(0)}');
 
     if (sale.discountAmount > 0) {
@@ -448,7 +459,14 @@ class ReceiptService {
       ..writeln('--------------------------------')
       ..writeln('TOTAL: Rs ${sale.total.toStringAsFixed(0)}')
       ..writeln('--------------------------------')
+      ..writeln('Bill Paid: Rs ${ReceiptLayout.money(paidAmount(sale))}')
+      ..writeln('Balance Due: Rs ${ReceiptLayout.money(balanceDue(sale))}')
       ..writeln('Payments:');
+    if (paidAmount(sale) > sale.total) {
+      buffer.writeln(
+        'Return / Change: Rs ${ReceiptLayout.money(paidAmount(sale) - sale.total)}',
+      );
+    }
 
     for (final payment in sale.payments) {
       buffer.writeln(
@@ -462,11 +480,12 @@ class ReceiptService {
         ..writeln('Terms: ${cfg.termsAndConditions.trim()}');
     }
 
-    final resolvedFooter = footer?.trim().isNotEmpty == true
-        ? footer!.trim()
-        : (cfg.footerMessage?.trim().isNotEmpty == true
-            ? cfg.footerMessage!.trim()
-            : null);
+    final resolvedFooter =
+        footer?.trim().isNotEmpty == true
+            ? footer!.trim()
+            : (cfg.footerMessage?.trim().isNotEmpty == true
+                ? cfg.footerMessage!.trim()
+                : null);
 
     if (resolvedFooter != null) {
       buffer
@@ -476,6 +495,51 @@ class ReceiptService {
     buffer.writeln('================================');
 
     return buffer.toString();
+  }
+
+  static SaleModel previewSale() => SaleModel(
+    id: 'DEMO-001',
+    branchId: 'demo',
+    userId: 'demo',
+    customerName: 'COUNTER SALE',
+    notes: 'Sample receipt',
+    subtotal: 3300,
+    discountAmount: 0,
+    taxAmount: 0,
+    total: 3300,
+    createdAt: DateTime.now(),
+    items: const [
+      CartItemModel(
+        productId: 'demo-1',
+        productName: 'USB-C Cable',
+        unitPrice: 350,
+        quantity: 2,
+      ),
+      CartItemModel(
+        productId: 'demo-2',
+        productName: 'Wireless Earbuds Black',
+        unitPrice: 2600,
+      ),
+    ],
+    payments: const [
+      SalePaymentModel(method: PaymentMethod.cash, amount: 3300),
+    ],
+  );
+
+  /// Uses demo data only; no sale, inventory or ledger mutation is created.
+  static Future<bool> printTestReceipt({
+    required ReceiptConfigurationModel config,
+  }) async {
+    final bytes = await generateSaleReceiptPdf(
+      sale: previewSale(),
+      config: config,
+    );
+    return Printing.layoutPdf(
+      name: 'TestSalesReceipt.pdf',
+      format: ReceiptLayout.pageFormat(config),
+      usePrinterSettings: true,
+      onLayout: (_) async => bytes,
+    );
   }
 
   static Future<void> deliver({
@@ -490,7 +554,7 @@ class ReceiptService {
     await PosEntitlementGate(
       entitlementEvaluator,
     ).require('pos.receipt_printing');
-    final invoice = sale.id?.substring(0, 8).toUpperCase() ?? 'SALE';
+    final invoice = ReceiptLayout.identifier(sale.id, 'SALE');
     final resolvedConfig = config ?? ReceiptConfigurationModel.defaultConfig();
 
     if (method == ReceiptDeliveryMethod.thermalPrint) {
@@ -500,11 +564,7 @@ class ReceiptService {
         footer: footer,
         isDuplicate: duplicate,
       );
-      final totalLines = 20 + (sale.items.length * 2) + sale.payments.length;
-      final format = _calculatePageFormat(
-        resolvedConfig,
-        contentLines: totalLines,
-      );
+      final format = ReceiptLayout.pageFormat(resolvedConfig);
       await Printing.layoutPdf(
         name: '${duplicate ? 'duplicate_' : ''}receipt_$invoice.pdf',
         format: format,

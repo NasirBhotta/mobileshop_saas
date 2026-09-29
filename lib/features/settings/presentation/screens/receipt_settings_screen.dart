@@ -3,9 +3,10 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' show DateFormat;
+import 'package:mobileshop_saas/features/pos/data/services/receipt_service.dart';
+import 'package:mobileshop_saas/core/printing/receipt_layout.dart';
 import 'package:mobileshop_saas/core/constants/app_colors.dart';
 import 'package:mobileshop_saas/features/repairs/data/services/thermal_receipt_service.dart';
 import 'package:mobileshop_saas/features/settings/data/models/receipt_configuration_model.dart';
@@ -42,6 +43,8 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
   bool _showTerms = true;
   bool _showCustomerSignature = true;
 
+  bool _previewSale = true;
+  String? _email;
   bool _isInitialized = false;
   bool _isPickingLogo = false;
   bool _isTestPrinting = false;
@@ -76,6 +79,7 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
     _addressController.text = config.address ?? '';
     _termsController.text = config.termsAndConditions;
     _footerController.text = config.footerMessage ?? '';
+    _email = config.email;
     _logoPath = config.logoPath;
     _showLogo = config.showLogo;
     _paperSize = config.paperSize;
@@ -93,18 +97,23 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
 
   ReceiptConfigurationModel _getCurrentConfig() {
     return ReceiptConfigurationModel(
-      shopName: _shopNameController.text.trim().isNotEmpty
-          ? _shopNameController.text.trim()
-          : 'Mobile Care & Services',
-      subtitle: _subtitleController.text.trim().isNotEmpty
-          ? _subtitleController.text.trim()
-          : null,
-      phone: _phoneController.text.trim().isNotEmpty
-          ? _phoneController.text.trim()
-          : null,
-      address: _addressController.text.trim().isNotEmpty
-          ? _addressController.text.trim()
-          : null,
+      shopName:
+          _shopNameController.text.trim().isNotEmpty
+              ? _shopNameController.text.trim()
+              : 'Mobile Care & Services',
+      subtitle:
+          _subtitleController.text.trim().isNotEmpty
+              ? _subtitleController.text.trim()
+              : null,
+      phone:
+          _phoneController.text.trim().isNotEmpty
+              ? _phoneController.text.trim()
+              : null,
+      address:
+          _addressController.text.trim().isNotEmpty
+              ? _addressController.text.trim()
+              : null,
+      email: _email,
       logoPath: _logoPath,
       showLogo: _showLogo,
       paperSize: _paperSize,
@@ -118,9 +127,10 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
       showTerms: _showTerms,
       termsAndConditions: _termsController.text.trim(),
       showCustomerSignature: _showCustomerSignature,
-      footerMessage: _footerController.text.trim().isNotEmpty
-          ? _footerController.text.trim()
-          : null,
+      footerMessage:
+          _footerController.text.trim().isNotEmpty
+              ? _footerController.text.trim()
+              : null,
       updatedAt: DateTime.now(),
     );
   }
@@ -189,29 +199,31 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
   Future<void> _resetToDefault() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reset to Default?'),
-        content: const Text(
-          'Are you sure you want to reset all receipt customization settings to default values?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Reset to Default?'),
+            content: const Text(
+              'Are you sure you want to reset all receipt customization settings to default values?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Reset'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Reset'),
-          ),
-        ],
-      ),
     );
 
     if (confirmed != true) return;
 
-    final config = await ref
-        .read(receiptSettingsControllerProvider.notifier)
-        .resetToDefault();
+    final config =
+        await ref
+            .read(receiptSettingsControllerProvider.notifier)
+            .resetToDefault();
 
     if (config != null && mounted) {
       setState(() {
@@ -228,12 +240,16 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
     setState(() => _isTestPrinting = true);
     try {
       final config = _getCurrentConfig();
-      await ThermalReceiptService.printTestReceipt(config: config);
+      if (_previewSale) {
+        await ReceiptService.printTestReceipt(config: config);
+      } else {
+        await ThermalReceiptService.printTestReceipt(config: config);
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Test print error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Test print error: $e')));
       }
     } finally {
       if (mounted) setState(() => _isTestPrinting = false);
@@ -254,28 +270,30 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
           IconButton(
             tooltip: 'Test Print',
             onPressed: _isTestPrinting ? null : _testPrint,
-            icon: _isTestPrinting
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.print_outlined),
+            icon:
+                _isTestPrinting
+                    ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.print_outlined),
           ),
           Padding(
             padding: const EdgeInsets.only(right: 12.0, left: 4.0),
             child: FilledButton.icon(
               onPressed: isSaving ? null : _saveConfig,
-              icon: isSaving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.save_rounded, size: 18),
+              icon:
+                  isSaving
+                      ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                      : const Icon(Icons.save_rounded, size: 18),
               label: const Text('Save'),
             ),
           ),
@@ -283,19 +301,21 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
       ),
       body: configAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Failed to load settings: $error'),
-              const SizedBox(height: 12),
-              FilledButton(
-                onPressed: () => ref.invalidate(receiptConfigurationProvider),
-                child: const Text('Retry'),
+        error:
+            (error, _) => Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Failed to load settings: $error'),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed:
+                        () => ref.invalidate(receiptConfigurationProvider),
+                    child: const Text('Retry'),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
         data: (config) {
           _populateFromConfig(config);
           return LayoutBuilder(
@@ -340,8 +360,14 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                   children: [
                     const TabBar(
                       tabs: [
-                        Tab(icon: Icon(Icons.tune_rounded), text: 'Configuration'),
-                        Tab(icon: Icon(Icons.receipt_long_rounded), text: 'Live Preview'),
+                        Tab(
+                          icon: Icon(Icons.tune_rounded),
+                          text: 'Configuration',
+                        ),
+                        Tab(
+                          icon: Icon(Icons.receipt_long_rounded),
+                          text: 'Live Preview',
+                        ),
                       ],
                     ),
                     Expanded(
@@ -377,12 +403,22 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
   Widget _buildPreviewHeader() {
     return Card(
       elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(120),
+      color: Theme.of(
+        context,
+      ).colorScheme.surfaceContainerHighest.withAlpha(120),
       child: Padding(
         padding: const EdgeInsets.all(12.0),
         child: Row(
           children: [
-            const Icon(Icons.remove_red_eye_outlined, size: 20),
+            DropdownButton<bool>(
+              value: _previewSale,
+              items: const [
+                DropdownMenuItem(value: true, child: Text('Sales')),
+                DropdownMenuItem(value: false, child: Text('Repairs')),
+              ],
+              onChanged:
+                  (value) => setState(() => _previewSale = value ?? true),
+            ),
             const SizedBox(width: 8),
             const Expanded(
               child: Text(
@@ -461,9 +497,11 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                     border: OutlineInputBorder(),
                   ),
                   onChanged: (_) => setState(() {}),
-                  validator: (v) => v == null || v.trim().isEmpty
-                      ? 'Shop name is required'
-                      : null,
+                  validator:
+                      (v) =>
+                          v == null || v.trim().isEmpty
+                              ? 'Shop name is required'
+                              : null,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -483,9 +521,12 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                     Expanded(
                       child: TextFormField(
                         controller: _phoneController,
+                        minLines: 1,
+                        maxLines: 3,
                         enabled: !isSaving,
                         decoration: const InputDecoration(
                           labelText: 'Contact Phone / WhatsApp',
+                          helperText: 'Names and multiple numbers supported',
                           hintText: 'e.g., 0300-1234567',
                           prefixIcon: Icon(Icons.phone_outlined),
                           border: OutlineInputBorder(),
@@ -526,10 +567,11 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                           child: Image.file(
                             File(_logoPath!),
                             fit: BoxFit.contain,
-                            errorBuilder: (_, _, _) => const Icon(
-                              Icons.broken_image_outlined,
-                              color: Colors.grey,
-                            ),
+                            errorBuilder:
+                                (_, _, _) => const Icon(
+                                  Icons.broken_image_outlined,
+                                  color: Colors.grey,
+                                ),
                           ),
                         ),
                       ),
@@ -540,14 +582,19 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _logoPath != null ? 'Shop Logo Uploaded' : 'Shop Logo (Optional)',
+                            _logoPath != null
+                                ? 'Shop Logo Uploaded'
+                                : 'Shop Logo (Optional)',
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           Text(
                             _logoPath != null
                                 ? 'Image will be rendered on thermal receipts'
                                 : 'Upload black & white or high-contrast logo',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
                         ],
                       ),
@@ -555,10 +602,14 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                     if (_logoPath != null)
                       IconButton(
                         tooltip: 'Remove Logo',
-                        onPressed: isSaving
-                            ? null
-                            : () => setState(() => _logoPath = null),
-                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed:
+                            isSaving
+                                ? null
+                                : () => setState(() => _logoPath = null),
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.red,
+                        ),
                       ),
                     OutlinedButton.icon(
                       onPressed: isSaving || _isPickingLogo ? null : _pickLogo,
@@ -572,7 +623,9 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Show Logo on Receipt'),
-                    subtitle: const Text('Toggle logo visibility on printed receipts'),
+                    subtitle: const Text(
+                      'Toggle logo visibility on printed receipts',
+                    ),
                     value: _showLogo,
                     onChanged: (val) => setState(() => _showLogo = val),
                   ),
@@ -591,7 +644,9 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
               children: [
                 SwitchListTile(
                   title: const Text('Print Barcode (Code128)'),
-                  subtitle: const Text('Allows instant lookup with barcode scanner'),
+                  subtitle: const Text(
+                    'Allows instant lookup with barcode scanner',
+                  ),
                   secondary: const Icon(Icons.qr_code_2_rounded),
                   value: _showBarcode,
                   onChanged: (v) {
@@ -685,7 +740,8 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                     maxLines: 4,
                     decoration: const InputDecoration(
                       labelText: 'Terms & Conditions Text',
-                      hintText: 'Enter warranty policy, pickup window, disclaimer...',
+                      hintText:
+                          'Enter warranty policy, pickup window, disclaimer...',
                       border: OutlineInputBorder(),
                     ),
                     onChanged: (_) => setState(() {}),
@@ -720,16 +776,17 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
               const Spacer(),
               FilledButton.icon(
                 onPressed: isSaving ? null : _saveConfig,
-                icon: isSaving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.check_rounded),
+                icon:
+                    isSaving
+                        ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                        : const Icon(Icons.check_rounded),
                 label: const Text('Save Configuration'),
               ),
             ],
@@ -758,7 +815,11 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
           children: [
             Row(
               children: [
-                Icon(icon, size: 22, color: Theme.of(context).colorScheme.primary),
+                Icon(
+                  icon,
+                  size: 22,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 const SizedBox(width: 10),
                 Text(
                   title,
@@ -779,9 +840,10 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
 
   Widget _buildLivePreviewCard() {
     final is58mm = _paperSize.contains('58');
-    final shopName = _shopNameController.text.trim().isNotEmpty
-        ? _shopNameController.text.trim()
-        : 'Mobile Care & Services';
+    final shopName =
+        _shopNameController.text.trim().isNotEmpty
+            ? _shopNameController.text.trim()
+            : 'Mobile Care & Services';
     final subtitle = _subtitleController.text.trim();
     final phone = _phoneController.text.trim();
     final address = _addressController.text.trim();
@@ -789,27 +851,35 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
     final footer = _footerController.text.trim();
     final dateStr = DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.now());
 
-    final mono = GoogleFonts.courierPrime(
+    final mono = TextStyle(
+      fontFamily: 'ReceiptSans',
+      fontFamilyFallback: const ['ReceiptArabic'],
       fontSize: is58mm ? 10.5 : 12.0,
       color: Colors.black87,
       height: 1.25,
     );
 
-    final monoBold = GoogleFonts.courierPrime(
+    final monoBold = TextStyle(
+      fontFamily: 'ReceiptSans',
+      fontFamilyFallback: const ['ReceiptArabic'],
       fontSize: is58mm ? 11.0 : 12.5,
       fontWeight: FontWeight.bold,
       color: Colors.black,
       height: 1.25,
     );
 
-    final monoTitle = GoogleFonts.courierPrime(
+    final monoTitle = TextStyle(
+      fontFamily: 'ReceiptSans',
+      fontFamilyFallback: const ['ReceiptArabic'],
       fontSize: is58mm ? 14.0 : 16.0,
       fontWeight: FontWeight.bold,
       color: Colors.black,
       height: 1.2,
     );
 
-    final monoSmall = GoogleFonts.courierPrime(
+    final monoSmall = TextStyle(
+      fontFamily: 'ReceiptSans',
+      fontFamilyFallback: const ['ReceiptArabic'],
       fontSize: is58mm ? 8.5 : 9.5,
       color: Colors.black54,
       height: 1.2,
@@ -894,69 +964,129 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
 
             // Shop Header
             Text(shopName, textAlign: TextAlign.center, style: monoTitle),
-            if (subtitle.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(subtitle, textAlign: TextAlign.center, style: mono),
-            ],
-            if (phone.isNotEmpty) ...[
-              Text('Tel: $phone', textAlign: TextAlign.center, style: monoSmall),
-            ],
-            if (address.isNotEmpty) ...[
+            if (address.isNotEmpty)
               Text(address, textAlign: TextAlign.center, style: monoSmall),
-            ],
+            if (phone.isNotEmpty)
+              Text(phone, textAlign: TextAlign.center, style: monoSmall),
+            if (_email?.isNotEmpty == true)
+              Text(_email!, textAlign: TextAlign.center, style: monoSmall),
+            if (subtitle.isNotEmpty)
+              Text(subtitle, textAlign: TextAlign.center, style: mono),
 
             receiptDivider(),
 
-            Center(
-              child: Text(
-                'REPAIR INTAKE RECEIPT',
+            if (_previewSale) ...[
+              Text(
+                'SALES RECEIPT',
+                textAlign: TextAlign.center,
                 style: monoBold,
               ),
-            ),
-            const SizedBox(height: 4),
-            lineRow('Ticket No', 'TK-2026-0891', isBold: true),
-            lineRow('Date', dateStr),
-            lineRow('Status', 'IN_PROGRESS'),
-
-            receiptDivider(),
-
-            lineRow('Customer', 'Muhammad Ali', isBold: true),
-            if (_showCustomerPhone) lineRow('Phone', '0300-1234567'),
-
-            const SizedBox(height: 4),
-            lineRow('Device', 'Samsung Galaxy S23 Ultra', isBold: true),
-            if (_showDeviceColor) lineRow('Color', 'Phantom Black'),
-            if (_showDeviceImei) lineRow('IMEI', '864209040123456'),
-            if (_showTechnician) lineRow('Tech', 'Asif'),
-            if (_showEstimatedDate) lineRow('Est. Date', '24-Aug-2026'),
-
-            receiptDivider(),
-
-            Text('Reported Fault:', style: monoBold),
-            const SizedBox(height: 2),
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade400, width: 0.5),
-                borderRadius: BorderRadius.circular(2),
+              lineRow('Bill #', 'DEMO-001', isBold: true),
+              lineRow('Date', dateStr),
+              lineRow('Customer', 'COUNTER SALE', isBold: true),
+              lineRow('Remarks', 'Sample receipt'),
+              receiptDivider(),
+              Table(
+                border: TableBorder.all(color: Colors.black54, width: 0.5),
+                columnWidths: const {
+                  0: FlexColumnWidth(0.4),
+                  1: FlexColumnWidth(2.5),
+                  2: FlexColumnWidth(0.55),
+                  3: FlexColumnWidth(1.2),
+                  4: FlexColumnWidth(0.9),
+                  5: FlexColumnWidth(1.45),
+                },
+                children: [
+                  for (final row in [
+                    ['#', 'Item Details', 'Qty', 'Price', 'Dis.', 'Amount'],
+                    for (final entry
+                        in ReceiptService.previewSale().items.indexed)
+                      [
+                        '${entry.$1 + 1}',
+                        entry.$2.productName,
+                        '${entry.$2.quantity}',
+                        ReceiptLayout.money(entry.$2.unitPrice),
+                        ReceiptLayout.money(entry.$2.discountAmount),
+                        ReceiptLayout.money(entry.$2.lineTotal),
+                      ],
+                  ])
+                    TableRow(
+                      children: [
+                        for (var i = 0; i < row.length; i++)
+                          Padding(
+                            padding: const EdgeInsets.all(2),
+                            child:
+                                i == 1
+                                    ? Text(row[i], style: monoSmall)
+                                    : FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(row[i], style: monoSmall),
+                                    ),
+                          ),
+                      ],
+                    ),
+                ],
               ),
-              child: Text(
-                'Screen glass broken, touch working fine. Display replacement requested.',
-                style: mono,
+              lineRow('Total Qty', '3'),
+              lineRow('Subtotal', 'Rs 3,300'),
+              Container(
+                color: Colors.grey.shade200,
+                padding: const EdgeInsets.all(4),
+                child: lineRow('GRAND TOTAL', 'Rs 3,300', isBold: true),
               ),
-            ),
+              lineRow('Bill Paid', 'Rs 3,300'),
+              lineRow('Balance Due', 'Rs 0', isBold: true),
+              lineRow('Cash', 'Rs 3,300'),
+            ] else ...[
+              Center(child: Text('REPAIR INTAKE RECEIPT', style: monoBold)),
+              const SizedBox(height: 4),
+              lineRow('Ticket No', 'TK-2026-0891', isBold: true),
+              lineRow('Date', dateStr),
+              lineRow('Status', 'IN_PROGRESS'),
 
-            receiptDivider(),
+              receiptDivider(),
 
-            lineRow('Estimated Cost', 'Rs 18,500', isBold: true),
-            lineRow('Advance Paid', 'Rs 5,000'),
-            lineRow('Balance Due', 'Rs 13,500', isBold: true),
+              lineRow('Customer', 'Muhammad Ali', isBold: true),
+              if (_showCustomerPhone) lineRow('Phone', '0300-1234567'),
+
+              const SizedBox(height: 4),
+              lineRow('Device', 'Samsung Galaxy S23 Ultra', isBold: true),
+              if (_showDeviceColor) lineRow('Color', 'Phantom Black'),
+              if (_showDeviceImei) lineRow('IMEI', '864209040123456'),
+              if (_showTechnician) lineRow('Tech', 'Asif'),
+              if (_showEstimatedDate) lineRow('Est. Date', '24-Aug-2026'),
+
+              receiptDivider(),
+
+              Text('Reported Fault:', style: monoBold),
+              const SizedBox(height: 2),
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade400, width: 0.5),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+                child: Text(
+                  'Screen glass broken, touch working fine. Display replacement requested.',
+                  style: mono,
+                ),
+              ),
+
+              receiptDivider(),
+
+              lineRow('Estimated Cost', 'Rs 18,500', isBold: true),
+              lineRow('Advance Paid', 'Rs 5,000'),
+              lineRow('Balance Due', 'Rs 13,500', isBold: true),
+            ],
 
             if (_showBarcode || _showQrCode) ...[
               const SizedBox(height: 8),
               Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.grey.shade100,
                     border: Border.all(color: Colors.grey.shade300, width: 0.5),
@@ -967,7 +1097,10 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                         _showQrCode ? Icons.qr_code_2 : Icons.barcode_reader,
                         size: is58mm ? 36 : 48,
                       ),
-                      Text('*TK-2026-0891*', style: monoSmall),
+                      Text(
+                        _previewSale ? '*DEMO-001*' : '*TK-2026-0891*',
+                        style: monoSmall,
+                      ),
                     ],
                   ),
                 ),
@@ -978,7 +1111,14 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
               receiptDivider(),
               Text('Terms & Conditions:', style: monoBold),
               const SizedBox(height: 2),
-              Text(terms, style: monoSmall),
+              Text(
+                terms,
+                style: monoSmall,
+                textDirection:
+                    RegExp(r'[\u0600-\u06ff]').hasMatch(terms)
+                        ? TextDirection.rtl
+                        : TextDirection.ltr,
+              ),
             ],
 
             if (_showCustomerSignature) ...[
@@ -992,10 +1132,7 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
             ],
 
             const SizedBox(height: 8),
-            Container(
-              height: 4,
-              color: Colors.grey.shade200,
-            ),
+            Container(height: 4, color: Colors.grey.shade200),
           ],
         ),
       ),
