@@ -118,10 +118,37 @@ class CartNotifier extends StateNotifier<CartState> {
 
   // ── Item Operations ──────────────────────────────
 
+  bool _matchesItem(CartItemModel item, String keyOrProductId, [String? imei]) {
+    if (imei != null && imei.isNotEmpty) {
+      return item.productId == keyOrProductId && item.imei == imei;
+    }
+    return item.cartKey == keyOrProductId ||
+        (item.productId == keyOrProductId && (item.imei == null || item.imei!.isEmpty));
+  }
+
   // Product add karo cart mein
   void addItem(CartItemModel item) {
+    if (item.isUnitItem) {
+      // Unit-based item (Used phone or IMEI-serialized device)
+      // Check if this exact unit (by IMEI) is already in the cart
+      final existingExact = state.items.indexWhere(
+        (e) =>
+            e.imei != null &&
+            e.imei!.trim().toLowerCase() == item.imei!.trim().toLowerCase(),
+      );
+      if (existingExact != -1) {
+        // Already in cart - cannot add duplicate unit
+        return;
+      }
+      // Add as separate line item with quantity = 1
+      state = state.copyWith(
+        items: [...state.items, item.copyWith(quantity: 1)],
+      );
+      return;
+    }
+
     final existing = state.items.indexWhere(
-      (e) => e.productId == item.productId,
+      (e) => e.productId == item.productId && !e.isUnitItem,
     );
 
     if (existing != -1) {
@@ -148,24 +175,28 @@ class CartNotifier extends StateNotifier<CartState> {
     }
   }
 
-  // Quantity increment
-  void incrementItem(String productId) {
+  // Quantity increment (unit items locked to 1)
+  void incrementItem(String keyOrProductId, {String? imei}) {
     final updated =
         state.items.map((item) {
-          return item.productId == productId
-              ? item.copyWith(
-                quantity: _stockSafeQuantity(item, item.quantity + 1),
-              )
-              : item;
+          if (_matchesItem(item, keyOrProductId, imei)) {
+            if (item.isUnitItem) return item;
+            return item.copyWith(
+              quantity: _stockSafeQuantity(item, item.quantity + 1),
+            );
+          }
+          return item;
         }).toList();
     state = state.copyWith(items: updated);
   }
 
   // Quantity decrement (1 se neeche gaya → remove)
-  void decrementItem(String productId) {
+  void decrementItem(String keyOrProductId, {String? imei}) {
     final updated =
         state.items.map((item) {
-          return item.productId == productId ? item.decrementQty() : item;
+          return _matchesItem(item, keyOrProductId, imei)
+              ? item.decrementQty()
+              : item;
         }).toList();
     // Agar quantity 1 pe hai aur decrement kiya → ab bhi 1 rahega
     // Remove alag method se
@@ -173,9 +204,11 @@ class CartNotifier extends StateNotifier<CartState> {
   }
 
   // Item remove karo
-  void removeItem(String productId) {
+  void removeItem(String keyOrProductId, {String? imei}) {
     final remaining =
-        state.items.where((item) => item.productId != productId).toList();
+        state.items
+            .where((item) => !_matchesItem(item, keyOrProductId, imei))
+            .toList();
     if (remaining.length == state.items.length) return;
     if (remaining.isEmpty) {
       clearCart();
@@ -185,36 +218,37 @@ class CartNotifier extends StateNotifier<CartState> {
       items: remaining,
       discountApprovals:
           state.discountApprovals
-              .where((approval) => approval.productId != productId)
+              .where((approval) => approval.productId != keyOrProductId)
               .toList(),
     );
   }
 
   // Item discount set karo
   void setItemDiscount(
-    String productId,
+    String keyOrProductId,
     double discount, {
     DiscountApprovalModel? approval,
+    String? imei,
   }) {
     final updated =
         state.items.map((item) {
-          return item.productId == productId
+          return _matchesItem(item, keyOrProductId, imei)
               ? item.copyWith(discountAmount: discount)
               : item;
         }).toList();
     final approvals = [
       for (final existing in state.discountApprovals)
-        if (existing.productId != productId) existing,
+        if (existing.productId != keyOrProductId) existing,
       if (approval != null) approval,
     ];
     state = state.copyWith(items: updated, discountApprovals: approvals);
   }
 
-  void setItemPrice(String productId, double unitPrice) {
+  void setItemPrice(String keyOrProductId, double unitPrice, {String? imei}) {
     final safePrice = unitPrice < 0 ? 0.0 : unitPrice;
     final updated =
         state.items.map((item) {
-          if (item.productId != productId) return item;
+          if (!_matchesItem(item, keyOrProductId, imei)) return item;
           return item.copyWith(
             unitPrice: safePrice,
             discountAmount:
@@ -227,16 +261,16 @@ class CartNotifier extends StateNotifier<CartState> {
   }
 
   // Quantity directly set karo
-  void setItemQuantity(String productId, int quantity) {
+  void setItemQuantity(String keyOrProductId, int quantity, {String? imei}) {
     if (quantity <= 0) {
-      removeItem(productId);
+      removeItem(keyOrProductId, imei: imei);
       return;
     }
     final updated =
         state.items.map((item) {
-          return item.productId == productId
-              ? item.copyWith(quantity: _stockSafeQuantity(item, quantity))
-              : item;
+          if (!_matchesItem(item, keyOrProductId, imei)) return item;
+          if (item.isUnitItem) return item;
+          return item.copyWith(quantity: _stockSafeQuantity(item, quantity));
         }).toList();
     state = state.copyWith(items: updated);
   }

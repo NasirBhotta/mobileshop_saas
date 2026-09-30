@@ -364,7 +364,7 @@ class ThermalReceiptService {
       return await Printing.layoutPdf(
         name: 'RepairTicket_$ticketNo.pdf',
         format: format,
-        usePrinterSettings: true,
+        usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );
     } catch (e) {
@@ -383,7 +383,7 @@ class ThermalReceiptService {
       return await Printing.layoutPdf(
         name: 'TestReceipt_${config.shopName}.pdf',
         format: format,
-        usePrinterSettings: true,
+        usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );
     } catch (e) {

@@ -8,6 +8,7 @@ import 'package:mobileshop_saas/core/utils/responsive.dart';
 import 'package:mobileshop_saas/features/buyin/data/models/customer_purchase_model.dart';
 import 'package:mobileshop_saas/features/buyin/data/services/buyin_thermal_receipt_service.dart';
 import 'package:mobileshop_saas/features/buyin/presentation/providers/customer_purchase_provider.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/widgets/product_sticker_dialog.dart';
 import 'package:mobileshop_saas/features/settings/presentation/providers/receipt_settings_provider.dart';
 
 class CustomerPurchasesListScreen extends ConsumerStatefulWidget {
@@ -378,7 +379,9 @@ class _CustomerPurchasesListScreenState extends ConsumerState<CustomerPurchasesL
             ),
             trailing: PopupMenuButton<String>(
               onSelected: (action) async {
-                if (action == 'print') {
+                if (action == 'sticker') {
+                  ProductStickerDialog.show(context, purchase: item);
+                } else if (action == 'print') {
                   final config = await ref.read(receiptConfigurationProvider.future);
                   await BuyInThermalReceiptService.printBuyInAgreement(
                     purchase: item,
@@ -398,6 +401,14 @@ class _CustomerPurchasesListScreenState extends ConsumerState<CustomerPurchasesL
                   child: ListTile(
                     leading: Icon(Icons.info_outline_rounded),
                     title: Text('View Details'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'sticker',
+                  child: ListTile(
+                    leading: Icon(Icons.qr_code_2_rounded),
+                    title: Text('Print Sticker (50x30)'),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
@@ -500,7 +511,12 @@ class _CustomerPurchasesListScreenState extends ConsumerState<CustomerPurchasesL
               icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 18),
               label: const Text('Delete Log', style: TextStyle(color: Colors.red)),
             ),
-            const Spacer(),
+            OutlinedButton.icon(
+              onPressed: () => ProductStickerDialog.show(context, purchase: purchase),
+              icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+              label: const Text('Print Sticker'),
+            ),
+            const SizedBox(width: 8),
             TextButton.icon(
               onPressed: () async {
                 final config = await ref.read(receiptConfigurationProvider.future);

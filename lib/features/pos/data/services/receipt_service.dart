@@ -86,6 +86,20 @@ class ReceiptService {
     ],
   );
 
+  static String _formatReceiptItemName(
+    CartItemModel item,
+    ReceiptConfigurationModel config,
+  ) {
+    final buffer = StringBuffer(item.productName);
+    if (item.deviceDetails != null && item.deviceDetails!.trim().isNotEmpty) {
+      buffer.write('\n${item.deviceDetails!.trim()}');
+    }
+    if (config.showDeviceImei && item.imei != null && item.imei!.trim().isNotEmpty) {
+      buffer.write('\nIMEI: ${item.imei!.trim()}');
+    }
+    return buffer.toString();
+  }
+
   static Future<pw.ImageProvider?> _loadLogoImage(String? logoPath) async {
     if (logoPath == null || logoPath.trim().isEmpty) return null;
     try {
@@ -256,7 +270,7 @@ class ReceiptService {
                   for (var i = 0; i < sale.items.length; i++)
                     _itemRow([
                       '${i + 1}',
-                      sale.items[i].productName,
+                      _formatReceiptItemName(sale.items[i], config),
                       '${sale.items[i].quantity}',
                       ReceiptLayout.money(sale.items[i].unitPrice),
                       ReceiptLayout.money(sale.items[i].discountAmount),
@@ -440,6 +454,12 @@ class ReceiptService {
       buffer.writeln(
         '${item.productName} x ${item.quantity} - Rs ${item.lineTotal.toStringAsFixed(0)}',
       );
+      if (item.deviceDetails != null && item.deviceDetails!.trim().isNotEmpty) {
+        buffer.writeln('  Details: ${item.deviceDetails!.trim()}');
+      }
+      if (cfg.showDeviceImei && item.imei != null && item.imei!.trim().isNotEmpty) {
+        buffer.writeln('  IMEI: ${item.imei!.trim()}');
+      }
     }
 
     buffer
@@ -503,27 +523,31 @@ class ReceiptService {
     branchId: 'demo',
     userId: 'demo',
     customerName: 'COUNTER SALE',
-    notes: 'Sample receipt',
-    subtotal: 3300,
-    discountAmount: 0,
+    notes: 'Sample receipt with phone & accessories',
+    subtotal: 45700,
+    discountAmount: 700,
     taxAmount: 0,
-    total: 3300,
+    total: 45000,
     createdAt: DateTime.now(),
     items: const [
       CartItemModel(
-        productId: 'demo-1',
-        productName: 'USB-C Cable',
-        unitPrice: 350,
-        quantity: 2,
+        productId: 'demo-phone',
+        productName: 'Samsung Galaxy A15',
+        deviceDetails: '6GB/128GB • Blue • PTA Approved',
+        imei: '864209040123456',
+        unitPrice: 45000,
+        discountAmount: 700,
+        quantity: 1,
       ),
       CartItemModel(
-        productId: 'demo-2',
-        productName: 'Wireless Earbuds Black',
-        unitPrice: 2600,
+        productId: 'demo-acc',
+        productName: 'Fast Charging Adapter 25W',
+        unitPrice: 700,
+        quantity: 1,
       ),
     ],
     payments: const [
-      SalePaymentModel(method: PaymentMethod.cash, amount: 3300),
+      SalePaymentModel(method: PaymentMethod.cash, amount: 45000),
     ],
   );
 
@@ -538,7 +562,7 @@ class ReceiptService {
     return Printing.layoutPdf(
       name: 'TestSalesReceipt.pdf',
       format: ReceiptLayout.pageFormat(config),
-      usePrinterSettings: true,
+      usePrinterSettings: false,
       onLayout: (_) async => bytes,
     );
   }
@@ -569,7 +593,7 @@ class ReceiptService {
       await Printing.layoutPdf(
         name: '${duplicate ? 'duplicate_' : ''}receipt_$invoice.pdf',
         format: format,
-        usePrinterSettings: true,
+        usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );
       return;
@@ -967,7 +991,7 @@ class ReceiptService {
       await Printing.layoutPdf(
         name: '${isDuplicate ? 'duplicate_' : ''}khata_receipt_$slipNo.pdf',
         format: format,
-        usePrinterSettings: true,
+        usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );
       return true;
@@ -1357,7 +1381,7 @@ class ReceiptService {
       await Printing.layoutPdf(
         name: 'khata_statement_$customerId.pdf',
         format: format,
-        usePrinterSettings: true,
+        usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );
       return true;

@@ -522,41 +522,124 @@ class PosRepository {
         quantity: item.quantity,
       );
 
-      // ── Update Customer Buy-In intake record status to 'sold' ──
-      try {
-        final soldPurchases = await OfflineStore.markCustomerPurchasesSold(
-          branchId: branchId,
-          productId: item.productId,
-          quantity: item.quantity,
-        );
+      // ── Update exact phone unit status (Used Phone & Serialized Units) ──
+      if (item.imei != null && item.imei!.trim().isNotEmpty) {
+        final cleanImei = item.imei!.trim();
 
-        for (final p in soldPurchases) {
-          try {
-            await _client
-                .from('customer_purchases')
-                .update({
-                  'status': 'sold',
-                  'updated_at': DateTime.now().toIso8601String(),
-                })
-                .eq('id', p.id)
-                .timeout(Network.networkTimeout);
-          } catch (e) {
-            debugPrint('Remote customer_purchases status update queued: $e');
+        // 1. Used phone / Customer Buy-in exact unit update
+        try {
+          final soldPurchase = await OfflineStore.markCustomerPurchaseSoldByImei(
+            branchId: branchId,
+            imei: cleanImei,
+          );
+
+          if (soldPurchase != null) {
             try {
-              await OfflineStore.enqueueMutation(
-                userId: user.id,
-                type: 'update_customer_buyin_status',
-                payload: {
-                  'id': p.id,
-                  'status': 'sold',
-                  'updated_at': DateTime.now().toIso8601String(),
-                },
-              );
-            } catch (_) {}
+              await _client
+                  .from('customer_purchases')
+                  .update({
+                    'status': 'sold',
+                    'updated_at': DateTime.now().toIso8601String(),
+                  })
+                  .eq('id', soldPurchase.id)
+                  .timeout(Network.networkTimeout);
+            } catch (e) {
+              debugPrint('Remote customer_purchases exact unit update queued: $e');
+              try {
+                await OfflineStore.enqueueMutation(
+                  userId: user.id,
+                  type: 'update_customer_buyin_status',
+                  payload: {
+                    'id': soldPurchase.id,
+                    'status': 'sold',
+                    'updated_at': DateTime.now().toIso8601String(),
+                  },
+                );
+              } catch (_) {}
+            }
           }
+        } catch (e) {
+          debugPrint('Error updating customer buyin exact unit on sale: $e');
         }
-      } catch (e) {
-        debugPrint('Error updating customer buyin status on sale: $e');
+
+        // 2. Inventory unit exact unit update
+        try {
+          final soldUnit = await OfflineStore.markInventoryUnitSoldByImei(
+            branchId: branchId,
+            imei: cleanImei,
+            saleId: saleId,
+            customerId: effectiveCustomerId,
+          );
+
+          if (soldUnit != null) {
+            try {
+              await _client
+                  .from('inventory_units')
+                  .update({
+                    'status': 'sold',
+                    'sale_id': saleId,
+                    'customer_id': effectiveCustomerId,
+                    'updated_at': DateTime.now().toIso8601String(),
+                  })
+                  .eq('id', soldUnit.id)
+                  .timeout(Network.networkTimeout);
+            } catch (e) {
+              debugPrint('Remote inventory_units exact unit update queued: $e');
+              try {
+                await OfflineStore.enqueueMutation(
+                  userId: user.id,
+                  type: 'update_inventory_unit_status',
+                  payload: {
+                    'id': soldUnit.id,
+                    'status': 'sold',
+                    'sale_id': saleId,
+                    'customer_id': effectiveCustomerId,
+                    'updated_at': DateTime.now().toIso8601String(),
+                  },
+                );
+              } catch (_) {}
+            }
+          }
+        } catch (e) {
+          debugPrint('Error updating inventory unit exact unit on sale: $e');
+        }
+      } else {
+        // Fallback for non-serialized stock intake: FIFO buyin mark
+        try {
+          final soldPurchases = await OfflineStore.markCustomerPurchasesSold(
+            branchId: branchId,
+            productId: item.productId,
+            quantity: item.quantity,
+          );
+
+          for (final p in soldPurchases) {
+            try {
+              await _client
+                  .from('customer_purchases')
+                  .update({
+                    'status': 'sold',
+                    'updated_at': DateTime.now().toIso8601String(),
+                  })
+                  .eq('id', p.id)
+                  .timeout(Network.networkTimeout);
+            } catch (e) {
+              debugPrint('Remote customer_purchases status update queued: $e');
+              try {
+                await OfflineStore.enqueueMutation(
+                  userId: user.id,
+                  type: 'update_customer_buyin_status',
+                  payload: {
+                    'id': p.id,
+                    'status': 'sold',
+                    'updated_at': DateTime.now().toIso8601String(),
+                  },
+                );
+              } catch (_) {}
+            }
+          }
+        } catch (e) {
+          debugPrint('Error updating customer buyin status on sale: $e');
+        }
       }
     }
 

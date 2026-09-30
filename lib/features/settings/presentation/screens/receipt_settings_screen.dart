@@ -8,6 +8,7 @@ import 'package:intl/intl.dart' show DateFormat;
 import 'package:mobileshop_saas/features/pos/data/services/receipt_service.dart';
 import 'package:mobileshop_saas/core/printing/receipt_layout.dart';
 import 'package:mobileshop_saas/core/constants/app_colors.dart';
+import 'package:mobileshop_saas/features/inventory/data/services/product_sticker_service.dart';
 import 'package:mobileshop_saas/features/repairs/data/services/thermal_receipt_service.dart';
 import 'package:mobileshop_saas/features/settings/data/models/receipt_configuration_model.dart';
 import 'package:mobileshop_saas/features/settings/presentation/providers/receipt_settings_provider.dart';
@@ -256,6 +257,22 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
     }
   }
 
+  Future<void> _testStickerPrint() async {
+    setState(() => _isTestPrinting = true);
+    try {
+      final config = _getCurrentConfig();
+      await ProductStickerService.printTestSticker(shopName: config.shopName);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sticker test print error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isTestPrinting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final configAsync = ref.watch(receiptConfigurationProvider);
@@ -268,7 +285,7 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
         title: const Text('Receipt & Printer Layout'),
         actions: [
           IconButton(
-            tooltip: 'Test Print',
+            tooltip: 'Test Receipt Print (Continuous Roll)',
             onPressed: _isTestPrinting ? null : _testPrint,
             icon:
                 _isTestPrinting
@@ -278,6 +295,11 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                     : const Icon(Icons.print_outlined),
+          ),
+          IconButton(
+            tooltip: 'Test Sticker Print (50x30mm Gap Roll)',
+            onPressed: _isTestPrinting ? null : _testStickerPrint,
+            icon: const Icon(Icons.qr_code_2_rounded),
           ),
           Padding(
             padding: const EdgeInsets.only(right: 12.0, left: 4.0),
@@ -429,7 +451,13 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
             OutlinedButton.icon(
               onPressed: _isTestPrinting ? null : _testPrint,
               icon: const Icon(Icons.print, size: 16),
-              label: const Text('Test Print'),
+              label: const Text('Test Receipt'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: _isTestPrinting ? null : _testStickerPrint,
+              icon: const Icon(Icons.qr_code_2_rounded, size: 16),
+              label: const Text('Test Sticker (50×30)'),
             ),
           ],
         ),
@@ -474,6 +502,37 @@ class _ReceiptSettingsScreenState extends ConsumerState<ReceiptSettingsScreen> {
                       _paperSize = newSelection.first;
                     });
                   },
+                ),
+                const SizedBox(height: 14),
+                const Divider(),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'Thermal Sticker Roll (50 × 30 mm)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Speed-X SP-690UB & label printers. Test gap alignment & barcode scan.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _isTestPrinting ? null : _testStickerPrint,
+                      icon: const Icon(Icons.qr_code_2_rounded, size: 16),
+                      label: const Text('Test Sticker'),
+                    ),
+                  ],
                 ),
               ],
             ),

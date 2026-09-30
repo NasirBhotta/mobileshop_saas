@@ -512,6 +512,21 @@ class LocalDatabase {
       column: 'cogs_total',
       definition: 'REAL',
     );
+    await _addColumnIfMissing(
+      table: 'sale_items',
+      column: 'imei',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'sale_items',
+      column: 'device_details',
+      definition: 'TEXT',
+    );
+    await _addColumnIfMissing(
+      table: 'sale_items',
+      column: 'unit_id',
+      definition: 'TEXT',
+    );
 
     await _db.customStatement('''
     CREATE TABLE IF NOT EXISTS sale_payments (

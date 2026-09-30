@@ -18,6 +18,7 @@ import 'package:mobileshop_saas/features/buyin/presentation/providers/customer_p
 import 'package:mobileshop_saas/features/inventory/data/models/category_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/widgets/product_sticker_dialog.dart';
 import 'package:mobileshop_saas/features/settings/presentation/providers/receipt_settings_provider.dart';
 
 class CustomerPurchaseFormScreen extends ConsumerStatefulWidget {
@@ -284,6 +285,11 @@ class _CustomerPurchaseFormScreenState extends ConsumerState<CustomerPurchaseFor
           ),
           actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           actions: [
+            OutlinedButton.icon(
+              onPressed: () => ProductStickerDialog.show(context, purchase: purchase),
+              icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+              label: const Text('Print Sticker'),
+            ),
             TextButton.icon(
               onPressed: () async {
                 final config = await ref.read(receiptConfigurationProvider.future);

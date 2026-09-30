@@ -139,7 +139,43 @@ class ProductModel {
     'category_threshold': categoryThreshold,
   };
 
-  Object? copyWith({required int stock}) {
-    return null;
+  ProductModel copyWith({
+    String? id,
+    String? tenantId,
+    String? branchId,
+    String? categoryId,
+    String? categoryName,
+    String? name,
+    String? sku,
+    String? barcode,
+    String? description,
+    double? salePrice,
+    double? costPrice,
+    bool? imeiTracked,
+    bool? isActive,
+    int? stock,
+    int? reorderThreshold,
+    int? branchThreshold,
+    int? categoryThreshold,
+  }) {
+    return ProductModel(
+      id: id ?? this.id,
+      tenantId: tenantId ?? this.tenantId,
+      branchId: branchId ?? this.branchId,
+      categoryId: categoryId ?? this.categoryId,
+      categoryName: categoryName ?? this.categoryName,
+      name: name ?? this.name,
+      sku: sku ?? this.sku,
+      barcode: barcode ?? this.barcode,
+      description: description ?? this.description,
+      salePrice: salePrice ?? this.salePrice,
+      costPrice: costPrice ?? this.costPrice,
+      imeiTracked: imeiTracked ?? this.imeiTracked,
+      isActive: isActive ?? this.isActive,
+      stock: stock ?? this.stock,
+      reorderThreshold: reorderThreshold ?? this.reorderThreshold,
+      branchThreshold: branchThreshold ?? this.branchThreshold,
+      categoryThreshold: categoryThreshold ?? this.categoryThreshold,
+    );
   }
 }

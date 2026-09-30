@@ -897,11 +897,13 @@ class LocalStore {
         id, sale_id, product_id, product_name,
         product_sku, quantity, unit_price,
         unit_cost_at_sale, discount_amount, tax_rate,
-        cogs_total, line_total
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+        cogs_total, line_total, imei, device_details, unit_id
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ''',
         [
-          '${sale.id}_${item.productId}', // composite id
+          item.imei != null && item.imei!.isNotEmpty
+              ? '${sale.id}_${item.productId}_${item.imei}'
+              : '${sale.id}_${item.productId}',
           sale.id,
           item.productId,
           item.productName,
@@ -913,6 +915,9 @@ class LocalStore {
           item.taxRate,
           cogsTotal,
           item.lineTotal,
+          item.imei,
+          item.deviceDetails,
+          item.unitId,
         ],
       );
     }
@@ -1988,4 +1993,83 @@ class LocalStore {
     }
     return updatedList;
   }
+
+  static Future<CustomerPurchaseModel?> loadCustomerPurchaseByImei({
+    required String branchId,
+    required String imei,
+  }) async {
+    final cleanImei = imei.trim();
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM customer_purchases
+      WHERE branch_id = ? AND (imei1 = ? OR imei2 = ?) AND status = 'in_stock'
+      LIMIT 1
+      ''',
+      [branchId, cleanImei, cleanImei],
+    );
+    if (rows.isEmpty) return null;
+    return CustomerPurchaseModel.fromMap(rows.first);
+  }
+
+  static Future<CustomerPurchaseModel?> markCustomerPurchaseSoldByImei({
+    required String branchId,
+    required String imei,
+  }) async {
+    final cleanImei = imei.trim();
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM customer_purchases
+      WHERE branch_id = ? AND (imei1 = ? OR imei2 = ?) AND status = 'in_stock'
+      ORDER BY created_at ASC
+      LIMIT 1
+      ''',
+      [branchId, cleanImei, cleanImei],
+    );
+    if (rows.isEmpty) return null;
+    final purchase = CustomerPurchaseModel.fromMap(rows.first);
+    final updated = purchase.copyWith(
+      status: 'sold',
+      updatedAt: DateTime.now(),
+    );
+    await saveCustomerPurchase(updated);
+    return updated;
+  }
+
+  static Future<InventoryUnitModel?> markInventoryUnitSoldByImei({
+    required String branchId,
+    required String imei,
+    String? saleId,
+    String? customerId,
+  }) async {
+    final cleanImei = imei.trim();
+    final rows = await LocalDatabase.select(
+      '''
+      SELECT * FROM inventory_units
+      WHERE branch_id = ? AND imei = ?
+      LIMIT 1
+      ''',
+      [branchId, cleanImei],
+    );
+    if (rows.isEmpty) return null;
+    final unit = InventoryUnitModel.fromMap(rows.first);
+    final now = DateTime.now();
+    final updated = InventoryUnitModel(
+      id: unit.id,
+      tenantId: unit.tenantId,
+      branchId: unit.branchId,
+      productId: unit.productId,
+      imei: unit.imei,
+      status: InventoryUnitStatus.sold,
+      saleId: saleId ?? unit.saleId,
+      customerId: customerId ?? unit.customerId,
+      warrantyStartAt: now,
+      warrantyEndAt: unit.warrantyEndAt,
+      currentRepairTicketId: unit.currentRepairTicketId,
+      createdAt: unit.createdAt,
+      updatedAt: now,
+    );
+    await upsertInventoryUnit(updated);
+    return updated;
+  }
 }
+

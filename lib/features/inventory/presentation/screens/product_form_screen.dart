@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/utils/responsive.dart';
+import '../../../../core/utils/barcode_generator.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
 import '../../../../shared/widgets/loading_overlay.dart';
 import '../../../../shared/widgets/barcode_camera_scanner.dart';
@@ -15,6 +16,7 @@ import '../../data/models/price_history_model.dart';
 import '../../data/models/product_model.dart';
 import '../../../repairs/data/models/inventory_unit_model.dart';
 import '../providers/inventory_provider.dart';
+import '../widgets/product_sticker_dialog.dart';
 
 class ProductFormScreen extends ConsumerStatefulWidget {
   final ProductModel? product; // null = add, not null = edit
@@ -155,6 +157,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       }
     }
 
+    final enteredBarcode = _barcodeController.text.trim();
+    final effectiveBarcode = enteredBarcode.isNotEmpty ? enteredBarcode : null;
+
     final product = ProductModel(
       id: widget.product?.id ?? '',
       tenantId: '',
@@ -162,7 +167,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       categoryId: _selectedCategoryId,
       name: _nameController.text.trim(),
       sku: _skuController.text.trim(),
-      barcode: _barcodeController.text.trim(),
+      barcode: effectiveBarcode,
       description: _descController.text.trim(),
       salePrice: double.tryParse(_salePriceController.text) ?? 0,
       costPrice: double.tryParse(_costPriceController.text) ?? 0,
@@ -190,9 +195,19 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     }
 
     if (success && mounted) {
-      debugPrint('[DEBUG-PRODUCT-FORM] ✅ [Step 6] Popping form screen context. Total UI execution time: ${swTotal.elapsedMilliseconds}ms');
-      debugPrint('════════════════════════════════════════════════════════════════');
-      context.pop();
+      if (product.barcode != null && product.barcode!.trim().isNotEmpty) {
+        debugPrint('[DEBUG-PRODUCT-FORM] ✅ [Step 6] Product saved with barcode. Showing sticker print prompt.');
+        _showSuccessAndStickerOption(product);
+      } else {
+        debugPrint('[DEBUG-PRODUCT-FORM] ✅ [Step 6] Product saved without barcode.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${product.name} kamyabi se save ho gaya'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        context.pop();
+      }
     } else if (mounted) {
       final state = ref.read(productControllerProvider);
       final message = state.whenOrNull(error: (error, _) => error.toString());
@@ -202,6 +217,61 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         SnackBar(content: Text(message ?? 'Product save nahi ho saka')),
       );
     }
+  }
+
+  void _showSuccessAndStickerOption(ProductModel savedProduct) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.check_circle_rounded, color: AppColors.success, size: 26),
+            SizedBox(width: 8),
+            Expanded(child: Text('Product Save Ho Gaya!')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              savedProduct.name,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Barcode: ${savedProduct.barcode}',
+              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Kya aap Speed X SP-690UB par is product ka 50 × 30 mm thermal sticker print karna chahte hain?',
+              style: TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogCtx).pop();
+              context.pop();
+            },
+            child: const Text('Baad Mein / Done'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              Navigator.of(dialogCtx).pop();
+              await ProductStickerDialog.show(context, product: savedProduct);
+              if (mounted) context.pop();
+            },
+            icon: const Icon(Icons.print_rounded),
+            label: const Text('Print Sticker (50×30)'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _scanBarcode() async {
@@ -332,24 +402,58 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                     ),
 
                     _FormField(
-                      label: 'Barcode',
+                      label: 'Barcode (Optional)',
                       child: TextFormField(
                         controller: _barcodeController,
                         textInputAction: TextInputAction.next,
+                        onChanged: (_) => setState(() {}),
                         decoration: InputDecoration(
-                          hintText: 'Scan ya manually enter karein',
+                          hintText: 'Scan, type ya "Generate" karein',
                           helperText:
-                              'Desktop USB scanner barcode type karke Enter bhejta hai',
-                          suffixIcon:
-                              _cameraScannerSupported
-                                  ? IconButton(
-                                    onPressed: _scanBarcode,
-                                    tooltip: 'Camera se scan karein',
-                                    icon: const Icon(
-                                      Icons.qr_code_scanner_rounded,
+                              'Screen glass ya bulk accessories ke liye khali chhor sakte hain',
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                onPressed: () {
+                                  final newBarcode =
+                                      BarcodeGenerator.generateUniqueBarcode();
+                                  setState(() {
+                                    _barcodeController.text = newBarcode;
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Barcode generate ho gaya: $newBarcode'),
+                                      duration: const Duration(milliseconds: 1200),
                                     ),
-                                  )
-                                  : const Icon(Icons.qr_code_2_rounded),
+                                  );
+                                },
+                                tooltip: 'Auto-Generate Barcode',
+                                icon: const Icon(
+                                  Icons.auto_awesome_rounded,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              if (_barcodeController.text.isNotEmpty)
+                                IconButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _barcodeController.clear();
+                                    });
+                                  },
+                                  tooltip: 'Clear Barcode',
+                                  icon: const Icon(Icons.close_rounded, size: 20),
+                                ),
+                              if (_cameraScannerSupported)
+                                IconButton(
+                                  onPressed: _scanBarcode,
+                                  tooltip: 'Camera se scan karein',
+                                  icon: const Icon(
+                                    Icons.qr_code_scanner_rounded,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

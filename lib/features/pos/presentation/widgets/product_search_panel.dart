@@ -6,11 +6,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
+import '../../../../core/offline/offline_store.dart';
 import '../../../../shared/widgets/barcode_camera_scanner.dart';
 import '../../../inventory/data/models/product_model.dart';
 import '../../../inventory/presentation/providers/inventory_provider.dart';
+import '../../../onboarding/data/repositories/setup_flow_repository.dart';
+import '../../../repairs/data/models/inventory_unit_model.dart';
 import '../../data/models/cart_item_model.dart';
 import '../providers/pos_provider.dart';
+import 'product_unit_picker_dialog.dart';
 
 class ProductSearchPanel extends ConsumerStatefulWidget {
   const ProductSearchPanel({super.key});
@@ -55,6 +59,121 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
     setState(() => _resolvingBarcode = true);
 
     try {
+      String branchId = 'default_branch';
+      try {
+        branchId = await ref.read(selectedBranchIdProvider.future);
+      } catch (_) {}
+
+      // ── 1. Check if scanned code is an exact IMEI of an in-stock Used Phone ──
+      final usedPurchase = await OfflineStore.loadCustomerPurchaseByImei(
+        branchId: branchId,
+        imei: code,
+      );
+
+      if (usedPurchase != null) {
+        if (!mounted) return;
+        final cartItems = ref.read(cartProvider).items;
+        final alreadyInCart = cartItems.any(
+          (item) =>
+              item.imei != null &&
+              item.imei!.trim().toLowerCase() == usedPurchase.imei1.trim().toLowerCase(),
+        );
+
+        if (alreadyInCart) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Yeh Used Phone (IMEI: ${usedPurchase.imei1}) pehle se cart mein shamil hai'),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+        } else {
+          final specs = [
+            usedPurchase.storage,
+            usedPurchase.color,
+            usedPurchase.deviceCondition != null ? 'Cond: ${usedPurchase.deviceCondition}' : null,
+          ].where((e) => e != null && e.trim().isNotEmpty).join(' • ');
+
+          final cartItem = CartItemModel(
+            productId: usedPurchase.productId,
+            productName: usedPurchase.productName,
+            unitPrice: usedPurchase.expectedSalePrice > 0
+                ? usedPurchase.expectedSalePrice
+                : usedPurchase.purchasePrice,
+            unitCost: usedPurchase.purchasePrice,
+            quantity: 1,
+            availableStock: 1,
+            imei: usedPurchase.imei1.trim(),
+            deviceDetails: specs.isNotEmpty ? specs : 'Second-Hand Buy-In',
+            unitId: usedPurchase.id,
+          );
+
+          ref.read(cartProvider.notifier).addItem(cartItem);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${usedPurchase.productName} (IMEI: ${usedPurchase.imei1}) cart mein add ho gaya'),
+              backgroundColor: AppColors.success,
+              duration: const Duration(milliseconds: 1200),
+            ),
+          );
+        }
+        return;
+      }
+
+      // ── 2. Check if scanned code is an exact IMEI of an available InventoryUnitModel ──
+      final invUnit = await OfflineStore.loadInventoryUnitByImei(
+        branchId: branchId,
+        imei: code,
+      );
+
+      if (invUnit != null && invUnit.status == InventoryUnitStatus.available) {
+        if (!mounted) return;
+        final cartItems = ref.read(cartProvider).items;
+        final alreadyInCart = cartItems.any(
+          (item) =>
+              item.imei != null &&
+              item.imei!.trim().toLowerCase() == invUnit.imei.trim().toLowerCase(),
+        );
+
+        if (alreadyInCart) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Yeh Phone Unit (IMEI: ${invUnit.imei}) pehle se cart mein shamil hai'),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+        } else {
+          final cachedProducts = await OfflineStore.loadProducts(branchId);
+          final matchedProduct = cachedProducts.where((p) => p.id == invUnit.productId).firstOrNull;
+
+          final cartItem = CartItemModel(
+            productId: invUnit.productId,
+            productName: matchedProduct?.name ?? 'Phone Unit',
+            productSku: matchedProduct?.sku,
+            unitPrice: matchedProduct?.salePrice ?? 0,
+            unitCost: matchedProduct?.costPrice,
+            quantity: 1,
+            availableStock: 1,
+            imei: invUnit.imei.trim(),
+            deviceDetails: matchedProduct?.description?.trim().isNotEmpty == true
+                ? matchedProduct!.description!.trim()
+                : null,
+            unitId: invUnit.id,
+          );
+
+          ref.read(cartProvider.notifier).addItem(cartItem);
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${cartItem.productName} (IMEI: ${invUnit.imei}) cart mein add ho gaya'),
+              backgroundColor: AppColors.success,
+              duration: const Duration(milliseconds: 1200),
+            ),
+          );
+        }
+        return;
+      }
+
+      // ── 3. Standard Product Search by Barcode or SKU ──
       final products = await ref
           .read(inventoryRepositoryProvider)
           .searchProducts(query: code, limit: 20, preferRemote: false);
@@ -71,12 +190,15 @@ class _ProductSearchPanelState extends ConsumerState<ProductSearchPanel> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Barcode "$code" ka product nahi mila')),
         );
+      } else if (product.imeiTracked) {
+        // IMEI-tracked item scanned by generic product barcode: select unit
+        await ProductUnitPickerDialog.show(context, product);
       } else {
         final cartItem =
             ref
                 .read(cartProvider)
                 .items
-                .where((item) => item.productId == product.id)
+                .where((item) => item.productId == product.id && !item.isUnitItem)
                 .firstOrNull;
         if (product.isOutOfStock ||
             (cartItem != null && cartItem.quantity >= product.stock)) {
@@ -325,16 +447,20 @@ class _ProductTile extends ConsumerWidget {
 
     final isOutOfStock = product.isOutOfStock;
     final isAtStockLimit =
-        cartItem != null && cartItem.quantity >= product.stock;
+        !product.imeiTracked && cartItem != null && cartItem.quantity >= product.stock;
 
     return InkWell(
       onTap:
           isOutOfStock || isAtStockLimit
               ? null
               : () {
-                ref
-                    .read(cartProvider.notifier)
-                    .addItem(CartItemModel.fromProduct(product));
+                if (product.imeiTracked) {
+                  ProductUnitPickerDialog.show(context, product);
+                } else {
+                  ref
+                      .read(cartProvider.notifier)
+                      .addItem(CartItemModel.fromProduct(product));
+                }
               },
       borderRadius: BorderRadius.circular(10),
       child: Container(
@@ -415,6 +541,27 @@ class _ProductTile extends ConsumerWidget {
                           ),
                         ),
                       ),
+                      if (product.imeiTracked) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'IMEI Tracked',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ],

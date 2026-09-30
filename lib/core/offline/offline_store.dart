@@ -1371,4 +1371,109 @@ class OfflineStore {
         ? localUpdated
         : updatedAll.where((p) => p.productId == productId && p.status == 'sold').toList();
   }
+
+  static Future<CustomerPurchaseModel?> loadCustomerPurchaseByImei({
+    required String branchId,
+    required String imei,
+  }) async {
+    try {
+      final local = await LocalStore.loadCustomerPurchaseByImei(
+        branchId: branchId,
+        imei: imei,
+      );
+      if (local != null) return local;
+    } catch (_) {}
+
+    final current = await loadCustomerPurchases(branchId);
+    final cleanImei = imei.trim();
+    for (final p in current) {
+      if ((p.imei1.trim() == cleanImei || p.imei2?.trim() == cleanImei) &&
+          p.status == 'in_stock') {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  static Future<CustomerPurchaseModel?> markCustomerPurchaseSoldByImei({
+    required String branchId,
+    required String imei,
+  }) async {
+    CustomerPurchaseModel? localUpdated;
+    try {
+      localUpdated = await LocalStore.markCustomerPurchaseSoldByImei(
+        branchId: branchId,
+        imei: imei,
+      );
+    } catch (_) {}
+
+    final cleanImei = imei.trim();
+    final current = await loadCustomerPurchases(branchId);
+    final now = DateTime.now();
+    final updatedAll = current.map((p) {
+      if ((p.imei1.trim() == cleanImei || p.imei2?.trim() == cleanImei) &&
+          p.status == 'in_stock') {
+        return p.copyWith(status: 'sold', updatedAt: now);
+      }
+      return p;
+    }).toList();
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _customerPurchasesKey(branchId),
+      jsonEncode(updatedAll.map((p) => p.toMap()).toList()),
+    );
+
+    return localUpdated;
+  }
+
+  static Future<InventoryUnitModel?> markInventoryUnitSoldByImei({
+    required String branchId,
+    required String imei,
+    String? saleId,
+    String? customerId,
+  }) async {
+    InventoryUnitModel? localUpdated;
+    try {
+      localUpdated = await LocalStore.markInventoryUnitSoldByImei(
+        branchId: branchId,
+        imei: imei,
+        saleId: saleId,
+        customerId: customerId,
+      );
+    } catch (_) {}
+
+    final cleanImei = imei.trim();
+    final current = await loadInventoryUnits(branchId);
+    final now = DateTime.now();
+    final updatedAll = current.map((u) {
+      if (u.imei.trim() == cleanImei && u.status == InventoryUnitStatus.available) {
+        return InventoryUnitModel(
+          id: u.id,
+          tenantId: u.tenantId,
+          branchId: u.branchId,
+          productId: u.productId,
+          imei: u.imei,
+          status: InventoryUnitStatus.sold,
+          saleId: saleId ?? u.saleId,
+          customerId: customerId ?? u.customerId,
+          warrantyStartAt: now,
+          warrantyEndAt: u.warrantyEndAt,
+          currentRepairTicketId: u.currentRepairTicketId,
+          createdAt: u.createdAt,
+          updatedAt: now,
+        );
+      }
+      return u;
+    }).toList();
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _inventoryUnitsKey(branchId),
+      jsonEncode(updatedAll.map((u) => u.toCacheMap()).toList()),
+    );
+
+    return localUpdated;
+  }
 }
+

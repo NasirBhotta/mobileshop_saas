@@ -32,7 +32,10 @@ class ReceiptLayout {
     return PdfPageFormat(
       (narrow ? 58 : 80) * PdfPageFormat.mm,
       double.infinity,
-      marginAll: (narrow ? 2.5 : 4) * PdfPageFormat.mm,
+      marginTop: 2 * PdfPageFormat.mm,
+      marginBottom: 3 * PdfPageFormat.mm,
+      marginLeft: (narrow ? 3 : 5.5) * PdfPageFormat.mm,
+      marginRight: (narrow ? 2.5 : 4) * PdfPageFormat.mm,
     );
   }
 

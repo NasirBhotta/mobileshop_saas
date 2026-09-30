@@ -45,7 +45,7 @@ class CartItemTile extends ConsumerWidget {
                 onTap:
                     () => ref
                         .read(cartProvider.notifier)
-                        .removeItem(item.productId),
+                        .removeItem(item.cartKey),
                 child: const Icon(
                   Icons.close_rounded,
                   size: 18,
@@ -54,6 +54,54 @@ class CartItemTile extends ConsumerWidget {
               ),
             ],
           ),
+          if (item.deviceDetails != null &&
+              item.deviceDetails!.trim().isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                item.deviceDetails!.trim(),
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textSecondary,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+          if (item.imei != null && item.imei!.trim().isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.qr_code_2_rounded,
+                      size: 12,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'IMEI: ${item.imei!.trim()}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
@@ -195,7 +243,7 @@ class CartItemTile extends ConsumerWidget {
                   final price = double.tryParse(ctrl.text) ?? item.unitPrice;
                   ref
                       .read(cartProvider.notifier)
-                      .setItemPrice(item.productId, price);
+                      .setItemPrice(item.cartKey, price);
                   _safePop(dialogContext);
                 },
                 child: const Text('Apply'),
@@ -278,7 +326,7 @@ class CartItemTile extends ConsumerWidget {
                       onPressed: () {
                         ref
                             .read(cartProvider.notifier)
-                            .setItemDiscount(item.productId, 0);
+                            .setItemDiscount(item.cartKey, 0);
                         _safePop(dialogContext);
                       },
                       child: const Text('Remove'),
@@ -346,7 +394,7 @@ class _QtyController extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final canIncrease = !item.isAtStockLimit;
+    final canIncrease = !item.isAtStockLimit && !item.isUnitItem;
     return Row(
       children: [
         _QtyButton(
@@ -356,10 +404,10 @@ class _QtyController extends ConsumerWidget {
                   item.quantity == 1
                       ? ref
                           .read(cartProvider.notifier)
-                          .removeItem(item.productId)
+                          .removeItem(item.cartKey)
                       : ref
                           .read(cartProvider.notifier)
-                          .decrementItem(item.productId),
+                          .decrementItem(item.cartKey),
           color: item.quantity == 1 ? AppColors.error : AppColors.textSecondary,
           tooltip: item.quantity == 1 ? 'Remove item' : 'Decrease quantity',
         ),
@@ -381,10 +429,12 @@ class _QtyController extends ConsumerWidget {
               canIncrease
                   ? () => ref
                       .read(cartProvider.notifier)
-                      .incrementItem(item.productId)
+                      .incrementItem(item.cartKey)
                   : null,
           color: canIncrease ? AppColors.success : AppColors.textHint,
-          tooltip: canIncrease ? 'Increase quantity' : 'Stock limit reached',
+          tooltip: item.isUnitItem
+              ? 'Phone unit (1 piece only)'
+              : (canIncrease ? 'Increase quantity' : 'Stock limit reached'),
         ),
       ],
     );

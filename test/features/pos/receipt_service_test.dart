@@ -138,6 +138,45 @@ void main() {
       expect(text, contains('Software warranty only.'));
     });
 
+    test('generateSaleReceiptPdf and formatReceipt render IMEI and deviceDetails for serialized phone units', () async {
+      final unitSale = SaleModel(
+        id: 'sale-unit-001',
+        branchId: 'branch-001',
+        customerId: 'cust-123',
+        customerName: 'Kashif Ali',
+        userId: 'cashier-001',
+        status: SaleStatus.completed,
+        subtotal: 145000,
+        discountAmount: 0,
+        taxAmount: 0,
+        total: 145000,
+        items: const [
+          CartItemModel(
+            productId: 'prod-ip13',
+            productName: 'iPhone 13 128GB',
+            unitPrice: 145000,
+            quantity: 1,
+            imei: '356892110293847',
+            deviceDetails: 'Midnight • Battery 88% • PTA Approved',
+          ),
+        ],
+        payments: const [
+          SalePaymentModel(method: PaymentMethod.cash, amount: 145000),
+        ],
+        createdAt: DateTime(2026, 9, 30, 15, 0),
+      );
+
+      final config = ReceiptConfigurationModel.defaultConfig(shopName: 'Speed-X Mobile');
+      final pdfBytes = await ReceiptService.generateSaleReceiptPdf(sale: unitSale, config: config);
+      expect(pdfBytes, isNotEmpty);
+      expect(String.fromCharCodes(pdfBytes.take(4)), equals('%PDF'));
+
+      final text = ReceiptService.formatReceipt(sale: unitSale, config: config);
+      expect(text, contains('iPhone 13 128GB'));
+      expect(text, contains('IMEI: 356892110293847'));
+      expect(text, contains('Midnight • Battery 88% • PTA Approved'));
+    });
+
     test('formatReceipt falls back to defaultConfig when config is null', () {
       final text = ReceiptService.formatReceipt(
         sale: sampleSale,

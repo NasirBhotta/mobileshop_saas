@@ -6,6 +6,7 @@ import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../data/models/product_model.dart';
+import 'product_sticker_dialog.dart';
 
 class ProductCard extends ConsumerWidget {
   final ProductModel product;
@@ -150,24 +151,33 @@ class ProductCard extends ConsumerWidget {
                     ),
                   ),
                 ),
-                SizedBox(height: 5),
-                // ProductCard ke andar, bottom mein
-                if (stockAdjustmentsEnabled && canAdjustStock)
-                  TextButton.icon(
-                    onPressed:
-                        () => context.push('/inventory/adjust', extra: product),
-                    icon: const Icon(Icons.tune_rounded, size: 16),
-                    label: const Text(AppStrings.stockAdjust),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      padding: EdgeInsets.only(
-                        left: 15,
-                        right: 15,
-                        top: 5,
-                        bottom: 5,
-                      ),
+                const SizedBox(height: 5),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.qr_code_2_rounded, size: 20),
+                      tooltip: 'Print Barcode Sticker (50x30mm)',
+                      visualDensity: VisualDensity.compact,
+                      color: AppColors.textSecondary,
+                      onPressed: () => ProductStickerDialog.show(context, product: product),
                     ),
-                  ),
+                    if (stockAdjustmentsEnabled && canAdjustStock)
+                      TextButton.icon(
+                        onPressed:
+                            () => context.push('/inventory/adjust', extra: product),
+                        icon: const Icon(Icons.tune_rounded, size: 16),
+                        label: const Text(AppStrings.stockAdjust),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ],
