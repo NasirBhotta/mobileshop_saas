@@ -94,7 +94,9 @@ class ReceiptService {
     if (item.deviceDetails != null && item.deviceDetails!.trim().isNotEmpty) {
       buffer.write('\n${item.deviceDetails!.trim()}');
     }
-    if (config.showDeviceImei && item.imei != null && item.imei!.trim().isNotEmpty) {
+    if (config.showDeviceImei &&
+        item.imei != null &&
+        item.imei!.trim().isNotEmpty) {
       buffer.write('\nIMEI: ${item.imei!.trim()}');
     }
     return buffer.toString();
@@ -457,7 +459,9 @@ class ReceiptService {
       if (item.deviceDetails != null && item.deviceDetails!.trim().isNotEmpty) {
         buffer.writeln('  Details: ${item.deviceDetails!.trim()}');
       }
-      if (cfg.showDeviceImei && item.imei != null && item.imei!.trim().isNotEmpty) {
+      if (cfg.showDeviceImei &&
+          item.imei != null &&
+          item.imei!.trim().isNotEmpty) {
         buffer.writeln('  IMEI: ${item.imei!.trim()}');
       }
     }
@@ -561,7 +565,8 @@ class ReceiptService {
     );
     return Printing.layoutPdf(
       name: 'TestSalesReceipt.pdf',
-      format: ReceiptLayout.pageFormat(config),
+      format: ReceiptLayout.printFormat(bytes, config),
+      dynamicLayout: false,
       usePrinterSettings: false,
       onLayout: (_) async => bytes,
     );
@@ -589,10 +594,11 @@ class ReceiptService {
         footer: footer,
         isDuplicate: duplicate,
       );
-      final format = ReceiptLayout.pageFormat(resolvedConfig);
+      final format = ReceiptLayout.printFormat(bytes, resolvedConfig);
       await Printing.layoutPdf(
         name: '${duplicate ? 'duplicate_' : ''}receipt_$invoice.pdf',
         format: format,
+        dynamicLayout: false,
         usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );
@@ -934,11 +940,17 @@ class ReceiptService {
     buffer.writeln('Payment Via: ${paymentMethod.toUpperCase()}');
     buffer.writeln('--------------------------------');
     if (previousBalance > 0) {
-      buffer.writeln('Kul Udhaar (Total Dues): Rs. ${ReceiptLayout.money(previousBalance)}');
+      buffer.writeln(
+        'Kul Udhaar (Total Dues): Rs. ${ReceiptLayout.money(previousBalance)}',
+      );
     }
-    buffer.writeln('Wasool Shuda (Paid):     Rs. ${ReceiptLayout.money(amountPaid)}');
+    buffer.writeln(
+      'Wasool Shuda (Paid):     Rs. ${ReceiptLayout.money(amountPaid)}',
+    );
     buffer.writeln('--------------------------------');
-    buffer.writeln('BAAQI UDHAAR (Due):      Rs. ${ReceiptLayout.money(remainingBalance)}');
+    buffer.writeln(
+      'BAAQI UDHAAR (Due):      Rs. ${ReceiptLayout.money(remainingBalance)}',
+    );
     buffer.writeln('--------------------------------');
     if (notes != null && notes.trim().isNotEmpty) {
       buffer.writeln('Remarks: ${notes.trim()}');
@@ -986,11 +998,12 @@ class ReceiptService {
         isDuplicate: isDuplicate,
       );
 
-      final format = ReceiptLayout.pageFormat(config);
+      final format = ReceiptLayout.printFormat(bytes, config);
       final slipNo = ReceiptLayout.identifier(settlementId, 'ST');
       await Printing.layoutPdf(
         name: '${isDuplicate ? 'duplicate_' : ''}khata_receipt_$slipNo.pdf',
         format: format,
+        dynamicLayout: false,
         usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );
@@ -1176,7 +1189,9 @@ class ReceiptService {
                 padding: const pw.EdgeInsets.all(5),
                 decoration: pw.BoxDecoration(
                   border: pw.Border.all(width: 0.5, color: PdfColors.grey500),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(2),
+                  ),
                 ),
                 child: pw.Column(
                   children: [
@@ -1210,23 +1225,32 @@ class ReceiptService {
                 ),
                 pw.SizedBox(height: 2),
                 pw.Table(
-                  border: pw.TableBorder.all(width: 0.3, color: PdfColors.grey400),
+                  border: pw.TableBorder.all(
+                    width: 0.3,
+                    color: PdfColors.grey400,
+                  ),
                   children: [
                     pw.TableRow(
-                      decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                      decoration: const pw.BoxDecoration(
+                        color: PdfColors.grey200,
+                      ),
                       children: [
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(2),
                           child: pw.Text(
                             'Date',
-                            style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                            style: small.copyWith(
+                              fontWeight: pw.FontWeight.bold,
+                            ),
                           ),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(2),
                           child: pw.Text(
                             'Method',
-                            style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                            style: small.copyWith(
+                              fontWeight: pw.FontWeight.bold,
+                            ),
                           ),
                         ),
                         pw.Padding(
@@ -1234,7 +1258,9 @@ class ReceiptService {
                           child: pw.Text(
                             'Amount',
                             textAlign: pw.TextAlign.right,
-                            style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                            style: small.copyWith(
+                              fontWeight: pw.FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
@@ -1245,20 +1271,27 @@ class ReceiptService {
                           pw.Padding(
                             padding: const pw.EdgeInsets.all(2),
                             child: pw.Text(
-                              DateFormat('dd/MM/yy').format(s.createdAt.toLocal()),
+                              DateFormat(
+                                'dd/MM/yy',
+                              ).format(s.createdAt.toLocal()),
                               style: small,
                             ),
                           ),
                           pw.Padding(
                             padding: const pw.EdgeInsets.all(2),
-                            child: pw.Text(s.method.toUpperCase(), style: small),
+                            child: pw.Text(
+                              s.method.toUpperCase(),
+                              style: small,
+                            ),
                           ),
                           pw.Padding(
                             padding: const pw.EdgeInsets.all(2),
                             child: pw.Text(
                               'Rs ${ReceiptLayout.money(s.amount)}',
                               textAlign: pw.TextAlign.right,
-                              style: small.copyWith(fontWeight: pw.FontWeight.bold),
+                              style: small.copyWith(
+                                fontWeight: pw.FontWeight.bold,
+                              ),
                             ),
                           ),
                         ],
@@ -1344,10 +1377,16 @@ class ReceiptService {
       'Customer: ${customer.fullName}${customer.phone != null && customer.phone!.isNotEmpty ? ' (${customer.phone})' : ''}',
     );
     buffer.writeln('--------------------------------');
-    buffer.writeln('Total Purchases (Kharidari): Rs. ${ReceiptLayout.money(dashboard.lifetimeValue)}');
-    buffer.writeln('Total Paid (Wasooli):        Rs. ${ReceiptLayout.money(totalSettled)}');
+    buffer.writeln(
+      'Total Purchases (Kharidari): Rs. ${ReceiptLayout.money(dashboard.lifetimeValue)}',
+    );
+    buffer.writeln(
+      'Total Paid (Wasooli):        Rs. ${ReceiptLayout.money(totalSettled)}',
+    );
     buffer.writeln('--------------------------------');
-    buffer.writeln('BAAQI UDHAAR (Due):          Rs. ${ReceiptLayout.money(dashboard.outstandingDues)}');
+    buffer.writeln(
+      'BAAQI UDHAAR (Due):          Rs. ${ReceiptLayout.money(dashboard.outstandingDues)}',
+    );
     buffer.writeln('================================');
     buffer.writeln('Shukriya!');
     if (shopPhone.isNotEmpty) {
@@ -1373,7 +1412,7 @@ class ReceiptService {
         footer: footer,
       );
 
-      final format = ReceiptLayout.pageFormat(config);
+      final format = ReceiptLayout.printFormat(bytes, config);
       final customerId = ReceiptLayout.identifier(
         dashboard.customer.id,
         'CUST',
@@ -1381,6 +1420,7 @@ class ReceiptService {
       await Printing.layoutPdf(
         name: 'khata_statement_$customerId.pdf',
         format: format,
+        dynamicLayout: false,
         usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );

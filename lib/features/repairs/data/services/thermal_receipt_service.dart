@@ -359,11 +359,12 @@ class ThermalReceiptService {
         isDuplicate: isDuplicate,
       );
 
-      final format = ReceiptLayout.pageFormat(config);
+      final format = ReceiptLayout.printFormat(bytes, config);
 
       return await Printing.layoutPdf(
         name: 'RepairTicket_$ticketNo.pdf',
         format: format,
+        dynamicLayout: false,
         usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );
@@ -378,11 +379,12 @@ class ThermalReceiptService {
   }) async {
     try {
       final bytes = await generateTestReceiptPdf(config: config);
-      final format = ReceiptLayout.pageFormat(config);
+      final format = ReceiptLayout.printFormat(bytes, config);
 
       return await Printing.layoutPdf(
         name: 'TestReceipt_${config.shopName}.pdf',
         format: format,
+        dynamicLayout: false,
         usePrinterSettings: false,
         onLayout: (_) async => bytes,
       );

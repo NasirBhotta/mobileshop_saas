@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -34,9 +36,32 @@ class ReceiptLayout {
       double.infinity,
       marginTop: 2 * PdfPageFormat.mm,
       marginBottom: 3 * PdfPageFormat.mm,
-      marginLeft: (narrow ? 3 : 5.5) * PdfPageFormat.mm,
-      marginRight: (narrow ? 2.5 : 4) * PdfPageFormat.mm,
+      marginLeft: (narrow ? 4 : 8) * PdfPageFormat.mm,
+      marginRight: (narrow ? 2 : 3) * PdfPageFormat.mm,
     );
+  }
+
+  /// The PDF library resolves the infinite roll height to the content height
+  /// when saving. Send that finite height to the print driver as well;
+  /// Windows drivers may otherwise fall back to a long default paper size.
+  static PdfPageFormat printFormat(
+    Uint8List pdfBytes,
+    ReceiptConfigurationModel config,
+  ) {
+    final match = RegExp(
+      r'/MediaBox\s*\[\s*[\d.]+\s+[\d.]+\s+([\d.]+)\s+([\d.]+)\s*\]',
+    ).firstMatch(latin1.decode(pdfBytes));
+    if (match == null) {
+      throw const FormatException('Receipt PDF page size is missing.');
+    }
+
+    final width = double.parse(match.group(1)!);
+    final height = double.parse(match.group(2)!);
+    final layout = pageFormat(config);
+    if (!height.isFinite || height <= 0 || (width - layout.width).abs() > 0.1) {
+      throw const FormatException('Receipt PDF page size is invalid.');
+    }
+    return layout.copyWith(height: height);
   }
 
   static String identifier(String? id, String fallback) {

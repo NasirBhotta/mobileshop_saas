@@ -11,11 +11,15 @@ import 'receipt_layout.dart';
 class StickerLayout {
   const StickerLayout._();
 
-  /// Standard 50 x 30 mm thermal sticker page format with 1.5mm margins.
+  /// Standard 50 x 30 mm thermal sticker page format. Keep the content clear
+  /// of the unprintable edges common on desktop thermal label printers.
   static final PdfPageFormat format50x30 = PdfPageFormat(
     50 * PdfPageFormat.mm,
     30 * PdfPageFormat.mm,
-    marginAll: 1.5 * PdfPageFormat.mm,
+    marginLeft: 3 * PdfPageFormat.mm,
+    marginRight: 3 * PdfPageFormat.mm,
+    marginTop: 1.5 * PdfPageFormat.mm,
+    marginBottom: 1.5 * PdfPageFormat.mm,
   );
 
   /// Generates a PDF containing [copies] of a single product/unit thermal sticker.

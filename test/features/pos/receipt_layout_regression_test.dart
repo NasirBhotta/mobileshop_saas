@@ -1,12 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobileshop_saas/core/printing/receipt_layout.dart';
 import 'package:mobileshop_saas/features/pos/data/models/cart_item_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_model.dart';
 import 'package:mobileshop_saas/features/pos/data/models/sale_payment_model.dart';
 import 'package:mobileshop_saas/features/pos/data/services/receipt_service.dart';
 import 'package:mobileshop_saas/features/repairs/data/services/thermal_receipt_service.dart';
 import 'package:mobileshop_saas/features/settings/data/models/receipt_configuration_model.dart';
+import 'package:pdf/pdf.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -95,7 +97,18 @@ void main() {
         );
         for (final bytes in [normal, long, repair]) {
           expect(String.fromCharCodes(bytes.take(4)), '%PDF');
+          final printFormat = ReceiptLayout.printFormat(bytes, config);
+          expect(
+            printFormat.width,
+            (width == '58mm' ? 58 : 80) * PdfPageFormat.mm,
+          );
+          expect(printFormat.height.isFinite, isTrue);
+          expect(printFormat.height, greaterThan(0));
         }
+        expect(
+          ReceiptLayout.printFormat(long, config).height,
+          greaterThan(ReceiptLayout.printFormat(normal, config).height),
+        );
         // Opt-in artifacts for visual review without affecting normal test runs.
         final output = Platform.environment['RECEIPT_PREVIEW_DIR'];
         if (output != null) {

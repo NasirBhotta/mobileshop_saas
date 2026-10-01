@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:printing/printing.dart';
 
 import '../../../../core/printing/sticker_layout.dart';
@@ -18,13 +20,14 @@ class ProductStickerService {
     int copies = 1,
   }) async {
     final barcode = BarcodeGenerator.ensureBarcode(product.barcode);
-    final subtitle = details?.trim().isNotEmpty == true
-        ? details!.trim()
-        : (product.description?.trim().isNotEmpty == true
-            ? product.description!.trim()
-            : (product.sku?.trim().isNotEmpty == true
-                ? 'SKU: ${product.sku!.trim()}'
-                : null));
+    final subtitle =
+        details?.trim().isNotEmpty == true
+            ? details!.trim()
+            : (product.description?.trim().isNotEmpty == true
+                ? product.description!.trim()
+                : (product.sku?.trim().isNotEmpty == true
+                    ? 'SKU: ${product.sku!.trim()}'
+                    : null));
 
     final bytes = await StickerLayout.generateStickerPdf(
       shopName: shopName,
@@ -36,12 +39,7 @@ class ProductStickerService {
       copies: copies,
     );
 
-    return Printing.layoutPdf(
-      name: 'Sticker_${product.name}_$barcode.pdf',
-      format: StickerLayout.format50x30,
-      usePrinterSettings: true,
-      onLayout: (_) async => bytes,
-    );
+    return _printStickerPdf(bytes, 'Sticker_${product.name}_$barcode.pdf');
   }
 
   /// Prints 50mm x 30mm barcode sticker for a customer purchase (Used Phone).
@@ -64,26 +62,20 @@ class ProductStickerService {
       title: purchase.productName,
       subtitle: specs.isNotEmpty ? specs : null,
       barcode: purchase.imei1.trim(),
-      price: purchase.expectedSalePrice > 0
-          ? purchase.expectedSalePrice
-          : purchase.purchasePrice,
+      price:
+          purchase.expectedSalePrice > 0
+              ? purchase.expectedSalePrice
+              : purchase.purchasePrice,
       imei: purchase.imei1.trim(),
       copies: copies,
     );
 
-    return Printing.layoutPdf(
-      name: 'Sticker_Used_${purchase.imei1}.pdf',
-      format: StickerLayout.format50x30,
-      usePrinterSettings: true,
-      onLayout: (_) async => bytes,
-    );
+    return _printStickerPdf(bytes, 'Sticker_Used_${purchase.imei1}.pdf');
   }
 
   /// Prints a test 50mm x 30mm barcode sticker to verify roll alignment,
   /// print darkness, and barcode readability on thermal label printers.
-  static Future<bool> printTestSticker({
-    required String shopName,
-  }) async {
+  static Future<bool> printTestSticker({required String shopName}) async {
     final bytes = await StickerLayout.generateStickerPdf(
       shopName: shopName.isNotEmpty ? shopName : 'MOBILE SHOP',
       title: 'Demo Smartphone Pro',
@@ -94,10 +86,17 @@ class ProductStickerService {
       copies: 1,
     );
 
+    return _printStickerPdf(bytes, 'Test_Sticker_50x30.pdf');
+  }
+
+  static Future<bool> _printStickerPdf(Uint8List bytes, String name) {
     return Printing.layoutPdf(
-      name: 'Test_Sticker_50x30.pdf',
+      name: name,
       format: StickerLayout.format50x30,
-      usePrinterSettings: true,
+      // On Windows, true discards the requested label size and uses the
+      // driver's default paper length, which can feed several blank labels.
+      usePrinterSettings: false,
+      dynamicLayout: false,
       onLayout: (_) async => bytes,
     );
   }
