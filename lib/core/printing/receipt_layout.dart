@@ -36,8 +36,10 @@ class ReceiptLayout {
       double.infinity,
       marginTop: 2 * PdfPageFormat.mm,
       marginBottom: 3 * PdfPageFormat.mm,
-      marginLeft: (narrow ? 4 : 8) * PdfPageFormat.mm,
-      marginRight: (narrow ? 2 : 3) * PdfPageFormat.mm,
+      // A 58mm roll can have only 48mm of printable width. Keep the
+      // content centered within that area instead of shifting it right.
+      marginLeft: (narrow ? 5 : 8) * PdfPageFormat.mm,
+      marginRight: (narrow ? 5 : 3) * PdfPageFormat.mm,
     );
   }
 

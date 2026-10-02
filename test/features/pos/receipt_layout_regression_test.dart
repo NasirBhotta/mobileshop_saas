@@ -13,6 +13,15 @@ import 'package:pdf/pdf.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('58mm receipts fit a centered 48mm printable area', () {
+    final format = ReceiptLayout.pageFormat(
+      ReceiptConfigurationModel(shopName: 'ZED Mobiles', paperSize: '58mm'),
+    );
+    expect(format.width / PdfPageFormat.mm, closeTo(58, 0.001));
+    expect(format.availableWidth / PdfPageFormat.mm, closeTo(48, 0.001));
+    expect(format.marginLeft, format.marginRight);
+  });
+
   SaleModel sale({List<SalePaymentModel> payments = const [], int count = 2}) =>
       SaleModel(
         id: '123',
