@@ -13,6 +13,7 @@ import 'package:mobileshop_saas/features/inventory/data/models/price_history_mod
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/stock_adjustment_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/sync/inventory_sync_engine.dart';
+import '../sync/inventory_refresh_coordinator.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/inventory_unit_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -24,15 +25,46 @@ class InventoryRepository {
   static const _networkTimeout = Duration(seconds: 2);
   final Map<String, Future<void>> _supplierLinkSyncs = {};
   Future<void>? _offlineSyncInFlight;
+  late final InventoryRefreshCoordinator _refreshCoordinator =
+      InventoryRefreshCoordinator(
+        upload: syncOfflineMutations,
+        pullProducts:
+            () => refreshCurrentProductsCache(
+              timeout: const Duration(seconds: 30),
+              rethrowErrors: true,
+            ),
+        pullCategories:
+            () => refreshCurrentCategoriesCache(
+              timeout: const Duration(seconds: 10),
+              rethrowErrors: true,
+            ),
+        pendingUploads:
+            () async =>
+                (await OfflineStore.loadMutations(_currentUser.id))
+                    .where(
+                      (mutation) =>
+                          InventorySyncEngine.ownsMutation(mutation.type),
+                    )
+                    .length,
+        uploadProblem: () => _syncEngine.lastSyncError,
+      );
+
+  Future<InventoryRefreshResult> refreshInventory() =>
+      _refreshCoordinator.refresh();
   final SupabaseClient _client;
+  final InventorySyncEngine? _customSyncEngine;
+  InventorySyncEngine get _syncEngine =>
+      _customSyncEngine ?? InventorySyncEngine.instance;
   final EntitlementEvaluator _entitlements;
   late final InventoryEntitlementGate _entitlementGate =
       InventoryEntitlementGate(_entitlements);
 
   InventoryRepository({
     SupabaseClient? client,
+    InventorySyncEngine? syncEngine,
     EntitlementEvaluator? entitlementEvaluator,
   }) : _client = client ?? Supabase.instance.client,
+       _customSyncEngine = syncEngine,
        _entitlements =
            entitlementEvaluator ??
            EntitlementEvaluator(
@@ -169,7 +201,7 @@ class InventoryRepository {
         'updated_at': updatedAt,
       },
     );
-    InventorySyncEngine.instance.triggerSync();
+    _syncEngine.triggerSync();
   }
 
   // Category default threshold update karo
@@ -196,7 +228,7 @@ class InventoryRepository {
         'threshold': threshold,
       },
     );
-    InventorySyncEngine.instance.triggerSync();
+    _syncEngine.triggerSync();
   }
 
   Future<void> adjustStock({
@@ -641,9 +673,26 @@ class InventoryRepository {
       ordered = ordered.range(safeOffset, safeOffset + safeLimit - 1);
     }
 
-    final data = await ordered;
+    final List<dynamic> data;
+    if (limit != null) {
+      data = await ordered;
+    } else {
+      // A cache refresh must not silently stop at the server's default row cap.
+      // Stable ID tie-breaking prevents overlapping pages for duplicate names.
+      data = <dynamic>[];
+      ordered = ordered.order('id', ascending: true);
+      const pageSize = 200;
+      var pageOffset = 0;
+      while (true) {
+        final page =
+            await ordered.range(pageOffset, pageOffset + pageSize - 1) as List;
+        data.addAll(page);
+        if (page.length < pageSize) break;
+        pageOffset += pageSize;
+      }
+    }
     if (supplierId != null) {
-      final rows = (data as List).cast<Map<String, dynamic>>();
+      final rows = data.cast<Map<String, dynamic>>();
       await LocalStore.saveSupplierProductLinks(
         tenantId: tenantId,
         supplierId: supplierId,
@@ -664,8 +713,7 @@ class InventoryRepository {
         supplierId: supplierId,
       );
     }
-    final remoteProducts =
-        (data as List).map((e) => ProductModel.fromMap(e)).toList();
+    final remoteProducts = data.map((e) => ProductModel.fromMap(e)).toList();
     final productsWithPendingEdits = await _applyPendingProductUpserts(
       branchId: branchId,
       products: remoteProducts,
@@ -675,9 +723,13 @@ class InventoryRepository {
           normalizedQuery?.isNotEmpty != true &&
           !lowStockOnly,
     );
-    final products = await _applyPendingSaleStock(
+    final productsWithPendingStock = await _preservePendingInventoryEdits(
       branchId: branchId,
       products: productsWithPendingEdits,
+    );
+    final products = await _applyPendingSaleStock(
+      branchId: branchId,
+      products: productsWithPendingStock,
     );
     if (categoryId == null && normalizedQuery?.isNotEmpty != true) {
       await OfflineStore.saveProducts(branchId, products);
@@ -888,6 +940,11 @@ class InventoryRepository {
     final mutations = await OfflineStore.loadMutations(_currentUser.id);
     for (final mutation in mutations) {
       final payload = mutation.payload;
+      if (mutation.type == 'branch_threshold' &&
+          payload['branch_id'] == branchId) {
+        final id = payload['product_id'];
+        if (id is String) ids.add(id);
+      }
       if (mutation.type == 'upsert_product') {
         final product = payload['product'];
         if (product is Map && product['branch_id'] == branchId) {
@@ -933,6 +990,7 @@ class InventoryRepository {
   /// let the cached-first product query publish the old inventory again.
   Future<void> refreshCurrentProductsCache({
     Duration timeout = _networkTimeout,
+    bool rethrowErrors = false,
   }) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
@@ -942,6 +1000,7 @@ class InventoryRepository {
         branchId: branchId,
       ).timeout(timeout);
     } catch (_) {
+      if (rethrowErrors) rethrow;
       // Receiving already committed successfully. A cache refresh failure must
       // not report the goods receipt itself as failed.
     }
@@ -949,25 +1008,35 @@ class InventoryRepository {
 
   Future<ProductModel> addProduct(ProductModel product) async {
     final sw = Stopwatch()..start();
-    debugPrint('[DEBUG-INVENTORY-REPO] 🟢 [addProduct] Started for "${product.name}"');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] 🟢 [addProduct] Started for "${product.name}"',
+    );
 
     if (product.imeiTracked) {
       final imeiStart = sw.elapsedMilliseconds;
       await _requireFeature('inventory.imei_tracking');
-      debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _requireFeature took ${sw.elapsedMilliseconds - imeiStart}ms');
+      debugPrint(
+        '[DEBUG-INVENTORY-REPO] ⏱️ _requireFeature took ${sw.elapsedMilliseconds - imeiStart}ms',
+      );
     }
 
     final tenantStart = sw.elapsedMilliseconds;
     final tenantId = await _currentTenantId();
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _currentTenantId resolved in ${sw.elapsedMilliseconds - tenantStart}ms (Tenant: $tenantId)');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _currentTenantId resolved in ${sw.elapsedMilliseconds - tenantStart}ms (Tenant: $tenantId)',
+    );
 
     final branchStart = sw.elapsedMilliseconds;
     final branchId = await _currentBranchId(tenantId);
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _currentBranchId resolved in ${sw.elapsedMilliseconds - branchStart}ms (Branch: $branchId)');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _currentBranchId resolved in ${sw.elapsedMilliseconds - branchStart}ms (Branch: $branchId)',
+    );
 
     final barcodeStart = sw.elapsedMilliseconds;
     await _ensureBarcodeAvailable(branchId: branchId, product: product);
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _ensureBarcodeAvailable took ${sw.elapsedMilliseconds - barcodeStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _ensureBarcodeAvailable took ${sw.elapsedMilliseconds - barcodeStart}ms',
+    );
 
     final modelStart = sw.elapsedMilliseconds;
     final offlineProduct = await _offlineProduct(
@@ -976,11 +1045,15 @@ class InventoryRepository {
       branchId: branchId,
       id: product.id.isEmpty ? const Uuid().v4() : product.id,
     );
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _offlineProduct preparation took ${sw.elapsedMilliseconds - modelStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _offlineProduct preparation took ${sw.elapsedMilliseconds - modelStart}ms',
+    );
 
     final upsertStart = sw.elapsedMilliseconds;
     await OfflineStore.upsertCachedProduct(offlineProduct);
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.upsertCachedProduct took ${sw.elapsedMilliseconds - upsertStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.upsertCachedProduct took ${sw.elapsedMilliseconds - upsertStart}ms',
+    );
 
     final queueStart = sw.elapsedMilliseconds;
     await OfflineStore.enqueueMutation(
@@ -988,32 +1061,44 @@ class InventoryRepository {
       type: 'upsert_product',
       payload: {'product': offlineProduct.toCacheMap()},
     );
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.enqueueMutation took ${sw.elapsedMilliseconds - queueStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.enqueueMutation took ${sw.elapsedMilliseconds - queueStart}ms',
+    );
 
     debugPrint('[DEBUG-INVENTORY-REPO] 🚀 Triggering background SyncEngine...');
-    InventorySyncEngine.instance.triggerSync();
+    _syncEngine.triggerSync();
 
-    debugPrint('[DEBUG-INVENTORY-REPO] ✅ [addProduct] Completed in ${sw.elapsedMilliseconds}ms total');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ✅ [addProduct] Completed in ${sw.elapsedMilliseconds}ms total',
+    );
     return offlineProduct;
   }
 
   Future<ProductModel> updateProduct(ProductModel product) async {
     final sw = Stopwatch()..start();
-    debugPrint('[DEBUG-INVENTORY-REPO] 🟢 [updateProduct] Started for ID: "${product.id}", Name: "${product.name}"');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] 🟢 [updateProduct] Started for ID: "${product.id}", Name: "${product.name}"',
+    );
 
     if (product.imeiTracked) {
       final imeiStart = sw.elapsedMilliseconds;
       await _requireFeature('inventory.imei_tracking');
-      debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _requireFeature took ${sw.elapsedMilliseconds - imeiStart}ms');
+      debugPrint(
+        '[DEBUG-INVENTORY-REPO] ⏱️ _requireFeature took ${sw.elapsedMilliseconds - imeiStart}ms',
+      );
     }
 
     final tenantStart = sw.elapsedMilliseconds;
     final tenantId = await _currentTenantId();
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _currentTenantId resolved in ${sw.elapsedMilliseconds - tenantStart}ms (Tenant: $tenantId)');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _currentTenantId resolved in ${sw.elapsedMilliseconds - tenantStart}ms (Tenant: $tenantId)',
+    );
 
     final branchStart = sw.elapsedMilliseconds;
     final branchId = await _currentBranchId(tenantId);
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _currentBranchId resolved in ${sw.elapsedMilliseconds - branchStart}ms (Branch: $branchId)');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _currentBranchId resolved in ${sw.elapsedMilliseconds - branchStart}ms (Branch: $branchId)',
+    );
 
     final barcodeStart = sw.elapsedMilliseconds;
     await _ensureBarcodeAvailable(
@@ -1021,7 +1106,9 @@ class InventoryRepository {
       product: product,
       excludingProductId: product.id,
     );
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _ensureBarcodeAvailable took ${sw.elapsedMilliseconds - barcodeStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _ensureBarcodeAvailable took ${sw.elapsedMilliseconds - barcodeStart}ms',
+    );
 
     final modelStart = sw.elapsedMilliseconds;
     final offlineProduct = await _offlineProduct(
@@ -1029,11 +1116,15 @@ class InventoryRepository {
       tenantId: tenantId,
       branchId: branchId,
     );
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _offlineProduct preparation took ${sw.elapsedMilliseconds - modelStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _offlineProduct preparation took ${sw.elapsedMilliseconds - modelStart}ms',
+    );
 
     final upsertStart = sw.elapsedMilliseconds;
     await OfflineStore.upsertCachedProduct(offlineProduct);
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.upsertCachedProduct took ${sw.elapsedMilliseconds - upsertStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.upsertCachedProduct took ${sw.elapsedMilliseconds - upsertStart}ms',
+    );
 
     final queueStart = sw.elapsedMilliseconds;
     await OfflineStore.enqueueMutation(
@@ -1041,12 +1132,16 @@ class InventoryRepository {
       type: 'upsert_product',
       payload: {'product': offlineProduct.toCacheMap()},
     );
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.enqueueMutation took ${sw.elapsedMilliseconds - queueStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.enqueueMutation took ${sw.elapsedMilliseconds - queueStart}ms',
+    );
 
     debugPrint('[DEBUG-INVENTORY-REPO] 🚀 Triggering background SyncEngine...');
-    InventorySyncEngine.instance.triggerSync();
+    _syncEngine.triggerSync();
 
-    debugPrint('[DEBUG-INVENTORY-REPO] ✅ [updateProduct] Completed in ${sw.elapsedMilliseconds}ms total');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ✅ [updateProduct] Completed in ${sw.elapsedMilliseconds}ms total',
+    );
     return offlineProduct;
   }
 
@@ -1098,22 +1193,30 @@ class InventoryRepository {
 
   Future<void> deleteProduct(String productId) async {
     final sw = Stopwatch()..start();
-    debugPrint('[DEBUG-INVENTORY-REPO] 🟢 [deleteProduct] Started for ID: $productId');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] 🟢 [deleteProduct] Started for ID: $productId',
+    );
 
     final tenantStart = sw.elapsedMilliseconds;
     final tenantId = await _currentTenantId();
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _currentTenantId resolved in ${sw.elapsedMilliseconds - tenantStart}ms (Tenant: $tenantId)');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _currentTenantId resolved in ${sw.elapsedMilliseconds - tenantStart}ms (Tenant: $tenantId)',
+    );
 
     final branchStart = sw.elapsedMilliseconds;
     final branchId = await _currentBranchId(tenantId);
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ _currentBranchId resolved in ${sw.elapsedMilliseconds - branchStart}ms (Branch: $branchId)');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ _currentBranchId resolved in ${sw.elapsedMilliseconds - branchStart}ms (Branch: $branchId)',
+    );
 
     final deactStart = sw.elapsedMilliseconds;
     await OfflineStore.deactivateCachedProduct(
       branchId: branchId,
       productId: productId,
     );
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.deactivateCachedProduct took ${sw.elapsedMilliseconds - deactStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.deactivateCachedProduct took ${sw.elapsedMilliseconds - deactStart}ms',
+    );
 
     final queueStart = sw.elapsedMilliseconds;
     await OfflineStore.enqueueMutation(
@@ -1125,12 +1228,16 @@ class InventoryRepository {
         'branch_id': branchId,
       },
     );
-    debugPrint('[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.enqueueMutation took ${sw.elapsedMilliseconds - queueStart}ms');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ⏱️ OfflineStore.enqueueMutation took ${sw.elapsedMilliseconds - queueStart}ms',
+    );
 
     debugPrint('[DEBUG-INVENTORY-REPO] 🚀 Triggering background SyncEngine...');
-    InventorySyncEngine.instance.triggerSync();
+    _syncEngine.triggerSync();
 
-    debugPrint('[DEBUG-INVENTORY-REPO] ✅ [deleteProduct] Completed in ${sw.elapsedMilliseconds}ms total');
+    debugPrint(
+      '[DEBUG-INVENTORY-REPO] ✅ [deleteProduct] Completed in ${sw.elapsedMilliseconds}ms total',
+    );
   }
 
   Future<CsvImportResult> importFromCsv(
@@ -1633,6 +1740,7 @@ class InventoryRepository {
           .select('id')
           .eq('branch_id', branchId)
           .eq('sku', sku)
+          .limit(1)
           .maybeSingle()
           .timeout(_networkTimeout);
       return existing != null;
@@ -1857,7 +1965,7 @@ class InventoryRepository {
         try {
           final tenantId = await _currentTenantId();
           final branchId = await _currentBranchId(tenantId);
-          await InventorySyncEngine.instance.syncProductPriceHistoryOnline(
+          await _syncEngine.syncProductPriceHistoryOnline(
             tenantId: tenantId,
             branchId: branchId,
             productId: productId,
@@ -1996,6 +2104,7 @@ class InventoryRepository {
 
   Future<void> refreshCurrentCategoriesCache({
     Duration timeout = _networkTimeout,
+    bool rethrowErrors = false,
   }) async {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
@@ -2005,6 +2114,7 @@ class InventoryRepository {
         branchId: branchId,
       ).timeout(timeout);
     } catch (_) {
+      if (rethrowErrors) rethrow;
       // Keep the existing local categories when the server is unavailable.
     }
   }
@@ -2293,13 +2403,67 @@ class InventoryRepository {
     final activeSync = _offlineSyncInFlight;
     if (activeSync != null) return activeSync;
 
-    final sync = InventorySyncEngine.instance.syncNow();
+    final sync = _syncEngine.syncNow();
     _offlineSyncInFlight = sync;
     return sync.whenComplete(() {
       if (identical(_offlineSyncInFlight, sync)) {
         _offlineSyncInFlight = null;
       }
     });
+  }
+
+  Future<List<ProductModel>> _preservePendingInventoryEdits({
+    required String branchId,
+    required List<ProductModel> products,
+  }) async {
+    final pendingIds = await _pendingInventoryProductIds(branchId);
+    if (pendingIds.isEmpty) return products;
+    final local = {
+      for (final product in await OfflineStore.loadProducts(branchId))
+        product.id: product,
+    };
+    return [
+      for (final product in products)
+        pendingIds.contains(product.id)
+            ? local[product.id] ?? product
+            : product,
+    ];
+  }
+
+  /// Read-only snapshot taken before any sync or remote cache refresh. This
+  /// preserves local-only products and their original IDs for reconciliation.
+  Future<Map<String, dynamic>> buildInventorySyncBackup() async {
+    final profile = await OfflineStore.loadProfile(_currentUser.id);
+    final tenantId = profile?['tenant_id'] as String?;
+    final branchId =
+        await OfflineStore.loadSelectedBranchId(_currentUser.id) ??
+        profile?['branch_id'] as String?;
+    if (tenantId == null || branchId == null) {
+      throw StateError('No cached shop and branch are available for backup');
+    }
+    final products =
+        (await OfflineStore.loadProducts(
+          branchId,
+        )).where((product) => product.tenantId == tenantId).toList();
+    final categories =
+        (await OfflineStore.loadCategories(
+          branchId,
+        )).where((category) => category.tenantId == tenantId).toList();
+    final mutations = await OfflineStore.loadMutations(_currentUser.id);
+    return {
+      'format': 'mobileshop_inventory_sync_backup',
+      'version': 1,
+      'exported_at': DateTime.now().toUtc().toIso8601String(),
+      'user_id': _currentUser.id,
+      'tenant_id': tenantId,
+      'branch_id': branchId,
+      'product_count': products.length,
+      'products': products.map((product) => product.toCacheMap()).toList(),
+      'categories':
+          categories.map((category) => category.toCacheMap()).toList(),
+      'pending_mutations':
+          mutations.map((mutation) => mutation.toMap()).toList(),
+    };
   }
 
   Future<List<ProductModel>> _applyPendingProductUpserts({
@@ -2311,6 +2475,11 @@ class InventoryRepository {
     final productsById = {for (final product in products) product.id: product};
 
     for (final mutation in mutations) {
+      if (mutation.type == 'delete_product' &&
+          mutation.payload['branch_id'] == branchId) {
+        productsById.remove(mutation.payload['product_id']);
+        continue;
+      }
       if (mutation.type != 'upsert_product') continue;
       final raw = mutation.payload['product'];
       if (raw is! Map) continue;

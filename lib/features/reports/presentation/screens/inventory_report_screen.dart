@@ -1,5 +1,10 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
 import 'package:mobileshop_saas/features/reports/presentation/providers/business_report_provider.dart';
 import 'package:mobileshop_saas/features/reports/presentation/widgets/reports_back_button.dart';
 import '../../../../core/entitlements/entitlement_provider.dart';
@@ -24,6 +29,11 @@ class InventoryReportScreen extends ConsumerWidget {
         leading: const ReportsBackButton(),
         title: const Text('Inventory Report'),
         actions: [
+          IconButton(
+            tooltip: 'Save inventory sync backup',
+            onPressed: () => _saveSyncBackup(context, ref),
+            icon: const Icon(Icons.backup_outlined),
+          ),
           if (exportEnabled)
             IconButton(
               tooltip: 'Export CSV',
@@ -146,6 +156,33 @@ class InventoryReportScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _saveSyncBackup(BuildContext context, WidgetRef ref) async {
+    try {
+      final snapshot =
+          await ref
+              .read(inventoryRepositoryProvider)
+              .buildInventorySyncBackup();
+      final bytes = Uint8List.fromList(
+        utf8.encode(const JsonEncoder.withIndent('  ').convert(snapshot)),
+      );
+      if (!context.mounted) return;
+      final box = context.findRenderObject() as RenderBox?;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile.fromData(bytes, mimeType: 'application/json')],
+          fileNameOverrides: ['inventory-sync-backup.json'],
+          sharePositionOrigin:
+              box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save inventory backup: $error')),
+      );
+    }
   }
 
   Future<void> _exportCsv(BuildContext context, WidgetRef ref) async {

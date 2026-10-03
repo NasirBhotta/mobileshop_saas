@@ -39,6 +39,7 @@ dependencies:
   printing: ^5.14.3
   connectivity_plus: ^7.3.0
   flutter_launcher_icons: ^0.14.4
+  esc_pos_utils_plus: ^2.0.4
 
 dev_dependencies:
   flutter_test:

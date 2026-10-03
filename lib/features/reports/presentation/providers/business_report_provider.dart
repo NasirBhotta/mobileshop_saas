@@ -5,6 +5,7 @@ import 'package:mobileshop_saas/core/entitlements/entitlement_provider.dart';
 import 'package:mobileshop_saas/features/reports/data/models/business_report_models.dart';
 import 'package:mobileshop_saas/features/reports/data/repositories/business_report_repository.dart';
 import 'package:mobileshop_saas/features/reports/domain/report_entitlement_gate.dart';
+import 'package:mobileshop_saas/features/inventory/presentation/providers/inventory_provider.dart';
 
 Future<void> _requireReport(Ref ref, String feature) => ReportEntitlementGate(
   ref.read(entitlementEvaluatorProvider),
@@ -324,6 +325,11 @@ class BusinessReportSyncController extends StateNotifier<AsyncValue<void>> {
 
     try {
       final repository = _ref.read(businessReportRepositoryProvider);
+
+      // Inventory reports are built from SQLite. Upload pending inventory first,
+      // then await a remote pull before rebuilding the report on this device.
+      final inventory = _ref.read(inventoryRepositoryProvider);
+      await inventory.refreshInventory();
 
       await repository.syncOfflineMutations();
 

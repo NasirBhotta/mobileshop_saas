@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:mobileshop_saas/core/local/local_store.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/product_model.dart';
+import 'package:mobileshop_saas/features/inventory/data/repositories/inventory_repository.dart';
 import 'package:mobileshop_saas/features/inventory/data/sync/inventory_sync_engine.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -49,126 +51,224 @@ void main() {
   });
 
   group('InventorySyncEngine Unit & Integration Tests', () {
-    test('Offline mutation is queued and local SQLite is immediately updated', () async {
-      const branchId = 'branch-sync-1';
-      const tenantId = 'tenant-sync-1';
-      const userId = 'user-sync-1';
+    test(
+      'recovery backup preserves local-only products and queued payloads',
+      () async {
+        final client = SupabaseClient('http://127.0.0.1:54321', 'test-key');
+        await client.auth.recoverSession(
+          jsonEncode({
+            'access_token': 'test-session',
+            'token_type': 'bearer',
+            'user': {
+              'id': 'backup-user',
+              'app_metadata': <String, dynamic>{},
+              'user_metadata': <String, dynamic>{},
+              'aud': 'authenticated',
+              'created_at': '2026-01-01T00:00:00Z',
+            },
+          }),
+        );
+        try {
+          await OfflineStore.saveProfile('backup-user', {
+            'tenant_id': 'backup-tenant',
+            'branch_id': 'backup-branch',
+          });
+          final product = ProductModel(
+            id: 'local-only-id',
+            tenantId: 'backup-tenant',
+            branchId: 'backup-branch',
+            name: 'Original phone',
+            costPrice: 123456.78,
+            salePrice: 234567.89,
+            stock: 3,
+          );
+          await OfflineStore.upsertCachedProduct(product);
+          await OfflineStore.enqueueMutation(
+            userId: 'backup-user',
+            type: 'upsert_product',
+            payload: {'product': product.toCacheMap()},
+          );
+          final before = await OfflineStore.loadMutations('backup-user');
 
-      final product = ProductModel(
-        id: 'prod-local-1',
-        tenantId: tenantId,
-        branchId: branchId,
-        name: 'Samsung S24 Ultra',
-        salePrice: 280000.0,
-        costPrice: 240000.0,
-        stock: 5,
-        reorderThreshold: 2,
-      );
+          final snapshot =
+              await InventoryRepository(
+                client: client,
+              ).buildInventorySyncBackup();
 
-      // Save to local cache & enqueue mutation
-      await OfflineStore.upsertCachedProduct(product);
-      await OfflineStore.enqueueMutation(
-        userId: userId,
-        type: 'upsert_product',
-        payload: {'product': product.toCacheMap()},
-      );
+          expect(snapshot['product_count'], 1);
+          expect(snapshot['products'], [product.toCacheMap()]);
+          expect(
+            snapshot['pending_mutations'],
+            before.map((m) => m.toMap()).toList(),
+          );
+          expect(
+            (await OfflineStore.loadMutations(
+              'backup-user',
+            )).map((m) => m.toMap()),
+            before.map((m) => m.toMap()),
+          );
+          expect(
+            (await LocalStore.loadProducts(
+              'backup-branch',
+            )).single.toCacheMap(),
+            product.toCacheMap(),
+          );
+        } finally {
+          await client.dispose();
+        }
+      },
+    );
 
-      // Verify product is loaded from local database instantly
-      final loaded = await LocalStore.loadProducts(branchId);
-      expect(loaded.length, 1);
-      expect(loaded.first.id, 'prod-local-1');
-      expect(loaded.first.name, 'Samsung S24 Ultra');
-      expect(loaded.first.stock, 5);
+    test(
+      'Offline mutation is queued and local SQLite is immediately updated',
+      () async {
+        const branchId = 'branch-sync-1';
+        const tenantId = 'tenant-sync-1';
+        const userId = 'user-sync-1';
 
-      // Verify mutation is pending in queue
-      final pendingMutations = await OfflineStore.loadMutations(userId);
-      expect(pendingMutations.length, 1);
-      expect(pendingMutations.first.type, 'upsert_product');
-      expect(pendingMutations.first.payload['product']['name'], 'Samsung S24 Ultra');
-    });
+        final product = ProductModel(
+          id: 'prod-local-1',
+          tenantId: tenantId,
+          branchId: branchId,
+          name: 'Samsung S24 Ultra',
+          salePrice: 280000.0,
+          costPrice: 240000.0,
+          stock: 5,
+          reorderThreshold: 2,
+        );
 
-    test('Updating an existing product reflects in local store in single-digit ms', () async {
-      const branchId = 'branch-sync-1';
-      const tenantId = 'tenant-sync-1';
-      const userId = 'user-sync-1';
+        // Save to local cache & enqueue mutation
+        await OfflineStore.upsertCachedProduct(product);
+        await OfflineStore.enqueueMutation(
+          userId: userId,
+          type: 'upsert_product',
+          payload: {'product': product.toCacheMap()},
+        );
 
-      final initial = ProductModel(
-        id: 'prod-fast-update',
-        tenantId: tenantId,
-        branchId: branchId,
-        name: 'iPhone 15 Pro',
-        salePrice: 350000.0,
-        costPrice: 310000.0,
-        stock: 10,
-        reorderThreshold: 3,
-      );
+        // Verify product is loaded from local database instantly
+        final loaded = await LocalStore.loadProducts(branchId);
+        expect(loaded.length, 1);
+        expect(loaded.first.id, 'prod-local-1');
+        expect(loaded.first.name, 'Samsung S24 Ultra');
+        expect(loaded.first.stock, 5);
 
-      await OfflineStore.upsertCachedProduct(initial);
+        // Verify mutation is pending in queue
+        final pendingMutations = await OfflineStore.loadMutations(userId);
+        expect(pendingMutations.length, 1);
+        expect(pendingMutations.first.type, 'upsert_product');
+        expect(
+          pendingMutations.first.payload['product']['name'],
+          'Samsung S24 Ultra',
+        );
+      },
+    );
 
-      final updated = ProductModel(
-        id: 'prod-fast-update',
-        tenantId: tenantId,
-        branchId: branchId,
-        name: 'iPhone 15 Pro Max',
-        salePrice: 380000.0,
-        costPrice: 330000.0,
-        stock: 8,
-        reorderThreshold: 2,
-      );
+    test(
+      'Updating an existing product reflects in local store in single-digit ms',
+      () async {
+        const branchId = 'branch-sync-1';
+        const tenantId = 'tenant-sync-1';
+        const userId = 'user-sync-1';
 
-      final stopwatch = Stopwatch()..start();
-      await OfflineStore.upsertCachedProduct(updated);
-      await OfflineStore.enqueueMutation(
-        userId: userId,
-        type: 'upsert_product',
-        payload: {'product': updated.toCacheMap()},
-      );
-      stopwatch.stop();
+        final initial = ProductModel(
+          id: 'prod-fast-update',
+          tenantId: tenantId,
+          branchId: branchId,
+          name: 'iPhone 15 Pro',
+          salePrice: 350000.0,
+          costPrice: 310000.0,
+          stock: 10,
+          reorderThreshold: 3,
+        );
 
-      // Ensure execution is sub-50ms
-      expect(stopwatch.elapsedMilliseconds, lessThan(500));
+        await OfflineStore.upsertCachedProduct(initial);
 
-      final loaded = await LocalStore.loadProducts(branchId);
-      expect(loaded.length, 1);
-      expect(loaded.first.name, 'iPhone 15 Pro Max');
-      expect(loaded.first.salePrice, 380000.0);
-      expect(loaded.first.stock, 8);
-    });
+        final updated = ProductModel(
+          id: 'prod-fast-update',
+          tenantId: tenantId,
+          branchId: branchId,
+          name: 'iPhone 15 Pro Max',
+          salePrice: 380000.0,
+          costPrice: 330000.0,
+          stock: 8,
+          reorderThreshold: 2,
+        );
 
-    test('Error classifier correctly separates retryable network errors from terminal errors', () {
-      expect(OfflineErrorClassifier.isRetryable(const SocketException('Network unreachable')), isTrue);
-      expect(OfflineErrorClassifier.isRetryable(TimeoutException('Request timeout')), isTrue);
-      expect(
-        OfflineErrorClassifier.isRetryable(
-          const PostgrestException(message: 'permission denied for table products', code: '42501'),
-        ),
-        isFalse,
-      );
-      expect(
-        OfflineErrorClassifier.isRetryable(
-          const AuthException('Token expired'),
-        ),
-        isFalse,
-      );
-    });
+        final stopwatch = Stopwatch()..start();
+        await OfflineStore.upsertCachedProduct(updated);
+        await OfflineStore.enqueueMutation(
+          userId: userId,
+          type: 'upsert_product',
+          payload: {'product': updated.toCacheMap()},
+        );
+        stopwatch.stop();
 
-    test('Engine pauses syncing when network connection is not active', () async {
-      const userId = 'user-offline-1';
-      final engine = InventorySyncEngine();
-      engine.hasConnection = false;
+        // Ensure execution is sub-50ms
+        expect(stopwatch.elapsedMilliseconds, lessThan(500));
 
-      await OfflineStore.enqueueMutation(
-        userId: userId,
-        type: 'upsert_product',
-        payload: {'product': {'id': 'p-off-1', 'branch_id': 'b-1'}},
-      );
+        final loaded = await LocalStore.loadProducts(branchId);
+        expect(loaded.length, 1);
+        expect(loaded.first.name, 'iPhone 15 Pro Max');
+        expect(loaded.first.salePrice, 380000.0);
+        expect(loaded.first.stock, 8);
+      },
+    );
 
-      await engine.syncNow();
+    test(
+      'Error classifier correctly separates retryable network errors from terminal errors',
+      () {
+        expect(
+          OfflineErrorClassifier.isRetryable(
+            const SocketException('Network unreachable'),
+          ),
+          isTrue,
+        );
+        expect(
+          OfflineErrorClassifier.isRetryable(
+            TimeoutException('Request timeout'),
+          ),
+          isTrue,
+        );
+        expect(
+          OfflineErrorClassifier.isRetryable(
+            const PostgrestException(
+              message: 'permission denied for table products',
+              code: '42501',
+            ),
+          ),
+          isFalse,
+        );
+        expect(
+          OfflineErrorClassifier.isRetryable(
+            const AuthException('Token expired'),
+          ),
+          isFalse,
+        );
+      },
+    );
 
-      // Mutation must remain in queue because network is off
-      final mutations = await OfflineStore.loadMutations(userId);
-      expect(mutations.length, 1);
-      expect(mutations.first.type, 'upsert_product');
-    });
+    test(
+      'Engine pauses syncing when network connection is not active',
+      () async {
+        const userId = 'user-offline-1';
+        final engine = InventorySyncEngine();
+        engine.hasConnection = false;
+
+        await OfflineStore.enqueueMutation(
+          userId: userId,
+          type: 'upsert_product',
+          payload: {
+            'product': {'id': 'p-off-1', 'branch_id': 'b-1'},
+          },
+        );
+
+        await engine.syncNow();
+
+        // Mutation must remain in queue because network is off
+        final mutations = await OfflineStore.loadMutations(userId);
+        expect(mutations.length, 1);
+        expect(mutations.first.type, 'upsert_product');
+      },
+    );
   });
 }

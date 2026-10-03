@@ -542,10 +542,13 @@ class OfflineStore {
     List<OfflineMutation> mutations,
   ) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
+    final saved = await prefs.setString(
       _mutationsKey(userId),
       jsonEncode(mutations.map((mutation) => mutation.toMap()).toList()),
     );
+    if (!saved) {
+      throw StateError('Could not persist the offline upload queue');
+    }
   }
 
   static Future<T> _withMutationWriteLock<T>(

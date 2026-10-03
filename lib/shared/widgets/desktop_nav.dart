@@ -171,18 +171,12 @@ class DesktopNav extends ConsumerWidget {
                   padding: const EdgeInsets.all(24),
                   child: Row(
                     children: [
-                      Container(
+                      Image.asset(
+                        'assets/icon/app_icon.png',
                         width: 32,
                         height: 32,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.storefront_rounded,
-                          color: Colors.white,
-                          size: 18,
-                        ),
+                        fit: BoxFit.contain,
+                        semanticLabel: '${AppStrings.appName} logo',
                       ),
                       const SizedBox(width: 10),
                       const Text(

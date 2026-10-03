@@ -8,6 +8,8 @@ import '../../../../core/entitlements/entitlement_provider.dart';
 import '../providers/pos_provider.dart';
 import '../../../settings/data/models/receipt_configuration_model.dart';
 import '../../../settings/presentation/providers/receipt_settings_provider.dart';
+// DEV ONLY: Escpresso receipt emulator integration; remove this import and action.
+import '../../../printing/presentation/dev_escpos_receipt_action.dart';
 
 class ReceiptReprintScreen extends ConsumerStatefulWidget {
   const ReceiptReprintScreen({super.key});
@@ -44,6 +46,7 @@ class _ReceiptReprintScreenState extends ConsumerState<ReceiptReprintScreen> {
         title: const Text('Reprint Receipt'),
         backgroundColor: AppColors.surface,
         elevation: 0,
+        actions: [DevEscPosReceiptAction(sale: _sale, footer: footer)],
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(salesHistoryProvider),

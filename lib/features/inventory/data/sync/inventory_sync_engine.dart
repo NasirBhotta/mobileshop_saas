@@ -8,11 +8,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/local/local_store.dart';
 import '../../../../core/offline/offline_store.dart';
 import '../../../../core/utils/offline_error_classifier.dart';
-import '../models/category_model.dart';
 import '../models/price_history_model.dart';
 import '../../../repairs/data/models/inventory_unit_model.dart';
 
-/// Production-grade autonomous Sync Engine for the Inventory module.
+/// Persistent, ordered upload worker for the Inventory module.
 /// Fully decoupled from UI operations. Handles outbound mutations and inbound
 /// data synchronization with retry backoff, jitter, and network gating.
 class InventorySyncEngine {
@@ -27,24 +26,25 @@ class InventorySyncEngine {
   Timer? _scheduledSyncTimer;
   int _consecutiveFailures = 0;
   bool _hasConnection = true;
+  bool _disposed = false;
+  Object? lastSyncError;
 
   static const int _baseDelayMs = 1000;
   static const int _maxDelayMs = 30000;
-  static const int _maxRetriesPerCycle = 5;
   static const Duration _networkTimeout = Duration(seconds: 8);
 
   InventorySyncEngine({
     SupabaseClient? client,
     Connectivity? connectivity,
     Random? random,
-  })  : _customClient = client,
-        _connectivity = connectivity,
-        _random = random ?? Random() {
+  }) : _customClient = client,
+       _connectivity = connectivity,
+       _random = random ?? Random() {
     _initConnectivityListener();
   }
 
   SupabaseClient get _client {
-    if (_customClient != null) return _customClient!;
+    if (_customClient != null) return _customClient;
     try {
       return Supabase.instance.client;
     } catch (_) {
@@ -64,7 +64,9 @@ class InventorySyncEngine {
         _hasConnection = connected;
 
         if (connected && !wasConnected) {
-          debugPrint('[InventorySyncEngine] 🌐 Network restored -> Triggering sync');
+          debugPrint(
+            '[InventorySyncEngine] 🌐 Network restored -> Triggering sync',
+          );
           _consecutiveFailures = 0;
           triggerSync();
         } else if (!connected && wasConnected) {
@@ -72,18 +74,27 @@ class InventorySyncEngine {
         }
       });
     } catch (e) {
-      debugPrint('[InventorySyncEngine] ⚠️ Failed to init connectivity listener: $e');
+      debugPrint(
+        '[InventorySyncEngine] ⚠️ Failed to init connectivity listener: $e',
+      );
     }
   }
 
   void dispose() {
+    _disposed = true;
     _connectivitySub?.cancel();
     _scheduledSyncTimer?.cancel();
   }
 
   /// Triggers a non-blocking background sync pass.
   void triggerSync() {
-    unawaited(syncNow());
+    if (_disposed) return;
+    unawaited(
+      syncNow().catchError((Object error, StackTrace stack) {
+        lastSyncError = error;
+        debugPrint('[InventorySyncEngine] Sync could not complete: $error');
+      }),
+    );
   }
 
   /// Executes or returns the active sync pass.
@@ -94,46 +105,86 @@ class InventorySyncEngine {
     }
 
     _scheduledSyncTimer?.cancel();
-    final sync = _runSyncCycle();
-    _syncInFlight = sync;
-    return sync.whenComplete(() {
+    late final Future<void> sync;
+    sync = _runRequestedSyncCycles().whenComplete(() {
       if (identical(_syncInFlight, sync)) {
         _syncInFlight = null;
       }
     });
+    _syncInFlight = sync;
+    return sync;
   }
 
-  Future<void> _runSyncCycle() async {
+  Future<void> _runRequestedSyncCycles() async {
+    final userId = _client.auth.currentUser?.id;
+    lastSyncError = null;
+    do {
+      final completed = await _runSyncCycle(userId);
+      if (!completed || _disposed) return;
+      // Await follow-up work too, so a refresh cannot finish before products
+      // queued during an active upload have had their sync pass.
+      // Always take another snapshot after a successful pass. Enqueueing must
+      // not require a UI trigger to include work added while uploading.
+    } while (_hasConnection);
+  }
+
+  Future<bool> _runSyncCycle(String? expectedUserId) async {
     final user = _client.auth.currentUser;
     if (user == null) {
       debugPrint('[InventorySyncEngine] ⏸️ User not logged in. Skipping sync.');
-      return;
+      return false;
+    }
+    if (user.id != expectedUserId) {
+      lastSyncError = StateError('Account changed during inventory sync');
+      return false;
     }
 
     final mutations = await OfflineStore.loadMutations(user.id);
-    if (mutations.isEmpty) {
-      return;
+    if (!mutations.any((mutation) => ownsMutation(mutation.type))) {
+      return false;
     }
 
-    debugPrint('[InventorySyncEngine] 🚀 Starting sync cycle (${mutations.length} pending mutations)');
+    debugPrint(
+      '[InventorySyncEngine] 🚀 Starting sync cycle (${mutations.length} pending mutations)',
+    );
 
-    final remaining = <OfflineMutation>[];
+    // Retain everything until it has actually been acknowledged by the server.
+    // This also preserves operations owned by other module sync workers.
+    final remaining = List<OfflineMutation>.of(mutations);
 
     for (final mutation in mutations) {
+      if (!ownsMutation(mutation.type)) continue;
+      if (_disposed || _client.auth.currentUser?.id != user.id) {
+        lastSyncError = StateError(
+          'Inventory sync paused because the session changed',
+        );
+        break;
+      }
       // Check network connectivity before processing each mutation
       if (!_hasConnection) {
-        debugPrint('[InventorySyncEngine] ⏸️ Sync paused (No internet connection)');
-        remaining.add(mutation);
-        continue;
+        debugPrint(
+          '[InventorySyncEngine] ⏸️ Sync paused (No internet connection)',
+        );
+        break;
       }
 
       final swMut = Stopwatch()..start();
       try {
         await _processMutation(mutation);
+        // Acknowledge each confirmed operation before sending the next one.
+        // A crash later in the batch cannot replay earlier stock snapshots.
+        await OfflineStore.removeMutation(
+          userId: user.id,
+          mutationId: mutation.id,
+        );
+        remaining.removeWhere((pending) => pending.id == mutation.id);
         _consecutiveFailures = 0;
-        debugPrint('[InventorySyncEngine] ✅ Successfully synced mutation: ${mutation.type} (ID: ${mutation.id}) in ${swMut.elapsedMilliseconds}ms');
+        debugPrint(
+          '[InventorySyncEngine] ✅ Successfully synced mutation: ${mutation.type} (ID: ${mutation.id}) in ${swMut.elapsedMilliseconds}ms',
+        );
       } catch (e) {
-        final isRetryable = OfflineErrorClassifier.isRetryable(e);
+        lastSyncError = e;
+        final isRetryable = _isRetryableUpload(e);
         if (isRetryable) {
           _consecutiveFailures++;
           final backoffMs = _calculateBackoffWithJitter(_consecutiveFailures);
@@ -141,30 +192,57 @@ class InventorySyncEngine {
             '[InventorySyncEngine] ⚠️ Transient failure in ${swMut.elapsedMilliseconds}ms for ${mutation.type} (ID: ${mutation.id}): $e. '
             'Retrying in ${backoffMs}ms (Failures: $_consecutiveFailures)',
           );
-          remaining.add(mutation);
           _scheduleRetry(backoffMs);
           break; // Stop further processing in this cycle to respect backoff
         } else {
-          // Terminal error: log and drop to prevent permanent deadlock
+          // Database/auth failures need intervention, but are never evidence
+          // that the user's data was saved. Keep this and dependent operations.
           debugPrint(
             '[InventorySyncEngine] ❌ Terminal failure in ${swMut.elapsedMilliseconds}ms for ${mutation.type} (ID: ${mutation.id}): $e. '
-            'Dropping mutation to prevent queue blockage.',
+            'Retaining mutation and dependent operations for a later sync.',
           );
+          break;
         }
       }
     }
-
-    await OfflineStore.saveMutationSyncResult(
-      userId: user.id,
-      snapshot: mutations,
-      remaining: remaining,
-    );
 
     debugPrint(
       '[InventorySyncEngine] 🏁 Sync cycle finished. '
       'Processed: ${mutations.length - remaining.length}, Remaining: ${remaining.length}',
     );
+    return !remaining.any((mutation) => ownsMutation(mutation.type));
   }
+
+  static bool ownsMutation(String type) =>
+      _supportedMutationTypes.contains(type);
+
+  bool _isRetryableUpload(Object error) {
+    if (error is PostgrestException &&
+        const {
+          '408',
+          '429',
+          '500',
+          '502',
+          '503',
+          '504',
+          '57014',
+        }.contains(error.code)) {
+      return true;
+    }
+    return OfflineErrorClassifier.isRetryable(error);
+  }
+
+  static const _supportedMutationTypes = {
+    'upsert_product',
+    'delete_product',
+    'upsert_category',
+    'delete_category',
+    'branch_threshold',
+    'category_threshold',
+    'stock_adjustment',
+    'tenant_settings',
+    'select_branch',
+  };
 
   int _calculateBackoffWithJitter(int failureCount) {
     final exponential = _baseDelayMs * pow(2, min(failureCount - 1, 5)).toInt();
@@ -174,6 +252,7 @@ class InventorySyncEngine {
   }
 
   void _scheduleRetry(int delayMs) {
+    if (_disposed) return;
     _scheduledSyncTimer?.cancel();
     _scheduledSyncTimer = Timer(Duration(milliseconds: delayMs), () {
       triggerSync();
@@ -263,8 +342,9 @@ class InventorySyncEngine {
         break;
 
       default:
-        debugPrint('[InventorySyncEngine] ℹ️ Unhandled mutation type in inventory engine: ${mutation.type}');
-        break;
+        throw UnsupportedError(
+          'Unsupported inventory mutation: ${mutation.type}',
+        );
     }
   }
 
@@ -339,16 +419,25 @@ class InventorySyncEngine {
           .limit(50)
           .timeout(const Duration(seconds: 4));
 
-      final historyList = (data as List)
-          .map((e) => PriceHistoryModel.fromMap(Map<String, dynamic>.from(e as Map)))
-          .toList();
+      final historyList =
+          (data as List)
+              .map(
+                (e) => PriceHistoryModel.fromMap(
+                  Map<String, dynamic>.from(e as Map),
+                ),
+              )
+              .toList();
 
       if (historyList.isNotEmpty) {
         await LocalStore.saveProductPriceHistory(historyList);
-        debugPrint('[InventorySyncEngine] 📥 Synced ${historyList.length} price history entries for product $productId');
+        debugPrint(
+          '[InventorySyncEngine] 📥 Synced ${historyList.length} price history entries for product $productId',
+        );
       }
     } catch (e) {
-      debugPrint('[InventorySyncEngine] ℹ️ Background price history sync skipped: $e');
+      debugPrint(
+        '[InventorySyncEngine] ℹ️ Background price history sync skipped: $e',
+      );
     }
   }
 
@@ -377,10 +466,14 @@ class InventorySyncEngine {
       final maps = (data as List).cast<Map<String, dynamic>>();
       if (maps.isNotEmpty) {
         await LocalStore.saveStockAdjustments(maps);
-        debugPrint('[InventorySyncEngine] 📥 Synced ${maps.length} stock adjustment entries for branch $branchId');
+        debugPrint(
+          '[InventorySyncEngine] 📥 Synced ${maps.length} stock adjustment entries for branch $branchId',
+        );
       }
     } catch (e) {
-      debugPrint('[InventorySyncEngine] ℹ️ Background stock adjustments sync skipped: $e');
+      debugPrint(
+        '[InventorySyncEngine] ℹ️ Background stock adjustments sync skipped: $e',
+      );
     }
   }
 
@@ -396,16 +489,25 @@ class InventorySyncEngine {
           .eq('product_id', productId)
           .timeout(_networkTimeout);
 
-      final remoteList = (res as List)
-          .map((r) => InventoryUnitModel.fromMap(Map<String, dynamic>.from(r as Map)))
-          .toList();
+      final remoteList =
+          (res as List)
+              .map(
+                (r) => InventoryUnitModel.fromMap(
+                  Map<String, dynamic>.from(r as Map),
+                ),
+              )
+              .toList();
 
       for (final unit in remoteList) {
         await LocalStore.upsertInventoryUnit(unit);
       }
-      debugPrint('[InventorySyncEngine] 📥 Synced ${remoteList.length} inventory units for product $productId');
+      debugPrint(
+        '[InventorySyncEngine] 📥 Synced ${remoteList.length} inventory units for product $productId',
+      );
     } catch (e) {
-      debugPrint('[InventorySyncEngine] ℹ️ Background inventory units sync skipped: $e');
+      debugPrint(
+        '[InventorySyncEngine] ℹ️ Background inventory units sync skipped: $e',
+      );
     }
   }
 }

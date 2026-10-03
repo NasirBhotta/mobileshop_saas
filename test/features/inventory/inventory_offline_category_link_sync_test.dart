@@ -10,7 +10,7 @@ void main() {
         ).readAsStringSync();
 
     final remoteMapping = repository.indexOf(
-      '(data as List).map((e) => ProductModel.fromMap(e)).toList()',
+      'data.map((e) => ProductModel.fromMap(e)).toList()',
     );
     final pendingOverlay = repository.indexOf(
       '_applyPendingProductUpserts(',

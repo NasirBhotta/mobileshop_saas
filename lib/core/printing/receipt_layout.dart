@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -30,16 +31,19 @@ class ReceiptLayout {
 
   static PdfPageFormat pageFormat(ReceiptConfigurationModel config) {
     final narrow = config.paperSize.contains('58');
+    final windowsThermal =
+        narrow && !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     // Let the PDF page measure the content; long names/terms must not be clipped.
     return PdfPageFormat(
       (narrow ? 58 : 80) * PdfPageFormat.mm,
       double.infinity,
       marginTop: 2 * PdfPageFormat.mm,
       marginBottom: 3 * PdfPageFormat.mm,
-      // A 58mm roll can have only 48mm of printable width. Keep the
-      // content centered within that area instead of shifting it right.
-      marginLeft: (narrow ? 5 : 8) * PdfPageFormat.mm,
-      marginRight: (narrow ? 5 : 3) * PdfPageFormat.mm,
+      // Windows renders PDFs at their physical size rather than fitting them
+      // to the driver's printable area. Reserve a centered 48mm content area
+      // on 58mm rolls; retain the existing layout on mobile.
+      marginLeft: (narrow ? (windowsThermal ? 5 : 4) : 8) * PdfPageFormat.mm,
+      marginRight: (narrow ? (windowsThermal ? 5 : 2) : 3) * PdfPageFormat.mm,
     );
   }
 

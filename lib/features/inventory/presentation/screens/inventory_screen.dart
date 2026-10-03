@@ -387,22 +387,24 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
   }
 
   Future<void> _refreshInventory() async {
+    try {
+      await _refreshInventoryData();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Inventory refresh could not finish. Your local changes have been kept.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _refreshInventoryData() async {
     final repository = ref.read(inventoryRepositoryProvider);
 
-    try {
-      await repository.syncOfflineMutations();
-    } catch (_) {
-      // Continue with remote reads; queued mutations remain available locally.
-    }
-
-    await Future.wait([
-      repository.refreshCurrentProductsCache(
-        timeout: const Duration(seconds: 10),
-      ),
-      repository.refreshCurrentCategoriesCache(
-        timeout: const Duration(seconds: 10),
-      ),
-    ]);
+    final result = await repository.refreshInventory();
 
     if (!mounted) return;
     _resetPaging();
@@ -419,6 +421,10 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
       ref.read(categoriesProvider.future),
       ref.read(inventoryProductsProvider(request).future),
     ]);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(result.message)));
   }
 
   @override
@@ -600,7 +606,10 @@ class _InventoryBodyState extends ConsumerState<_InventoryBody> {
                                 .showFor();
                             context.push('/buyin/new');
                           },
-                          icon: const Icon(Icons.assignment_turned_in_rounded, size: 16),
+                          icon: const Icon(
+                            Icons.assignment_turned_in_rounded,
+                            size: 16,
+                          ),
                           label: const Text('Used Buy-In'),
                         ),
                         const SizedBox(width: 8),

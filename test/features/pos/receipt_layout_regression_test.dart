@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobileshop_saas/core/printing/receipt_layout.dart';
 import 'package:mobileshop_saas/features/pos/data/models/cart_item_model.dart';
@@ -13,13 +14,26 @@ import 'package:pdf/pdf.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('58mm receipts fit a centered 48mm printable area', () {
+  test('Windows 58mm receipts fit a centered 48mm printable area', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     final format = ReceiptLayout.pageFormat(
       ReceiptConfigurationModel(shopName: 'ZED Mobiles', paperSize: '58mm'),
     );
     expect(format.width / PdfPageFormat.mm, closeTo(58, 0.001));
     expect(format.availableWidth / PdfPageFormat.mm, closeTo(48, 0.001));
     expect(format.marginLeft, format.marginRight);
+  });
+
+  test('mobile 58mm receipts retain their existing layout', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final format = ReceiptLayout.pageFormat(
+      ReceiptConfigurationModel(shopName: 'ZED Mobiles', paperSize: '58mm'),
+    );
+    expect(format.availableWidth / PdfPageFormat.mm, closeTo(52, 0.001));
+    expect(format.marginLeft / PdfPageFormat.mm, closeTo(4, 0.001));
+    expect(format.marginRight / PdfPageFormat.mm, closeTo(2, 0.001));
   });
 
   SaleModel sale({List<SalePaymentModel> payments = const [], int count = 2}) =>
