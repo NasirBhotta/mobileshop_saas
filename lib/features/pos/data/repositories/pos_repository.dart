@@ -74,15 +74,23 @@ class PosRepository {
     'tax_amount': sale.taxAmount,
     'total': sale.total,
     'notes': sale.notes,
-    'created_at': sale.createdAt?.toIso8601String(),
+    'created_at': sale.createdAt?.toUtc().toIso8601String(),
     'sale_items': sale.items.map((item) => item.toMap()).toList(),
     'sale_payments': sale.payments.map((payment) => payment.toMap()).toList(),
   };
 
   Future<bool> _commitSaleRemote(Map<String, dynamic> saleData) async {
+    // Older offline payloads contain a local ISO time without an offset.
+    // Normalize retries too, so PostgreSQL never interprets that time as UTC.
+    final createdAt = saleData['created_at'] as String?;
+    final remotePayload = {
+      ...saleData,
+      if (createdAt != null)
+        'created_at': DateTime.parse(createdAt).toUtc().toIso8601String(),
+    };
     try {
       final result = await _client
-          .rpc('commit_pos_sale_v2', params: {'p_sale': saleData})
+          .rpc('commit_pos_sale_v2', params: {'p_sale': remotePayload})
           .timeout(_saleCommitTimeout);
       if (result == false) {
         throw StateError('Sale database mein commit nahi ho saki. Dobara try karein.');

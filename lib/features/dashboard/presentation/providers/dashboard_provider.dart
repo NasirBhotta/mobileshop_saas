@@ -69,7 +69,7 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final today = DateTime.now();
   final todaySales =
       completedSales.where((sale) {
-        final createdAt = sale.createdAt;
+        final createdAt = sale.createdAt?.toLocal();
         if (createdAt == null) return false;
         return createdAt.year == today.year &&
             createdAt.month == today.month &&

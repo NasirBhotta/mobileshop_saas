@@ -94,6 +94,78 @@ void main() {
 
   for (final width in ['58mm', '80mm']) {
     test(
+      '$width sales print each saved IMEI with the repair setting off',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final config = ReceiptConfigurationModel(
+          shopName: 'ZED Mobiles',
+          paperSize: width,
+          showDeviceImei: false,
+        );
+        final receipt = SaleModel.fromMap({
+          'id': 'C5A1A04F',
+          'branch_id': 'branch',
+        'user_id': 'cashier',
+        'status': 'completed',
+          'subtotal': 6300,
+          'discount_amount': 0,
+          'tax_amount': 0,
+          'total': 6300,
+          'sale_items': [
+            for (final imei in ['356892110293847', '356892110293855'])
+              {
+                'product_id': 'phone',
+                'product_name': 'Nokia 105 Pure',
+                'quantity': 1,
+                'unit_price': 3100,
+                'imei': ' $imei ',
+              },
+            {
+              'product_id': 'cable',
+              'product_name': 'China Cable',
+              'quantity': 1,
+              'unit_price': 100,
+            },
+            {
+              'product_id': 'legacy',
+              'product_name': 'Old item without IMEI',
+              'quantity': 1,
+              'unit_price': 0,
+              'imei': '  ',
+            },
+          ],
+        });
+        final text = ReceiptService.formatReceipt(
+          sale: receipt,
+          config: config,
+          duplicate: true,
+        );
+        expect('IMEI:'.allMatches(text), hasLength(2));
+        expect(text, contains('IMEI: 356892110293847'));
+        expect(text, contains('IMEI: 356892110293855'));
+        expect(text, contains('TOTAL: Rs 6300'));
+        for (final duplicate in [false, true]) {
+          final bytes = await ReceiptService.generateSaleReceiptPdf(
+            sale: receipt,
+            config: config,
+            isDuplicate: duplicate,
+          );
+          final format = ReceiptLayout.printFormat(bytes, config);
+          expect(format.width / PdfPageFormat.mm, width == '58mm' ? 58 : 80);
+          expect(format.height.isFinite, isTrue);
+          final output = Platform.environment['RECEIPT_PREVIEW_DIR'];
+          if (output != null) {
+            await Directory(output).create(recursive: true);
+            await File(
+              '$output/imei-sale-$width-$duplicate.pdf',
+            ).writeAsBytes(bytes);
+          }
+        }
+      },
+    );
+
+    test(
       '$width offline PDF handles Urdu terms, short IDs and long receipts',
       () async {
         final config = ReceiptConfigurationModel(

@@ -57,6 +57,7 @@ class ReceiptService {
     List<String> cells,
     pw.TextStyle style, {
     bool heading = false,
+    String? imei,
   }) => pw.TableRow(
     decoration:
         heading ? const pw.BoxDecoration(color: PdfColors.grey200) : null,
@@ -66,10 +67,27 @@ class ReceiptService {
           padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 3),
           child:
               i == 1
-                  ? pw.Text(
-                    cells[i],
-                    style: style,
-                    textDirection: ReceiptLayout.direction(cells[i]),
+                  ? pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        cells[i],
+                        style: style,
+                        textDirection: ReceiptLayout.direction(cells[i]),
+                      ),
+                      if (imei?.trim().isNotEmpty == true)
+                        pw.SizedBox(
+                          height: (style.fontSize ?? 7) * 1.4,
+                          child: pw.FittedBox(
+                            fit: pw.BoxFit.scaleDown,
+                            alignment: pw.Alignment.centerLeft,
+                            child: pw.Text(
+                              'IMEI: ${imei!.trim()}',
+                              style: style,
+                            ),
+                          ),
+                        ),
+                    ],
                   )
                   : pw.SizedBox(
                     height: (style.fontSize ?? 7) * 1.4,
@@ -86,18 +104,10 @@ class ReceiptService {
     ],
   );
 
-  static String _formatReceiptItemName(
-    CartItemModel item,
-    ReceiptConfigurationModel config,
-  ) {
+  static String _formatReceiptItemName(CartItemModel item) {
     final buffer = StringBuffer(item.productName);
     if (item.deviceDetails != null && item.deviceDetails!.trim().isNotEmpty) {
       buffer.write('\n${item.deviceDetails!.trim()}');
-    }
-    if (config.showDeviceImei &&
-        item.imei != null &&
-        item.imei!.trim().isNotEmpty) {
-      buffer.write('\nIMEI: ${item.imei!.trim()}');
     }
     return buffer.toString();
   }
@@ -270,14 +280,18 @@ class ReceiptService {
                     heading: true,
                   ),
                   for (var i = 0; i < sale.items.length; i++)
-                    _itemRow([
-                      '${i + 1}',
-                      _formatReceiptItemName(sale.items[i], config),
-                      '${sale.items[i].quantity}',
-                      ReceiptLayout.money(sale.items[i].unitPrice),
-                      ReceiptLayout.money(sale.items[i].discountAmount),
-                      ReceiptLayout.money(sale.items[i].lineTotal),
-                    ], small),
+                    _itemRow(
+                      [
+                        '${i + 1}',
+                        _formatReceiptItemName(sale.items[i]),
+                        '${sale.items[i].quantity}',
+                        ReceiptLayout.money(sale.items[i].unitPrice),
+                        ReceiptLayout.money(sale.items[i].discountAmount),
+                        ReceiptLayout.money(sale.items[i].lineTotal),
+                      ],
+                      small,
+                      imei: sale.items[i].imei,
+                    ),
                 ],
               ),
               pw.SizedBox(height: 3),
@@ -459,9 +473,7 @@ class ReceiptService {
       if (item.deviceDetails != null && item.deviceDetails!.trim().isNotEmpty) {
         buffer.writeln('  Details: ${item.deviceDetails!.trim()}');
       }
-      if (cfg.showDeviceImei &&
-          item.imei != null &&
-          item.imei!.trim().isNotEmpty) {
+      if (item.imei != null && item.imei!.trim().isNotEmpty) {
         buffer.writeln('  IMEI: ${item.imei!.trim()}');
       }
     }

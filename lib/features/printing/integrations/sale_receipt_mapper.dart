@@ -30,7 +30,7 @@ class SaleReceiptMapper {
                   itemTotal: item.lineTotal,
                   unitDiscount: item.discountAmount,
                   details: item.deviceDetails,
-                  imei: config.showDeviceImei ? item.imei : null,
+                  imei: item.imei?.trim(),
                 ),
               )
               .toList(),

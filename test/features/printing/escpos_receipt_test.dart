@@ -124,7 +124,7 @@ void main() {
       expect(receipt.grandTotal, sale.total);
       expect(receipt.items.single.itemTotal, item.lineTotal);
       expect(receipt.items.single.unitDiscount, item.discountAmount);
-      expect(receipt.items.single.imei, isNull);
+      expect(receipt.items.single.imei, item.imei);
       expect(receipt.paidAmount, 500);
       expect(receipt.remainingAmount, sale.total - 500);
       expect(receipt.paymentMethod, 'Cash + Khata');

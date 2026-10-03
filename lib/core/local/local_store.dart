@@ -852,6 +852,10 @@ class LocalStore {
   // ════════════════════════════════════════
 
   static Future<void> saveSale(SaleModel sale) async {
+    await LocalDatabase.runInTransaction(() => _saveSaleSnapshot(sale));
+  }
+
+  static Future<void> _saveSaleSnapshot(SaleModel sale) async {
     // Sale header
     await LocalDatabase.execute(
       '''
@@ -876,12 +880,20 @@ class LocalStore {
         sale.notes,
         sale.voidReason,
         0, // synced = false
-        sale.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+        sale.createdAt?.toLocal().toIso8601String() ??
+            DateTime.now().toIso8601String(),
       ],
     );
 
+    // Replace this sale's cached snapshot. IMEI metadata can differ after an
+    // online refresh, so generated row IDs alone cannot remove stale items.
+    await LocalDatabase.execute('DELETE FROM sale_items WHERE sale_id = ?', [
+      sale.id,
+    ]);
+
     // Sale items
-    for (final item in sale.items) {
+    for (var index = 0; index < sale.items.length; index++) {
+      final item = sale.items[index];
       final unitCostAtSale =
           item.unitCost ??
           await _loadProductCostAtSale(
@@ -901,9 +913,7 @@ class LocalStore {
       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ''',
         [
-          item.imei != null && item.imei!.isNotEmpty
-              ? '${sale.id}_${item.productId}_${item.imei}'
-              : '${sale.id}_${item.productId}',
+          '${sale.id}_item_$index',
           sale.id,
           item.productId,
           item.productName,
@@ -1001,6 +1011,9 @@ class LocalStore {
                       quantity: (r['quantity'] as num).toInt(),
                       discountAmount: (r['discount_amount'] as num).toDouble(),
                       taxRate: (r['tax_rate'] as num).toDouble(),
+                      imei: r['imei'] as String?,
+                      deviceDetails: r['device_details'] as String?,
+                      unitId: r['unit_id'] as String?,
                     ),
                   )
                   .toList(),
