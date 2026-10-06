@@ -7,7 +7,7 @@ select
   c.relname as table_name,
   c.relrowsecurity as rls_enabled,
   c.relforcerowsecurity as rls_forced,
-  case when pub.relid is null then false else true end as in_realtime_publication
+  case when pub.tablename is null then false else true end as in_realtime_publication
 from pg_class c
 join pg_namespace n on n.oid = c.relnamespace
 left join pg_publication_tables pub
@@ -154,12 +154,12 @@ select
     filter (where acl.privilege_type = 'EXECUTE'), '{}'::text[]) as execute_grantees,
   rf.definition
 from relevant_functions rf
-left join lateral aclexplode(coalesce(proacl, acldefault('f', proowner))) acl_raw on true
+join pg_proc p on p.oid = rf.oid
+left join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl_raw on true
 left join lateral (
   select case when acl_raw.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl_raw.grantee) end as grantee,
          acl_raw.privilege_type
 ) acl on true
-join pg_proc p on p.oid = rf.oid
 group by rf.oid, rf.schema_name, rf.proname, rf.identity_arguments,
   rf.result_type, rf.security_definer, rf.config, rf.definition
 order by rf.proname, rf.identity_arguments;

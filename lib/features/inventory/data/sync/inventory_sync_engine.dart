@@ -357,6 +357,23 @@ class InventorySyncEngine {
     product.remove('category_threshold');
     final reorderThreshold = product['reorder_threshold'] as int?;
 
+    try {
+      await _client
+          .rpc(
+            'upsert_inventory_product_v2',
+            params: {
+              'p_product': {...product, 'stock': stock},
+            },
+          )
+          .timeout(_networkTimeout);
+      return;
+    } on PostgrestException catch (e) {
+      if (!_isMissingSecureProductRpc(e)) rethrow;
+    }
+
+    // Compatibility path for deployments that have not installed the additive
+    // product RPC yet. Once available, the RPC owns tenant/branch fields and
+    // only uses stock for an initial product inventory row.
     await _client
         .from('products')
         .upsert(product, onConflict: 'id')
@@ -382,6 +399,21 @@ class InventorySyncEngine {
     remoteAdjustment.remove('product_name');
     remoteAdjustment.remove('products');
 
+    try {
+      await _client
+          .rpc(
+            'adjust_inventory_stock_v2',
+            params: {'p_adjustment': remoteAdjustment},
+          )
+          .timeout(_networkTimeout);
+      return;
+    } on PostgrestException catch (e) {
+      if (!_isMissingSecureStockAdjustmentRpc(e)) rethrow;
+    }
+
+    // Compatibility path for the current production backend. It is used only
+    // while the additive RPC has not yet been installed; once present, queued
+    // adjustments use the server-side delta and idempotency boundary above.
     await _client
         .from('stock_adjustments')
         .upsert(remoteAdjustment, onConflict: 'id')
@@ -396,6 +428,22 @@ class InventorySyncEngine {
           'updated_at': DateTime.now().toIso8601String(),
         }, onConflict: 'branch_id,product_id')
         .timeout(_networkTimeout);
+  }
+
+  bool _isMissingSecureStockAdjustmentRpc(PostgrestException error) {
+    final message = error.message.toLowerCase();
+    return error.code == 'PGRST202' ||
+        (message.contains('adjust_inventory_stock_v2') &&
+            (message.contains('could not find') ||
+                message.contains('does not exist')));
+  }
+
+  bool _isMissingSecureProductRpc(PostgrestException error) {
+    final message = error.message.toLowerCase();
+    return error.code == 'PGRST202' ||
+        (message.contains('upsert_inventory_product_v2') &&
+            (message.contains('could not find') ||
+                message.contains('does not exist')));
   }
 
   // ════════════════════════════════════════

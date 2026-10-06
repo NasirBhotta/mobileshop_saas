@@ -26,6 +26,19 @@ This is a design proof, **not a deployable migration**. It uses simplified roles
 | Inventory writes | Product creation, thresholds, stock adjustments, buy-in, POS return and offline sync | Stock quantity needs an authorized event/transaction rule; threshold edits are a different permission |
 | Client local queue | Offline mutations are replayed later | Revoked rights can cause legitimate queued work to fail; failures must be visible and recoverable |
 
+## SEC-17 source re-scan (2026-10-06)
+
+A current source scan confirms that direct mutation paths still exist beyond the first secure compatibility adapters. Production grant/RLS cutover remains blocked until these paths have secure server equivalents and compatibility tests:
+
+| Area | Direct-write dependency still present |
+| --- | --- |
+| Customer buy-in | Product/inventory/IMEI/customer-purchase writes and replay queue in `customer_purchase_repository.dart` |
+| Inventory | Product, inventory, stock-adjustment and IMEI writes in `inventory_repository.dart` and `inventory_sync_engine.dart` |
+| POS returns | Return parent/items, returned-product, inventory and parent-sale recovery writes in `pos_repository.dart` |
+| POS buy-in sale linkage | Customer-purchase status and inventory-unit changes while completing a sale in `pos_repository.dart` |
+
+The secure adapters already added for inventory adjustment, product sync and sale-parent restoration retain a legacy fallback only when their RPC is absent. The customer-buy-in and full POS-return atomic routes must be staged before direct permissions can be narrowed.
+
 ## Proposed implementation order
 
 1. **Define action and field matrix.** Document which roles/branches may view sales, create a sale, edit product descriptions/prices, adjust stock, and process returns. Clarify owner all-branch access and supported legacy staff behavior. Existing permission catalog includes `inventory.product.*`, `inventory.stock.*` and `pos.sale.create`; determine exact meaning before SQL.

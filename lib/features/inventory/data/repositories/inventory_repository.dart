@@ -292,20 +292,10 @@ class InventoryRepository {
         createdAt: DateTime.now(),
       );
 
-      await _client
-          .from('stock_adjustments')
-          .insert(_remoteStockAdjustmentMap(adjustment))
-          .timeout(_networkTimeout);
-
-      await _client
-          .from('inventory')
-          .upsert({
-            'branch_id': branchId,
-            'product_id': productId,
-            'quantity': newStock,
-            'updated_at': DateTime.now().toIso8601String(),
-          }, onConflict: 'branch_id,product_id')
-          .timeout(_networkTimeout);
+      final synchronizedStock = await _applyStockAdjustmentRemote(
+        adjustment: adjustment,
+        legacyNewStock: newStock,
+      );
 
       await _checkAndNotifyHighValue(
         tenantId: tenantId,
@@ -319,7 +309,7 @@ class InventoryRepository {
         product: product,
         tenantId: tenantId,
         branchId: branchId,
-        stock: newStock,
+        stock: synchronizedStock,
       );
     } catch (e) {
       if (e.toString().contains('Stock zero se neeche')) rethrow;
@@ -2281,6 +2271,54 @@ class InventoryRepository {
     remote.remove('product_name');
     remote.remove('products');
     return remote;
+  }
+
+  /// Uses the secure RPC when it exists. The narrowly-scoped fallback keeps
+  /// current production deployments working until the additive staging RPC is
+  /// installed and the final table-write cutover is approved.
+  Future<int> _applyStockAdjustmentRemote({
+    required Map<String, dynamic> adjustment,
+    required int legacyNewStock,
+  }) async {
+    try {
+      final response = await _client
+          .rpc(
+            'adjust_inventory_stock_v2',
+            params: {'p_adjustment': _remoteStockAdjustmentMap(adjustment)},
+          )
+          .timeout(_networkTimeout);
+      final result = Map<String, dynamic>.from(response as Map);
+      final quantity = result['quantity'];
+      if (quantity is! num) {
+        throw StateError('Secure stock adjustment returned no quantity.');
+      }
+      return quantity.toInt();
+    } on PostgrestException catch (e) {
+      if (!_isMissingSecureStockAdjustmentRpc(e)) rethrow;
+    }
+
+    await _client
+        .from('stock_adjustments')
+        .insert(_remoteStockAdjustmentMap(adjustment))
+        .timeout(_networkTimeout);
+    await _client
+        .from('inventory')
+        .upsert({
+          'branch_id': adjustment['branch_id'],
+          'product_id': adjustment['product_id'],
+          'quantity': legacyNewStock,
+          'updated_at': DateTime.now().toIso8601String(),
+        }, onConflict: 'branch_id,product_id')
+        .timeout(_networkTimeout);
+    return legacyNewStock;
+  }
+
+  bool _isMissingSecureStockAdjustmentRpc(PostgrestException error) {
+    final message = error.message.toLowerCase();
+    return error.code == 'PGRST202' ||
+        (message.contains('adjust_inventory_stock_v2') &&
+            (message.contains('could not find') ||
+                message.contains('does not exist')));
   }
 
   Future<void> _cacheProductWithStock({

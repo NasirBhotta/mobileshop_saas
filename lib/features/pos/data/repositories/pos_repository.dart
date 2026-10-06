@@ -93,7 +93,9 @@ class PosRepository {
           .rpc('commit_pos_sale_v2', params: {'p_sale': remotePayload})
           .timeout(_saleCommitTimeout);
       if (result == false) {
-        throw StateError('Sale database mein commit nahi ho saki. Dobara try karein.');
+        throw StateError(
+          'Sale database mein commit nahi ho saki. Dobara try karein.',
+        );
       }
       return true;
     } on PostgrestException catch (e) {
@@ -104,7 +106,9 @@ class PosRepository {
           'Inventory refresh karke dobara check karein.',
         );
       }
-      throw StateError(message.isNotEmpty ? message : 'Database error: ${e.code}');
+      throw StateError(
+        message.isNotEmpty ? message : 'Database error: ${e.code}',
+      );
     }
   }
 
@@ -407,8 +411,11 @@ class PosRepository {
     final resolvedCustomer =
         selectedCustomerId == null
             ? null
-            : await _resolveSaleCustomer(selectedCustomerId, tenantId,
-                attachedCustomer: attachedCustomer);
+            : await _resolveSaleCustomer(
+              selectedCustomerId,
+              tenantId,
+              attachedCustomer: attachedCustomer,
+            );
     final effectiveCustomerId = resolvedCustomer?.id;
     final effectiveCustomerName = resolvedCustomer?.fullName ?? customerName;
     final costedItems = await _withUnitCostsAtSale(
@@ -424,7 +431,9 @@ class PosRepository {
     // ── Step 1: Pre-validation of cart item quantities ──
     for (final item in costedItems) {
       if (item.quantity <= 0) {
-        throw StateError('${item.productName} ki quantity kam az kam 1 honi chahiye.');
+        throw StateError(
+          '${item.productName} ki quantity kam az kam 1 honi chahiye.',
+        );
       }
       if (item.availableStock != null && item.availableStock! < item.quantity) {
         throw StateError(
@@ -536,10 +545,11 @@ class PosRepository {
 
         // 1. Used phone / Customer Buy-in exact unit update
         try {
-          final soldPurchase = await OfflineStore.markCustomerPurchaseSoldByImei(
-            branchId: branchId,
-            imei: cleanImei,
-          );
+          final soldPurchase =
+              await OfflineStore.markCustomerPurchaseSoldByImei(
+                branchId: branchId,
+                imei: cleanImei,
+              );
 
           if (soldPurchase != null) {
             try {
@@ -552,7 +562,9 @@ class PosRepository {
                   .eq('id', soldPurchase.id)
                   .timeout(Network.networkTimeout);
             } catch (e) {
-              debugPrint('Remote customer_purchases exact unit update queued: $e');
+              debugPrint(
+                'Remote customer_purchases exact unit update queued: $e',
+              );
               try {
                 await OfflineStore.enqueueMutation(
                   userId: user.id,
@@ -741,7 +753,9 @@ class PosRepository {
     }
   }
 
-  Future<CustomerModel> _resolveSaleCustomer(String id, String tenantId, {
+  Future<CustomerModel> _resolveSaleCustomer(
+    String id,
+    String tenantId, {
     CustomerModel? attachedCustomer,
   }) {
     Future<CustomerModel?> find(String column, String value) async {
@@ -759,7 +773,8 @@ class PosRepository {
       resolveId: LocalStore.resolveCustomerId,
       findRemote: (id) => find('id', id),
       loadLocal: (id) async {
-        final customer = await OfflineStore.loadCustomerById(id) ??
+        final customer =
+            await OfflineStore.loadCustomerById(id) ??
             (attachedCustomer?.id == id ? attachedCustomer : null);
         return customer?.tenantId == tenantId ? customer : null;
       },
@@ -1282,18 +1297,24 @@ class PosRepository {
     String? overrideReason,
   }) async {
     final sw = Stopwatch()..start();
-    debugPrint('[DEBUG-POS-REPO] 🟢 [processReturn] Started for Sale: "${sale.id}", items: ${quantitiesByProductId.length}, refund: Rs $refundAmount');
+    debugPrint(
+      '[DEBUG-POS-REPO] 🟢 [processReturn] Started for Sale: "${sale.id}", items: ${quantitiesByProductId.length}, refund: Rs $refundAmount',
+    );
 
     final entStart = sw.elapsedMilliseconds;
     await _requireFeature('pos.returns');
-    debugPrint('[DEBUG-POS-REPO] ⏱️ _requireFeature took ${sw.elapsedMilliseconds - entStart}ms');
+    debugPrint(
+      '[DEBUG-POS-REPO] ⏱️ _requireFeature took ${sw.elapsedMilliseconds - entStart}ms',
+    );
     if (sale.id == null) throw Exception('Original invoice ID missing');
 
     final permStart = sw.elapsedMilliseconds;
     final canOverrideWindow =
         (await _permissions.can('pos.return.override')).isAllowed;
     final canApprove = (await _permissions.can('pos.return.approve')).isAllowed;
-    debugPrint('[DEBUG-POS-REPO] ⏱️ Permission checks took ${sw.elapsedMilliseconds - permStart}ms');
+    debugPrint(
+      '[DEBUG-POS-REPO] ⏱️ Permission checks took ${sw.elapsedMilliseconds - permStart}ms',
+    );
 
     final settStart = sw.elapsedMilliseconds;
     final settings = await _returnSettings();
@@ -1301,11 +1322,15 @@ class PosRepository {
         (settings['return_approval_threshold'] as num?)?.toDouble() ?? 25000;
     final returnWindowDays =
         (settings['return_window_days'] as num?)?.toInt() ?? 7;
-    debugPrint('[DEBUG-POS-REPO] ⏱️ _returnSettings took ${sw.elapsedMilliseconds - settStart}ms');
+    debugPrint(
+      '[DEBUG-POS-REPO] ⏱️ _returnSettings took ${sw.elapsedMilliseconds - settStart}ms',
+    );
 
     final retQtyStart = sw.elapsedMilliseconds;
     final returnedQuantities = await loadReturnedQuantities(sale.id!);
-    debugPrint('[DEBUG-POS-REPO] ⏱️ loadReturnedQuantities took ${sw.elapsedMilliseconds - retQtyStart}ms');
+    debugPrint(
+      '[DEBUG-POS-REPO] ⏱️ loadReturnedQuantities took ${sw.elapsedMilliseconds - retQtyStart}ms',
+    );
 
     final items = <SaleReturnItemModel>[];
     for (final saleItem in sale.items) {
@@ -1392,7 +1417,9 @@ class PosRepository {
         saleReturn,
         originalPaymentId: refundPaymentId,
       );
-      debugPrint('[DEBUG-POS-REPO] ⏱️ _withRefundAllocation took ${sw.elapsedMilliseconds - allocStart}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ _withRefundAllocation took ${sw.elapsedMilliseconds - allocStart}ms',
+      );
     }
 
     final localSaveStart = sw.elapsedMilliseconds;
@@ -1401,18 +1428,26 @@ class PosRepository {
       synced: false,
       postRefund: status == SaleReturnStatus.approved,
     );
-    debugPrint('[DEBUG-POS-REPO] ⏱️ _saveReturnLocally took ${sw.elapsedMilliseconds - localSaveStart}ms');
+    debugPrint(
+      '[DEBUG-POS-REPO] ⏱️ _saveReturnLocally took ${sw.elapsedMilliseconds - localSaveStart}ms',
+    );
 
     if (status == SaleReturnStatus.approved) {
       final restockStart = sw.elapsedMilliseconds;
       await _restockReturnItems(saleReturn);
-      debugPrint('[DEBUG-POS-REPO] ⏱️ _restockReturnItems took ${sw.elapsedMilliseconds - restockStart}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ _restockReturnItems took ${sw.elapsedMilliseconds - restockStart}ms',
+      );
     }
 
     if (await _isSaleSyncPending(sale.id!)) {
-      debugPrint('[DEBUG-POS-REPO] ℹ️ Sale sync pending, queueing return mutation');
+      debugPrint(
+        '[DEBUG-POS-REPO] ℹ️ Sale sync pending, queueing return mutation',
+      );
       await _queueReturnMutation(saleReturn, type: 'sale_return');
-      debugPrint('[DEBUG-POS-REPO] ✅ [processReturn] Complete in ${sw.elapsedMilliseconds}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ✅ [processReturn] Complete in ${sw.elapsedMilliseconds}ms',
+      );
       return saleReturn;
     }
 
@@ -1421,14 +1456,20 @@ class PosRepository {
       debugPrint('[DEBUG-POS-REPO] 🌐 Syncing return remotely to Supabase...');
       await _syncReturnRemote(saleReturn);
       await _markReturnSynced(saleReturn.id);
-      debugPrint('[DEBUG-POS-REPO] ⏱️ _syncReturnRemote succeeded in ${sw.elapsedMilliseconds - remoteSyncStart}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ _syncReturnRemote succeeded in ${sw.elapsedMilliseconds - remoteSyncStart}ms',
+      );
     } catch (e) {
       OfflineErrorClassifier.rethrowIfTerminal(e);
-      debugPrint('[DEBUG-POS-REPO] ⚠️ _syncReturnRemote failed in ${sw.elapsedMilliseconds - remoteSyncStart}ms ($e). Saved locally & queued.');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⚠️ _syncReturnRemote failed in ${sw.elapsedMilliseconds - remoteSyncStart}ms ($e). Saved locally & queued.',
+      );
       await _queueReturnMutation(saleReturn, type: 'sale_return');
     }
 
-    debugPrint('[DEBUG-POS-REPO] ✅ [processReturn] Finished in ${sw.elapsedMilliseconds}ms total');
+    debugPrint(
+      '[DEBUG-POS-REPO] ✅ [processReturn] Finished in ${sw.elapsedMilliseconds}ms total',
+    );
     return saleReturn;
   }
 
@@ -1560,7 +1601,10 @@ class PosRepository {
     }
   }
 
-  Future<void> _refreshApprovedReturnsOnline(String branchId, {int limit = 100}) async {
+  Future<void> _refreshApprovedReturnsOnline(
+    String branchId, {
+    int limit = 100,
+  }) async {
     try {
       final rows = await _client
           .from('sale_returns')
@@ -1721,12 +1765,17 @@ class PosRepository {
           .timeout(Network.networkTimeout);
       final resolved = settings ?? _defaultReturnSettings(tenantId);
       await OfflineStore.saveTenantSettings(tenantId, resolved);
-      debugPrint('[DEBUG-POS-REPO] ⏱️ _returnSettings (remote fetch) took ${sw.elapsedMilliseconds}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ _returnSettings (remote fetch) took ${sw.elapsedMilliseconds}ms',
+      );
       return resolved;
     } catch (_) {
-      final local = await OfflineStore.loadTenantSettings(tenantId) ??
+      final local =
+          await OfflineStore.loadTenantSettings(tenantId) ??
           _defaultReturnSettings(tenantId);
-      debugPrint('[DEBUG-POS-REPO] ⏱️ _returnSettings (local cache) took ${sw.elapsedMilliseconds}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ _returnSettings (local cache) took ${sw.elapsedMilliseconds}ms',
+      );
       return local;
     }
   }
@@ -2043,12 +2092,31 @@ class PosRepository {
         stock: 0,
       ),
     );
-    debugPrint('[DEBUG-POS-REPO] ⏱️ _ensureReturnedProductCached completed in ${sw.elapsedMilliseconds}ms');
+    debugPrint(
+      '[DEBUG-POS-REPO] ⏱️ _ensureReturnedProductCached completed in ${sw.elapsedMilliseconds}ms',
+    );
   }
 
   Future<void> _syncReturnRemote(SaleReturnModel saleReturn) async {
     final swSync = Stopwatch()..start();
-    debugPrint('[DEBUG-POS-REPO] 🌐 [RemoteSync] Starting remote sync for Return ID: "${saleReturn.id}" (Status: ${saleReturn.status})');
+    debugPrint(
+      '[DEBUG-POS-REPO] 🌐 [RemoteSync] Starting remote sync for Return ID: "${saleReturn.id}" (Status: ${saleReturn.status})',
+    );
+
+    try {
+      await _client
+          .rpc('commit_pos_return_v2', params: {'p_return': saleReturn.toMap()})
+          .timeout(_returnSyncTimeout);
+      debugPrint(
+        '[DEBUG-POS-REPO] ✅ [RemoteSync] Secure return RPC completed in ${swSync.elapsedMilliseconds}ms',
+      );
+      return;
+    } on PostgrestException catch (e) {
+      if (!_isMissingSecureReturnRpc(e)) rethrow;
+    }
+
+    // Compatibility path for the current production backend. The secure RPC
+    // becomes authoritative when staging has installed and validated it.
 
     var remoteAlreadyApproved = false;
     try {
@@ -2062,9 +2130,13 @@ class PosRepository {
           .timeout(_returnSyncTimeout);
       remoteAlreadyApproved =
           existing?['status'] == SaleReturnStatus.approved.code;
-      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Check existing status took ${swSync.elapsedMilliseconds - checkStart}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ [RemoteSync] Check existing status took ${swSync.elapsedMilliseconds - checkStart}ms',
+      );
     } catch (e) {
-      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Check existing status catch: $e');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ [RemoteSync] Check existing status catch: $e',
+      );
     }
 
     final upsertStart = swSync.elapsedMilliseconds;
@@ -2085,7 +2157,9 @@ class PosRepository {
           'created_at': saleReturn.createdAt.toIso8601String(),
         }, onConflict: 'id')
         .timeout(_returnSyncTimeout);
-    debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Upsert sale_returns took ${swSync.elapsedMilliseconds - upsertStart}ms');
+    debugPrint(
+      '[DEBUG-POS-REPO] ⏱️ [RemoteSync] Upsert sale_returns took ${swSync.elapsedMilliseconds - upsertStart}ms',
+    );
 
     final itemsStart = swSync.elapsedMilliseconds;
     await _client
@@ -2111,7 +2185,9 @@ class PosRepository {
               .toList(),
         )
         .timeout(_returnSyncTimeout);
-    debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Delete & insert sale_return_items took ${swSync.elapsedMilliseconds - itemsStart}ms');
+    debugPrint(
+      '[DEBUG-POS-REPO] ⏱️ [RemoteSync] Delete & insert sale_return_items took ${swSync.elapsedMilliseconds - itemsStart}ms',
+    );
 
     if (saleReturn.status == SaleReturnStatus.approved &&
         !remoteAlreadyApproved) {
@@ -2141,7 +2217,9 @@ class PosRepository {
             }, onConflict: 'branch_id,product_id')
             .timeout(_returnSyncTimeout);
       }
-      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] Restock products remote took ${swSync.elapsedMilliseconds - restockRemoteStart}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ [RemoteSync] Restock products remote took ${swSync.elapsedMilliseconds - restockRemoteStart}ms',
+      );
     }
 
     if (saleReturn.status == SaleReturnStatus.approved &&
@@ -2158,7 +2236,9 @@ class PosRepository {
             },
           )
           .timeout(_returnSyncTimeout);
-      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] RPC post_pos_return_refund took ${swSync.elapsedMilliseconds - rpcStart}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ [RemoteSync] RPC post_pos_return_refund took ${swSync.elapsedMilliseconds - rpcStart}ms',
+      );
     }
     if (saleReturn.status == SaleReturnStatus.approved &&
         saleReturn.refundMethod == RefundMethod.credit &&
@@ -2167,9 +2247,13 @@ class PosRepository {
       await _client
           .rpc('post_pos_credit_return', params: {'p_return_id': saleReturn.id})
           .timeout(_returnSyncTimeout);
-      debugPrint('[DEBUG-POS-REPO] ⏱️ [RemoteSync] RPC post_pos_credit_return took ${swSync.elapsedMilliseconds - rpcStart}ms');
+      debugPrint(
+        '[DEBUG-POS-REPO] ⏱️ [RemoteSync] RPC post_pos_credit_return took ${swSync.elapsedMilliseconds - rpcStart}ms',
+      );
     }
-    debugPrint('[DEBUG-POS-REPO] ✅ [RemoteSync] Full _syncReturnRemote finished in ${swSync.elapsedMilliseconds}ms');
+    debugPrint(
+      '[DEBUG-POS-REPO] ✅ [RemoteSync] Full _syncReturnRemote finished in ${swSync.elapsedMilliseconds}ms',
+    );
   }
 
   Future<void> _syncReturnedProductRemote({
@@ -2288,7 +2372,10 @@ class PosRepository {
     }
   }
 
-  Future<void> _refreshCustomersOnline(String tenantId, {String query = ''}) async {
+  Future<void> _refreshCustomersOnline(
+    String tenantId, {
+    String query = '',
+  }) async {
     try {
       var request = _client
           .from('customers')
@@ -2758,7 +2845,10 @@ class PosRepository {
     final tenantId = await _currentTenantId();
     final branchId = await _currentBranchId(tenantId);
 
-    final customers = await OfflineStore.loadCustomers(tenantId: tenantId, branchId: branchId);
+    final customers = await OfflineStore.loadCustomers(
+      tenantId: tenantId,
+      branchId: branchId,
+    );
     final localSettlements = <CustomerSettlementModel>[];
     for (final customer in customers) {
       final customerId = customer.id;
@@ -2767,7 +2857,9 @@ class PosRepository {
         await OfflineStore.loadCustomerSettlements(customerId),
       );
     }
-    localSettlements.removeWhere((settlement) => settlement.branchId != branchId);
+    localSettlements.removeWhere(
+      (settlement) => settlement.branchId != branchId,
+    );
     localSettlements.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     if (localSettlements.isNotEmpty) {
@@ -2799,7 +2891,10 @@ class PosRepository {
     }
   }
 
-  Future<void> _refreshCustomerSettlementsOnline(String branchId, {int limit = 1000}) async {
+  Future<void> _refreshCustomerSettlementsOnline(
+    String branchId, {
+    int limit = 1000,
+  }) async {
     try {
       final data = await _client
           .from('customer_settlements')
@@ -3682,6 +3777,27 @@ class PosRepository {
             .toList();
     final saleId = sale['id'] as String;
 
+    try {
+      await _client
+          .rpc(
+            'restore_pos_sale_for_return',
+            params: {
+              'p_sale': {
+                ...sale,
+                'sale_items': items,
+                'sale_payments': payments,
+              },
+            },
+          )
+          .timeout(_returnSyncTimeout);
+      return;
+    } on PostgrestException catch (e) {
+      if (!_isMissingSaleRestoreRpc(e)) rethrow;
+    }
+
+    // Compatibility path for the current production backend. It is used only
+    // until the additive restore RPC is installed and current clients have
+    // passed staging return/recovery tests.
     await _client.from('sales').upsert({
       'id': saleId,
       'branch_id': sale['branch_id'],
@@ -3737,5 +3853,21 @@ class PosRepository {
               )
               .toList(),
         );
+  }
+
+  bool _isMissingSaleRestoreRpc(PostgrestException error) {
+    final message = error.message.toLowerCase();
+    return error.code == 'PGRST202' ||
+        (message.contains('restore_pos_sale_for_return') &&
+            (message.contains('could not find') ||
+                message.contains('does not exist')));
+  }
+
+  bool _isMissingSecureReturnRpc(PostgrestException error) {
+    final message = error.message.toLowerCase();
+    return error.code == 'PGRST202' ||
+        (message.contains('commit_pos_return_v2') &&
+            (message.contains('could not find') ||
+                message.contains('does not exist')));
   }
 }
