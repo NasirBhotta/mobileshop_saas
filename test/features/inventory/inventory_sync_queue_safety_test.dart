@@ -97,9 +97,44 @@ void main() {
     final others = List.generate(5, (_) => engine.syncNow());
     expect(others.every((sync) => identical(sync, first)), isTrue);
     await Future.wait([first, ...others]);
-    expect(requests, ['/rest/v1/products', '/rest/v1/inventory']);
+    expect(requests, ['/rest/v1/rpc/upsert_inventory_product_v2']);
     expect(await OfflineStore.loadMutations(userId), isEmpty);
   });
+
+  test(
+    'blank SKU and barcode in an old queue snapshot upload as null',
+    () async {
+      await OfflineStore.enqueueMutation(
+        userId: userId,
+        type: 'upsert_product',
+        payload: {
+          'product': {
+            'id': 'legacy-blank-sku',
+            'tenant_id': 'tenant-1',
+            'branch_id': 'branch-1',
+            'name': 'repaired Mobile',
+            'sku': '',
+            'barcode': '   ',
+            'stock': 0,
+          },
+        },
+      );
+      Map<String, dynamic>? sentBody;
+      respond = (request) async {
+        sentBody =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
+        await finish(request);
+      };
+
+      await engine.syncNow();
+
+      final sentProduct = sentBody!['p_product'] as Map<String, dynamic>;
+      expect(sentProduct['sku'], isNull);
+      expect(sentProduct['barcode'], isNull);
+      expect(await OfflineStore.loadMutations(userId), isEmpty);
+    },
+  );
 
   test(
     'worker restart resumes retained operations with original identities',
@@ -125,7 +160,8 @@ void main() {
       await enqueue('upsert_product', 'second');
       var productsSeen = 0;
       respond = (request) async {
-        if (request.uri.path.endsWith('/products') && ++productsSeen == 2) {
+        if (request.uri.path.endsWith('/rpc/upsert_inventory_product_v2') &&
+            ++productsSeen == 2) {
           final pending = await OfflineStore.loadMutations(userId);
           expect(pending, hasLength(1));
           expect(pending.single.payload['product']['id'], 'second');
@@ -153,7 +189,12 @@ void main() {
     };
     await engine.syncNow();
     expect(await OfflineStore.loadMutations(userId), isEmpty);
-    expect(requests.where((path) => path.endsWith('/products')), hasLength(2));
+    expect(
+      requests.where(
+        (path) => path.endsWith('/rpc/upsert_inventory_product_v2'),
+      ),
+      hasLength(2),
+    );
   });
 
   test(
@@ -166,7 +207,9 @@ void main() {
           await finish(request, status: 503);
         } else {
           await finish(request);
-          if (request.uri.path.endsWith('/inventory')) recovered.complete();
+          if (request.uri.path.endsWith('/rpc/upsert_inventory_product_v2')) {
+            recovered.complete();
+          }
         }
       };
       await engine.syncNow();
@@ -196,7 +239,7 @@ void main() {
 
       final after = await OfflineStore.loadMutations(userId);
       expect(after.map((m) => m.toMap()), before.map((m) => m.toMap()));
-      expect(requests, ['/rest/v1/products']);
+      expect(requests, ['/rest/v1/rpc/upsert_inventory_product_v2']);
     },
   );
 
@@ -214,7 +257,7 @@ void main() {
         (await OfflineStore.loadMutations(userId)).map((m) => m.toMap()),
         before.map((m) => m.toMap()),
       );
-      expect(requests, ['/rest/v1/products']);
+      expect(requests, ['/rest/v1/rpc/upsert_inventory_product_v2']);
     },
   );
 
@@ -237,21 +280,17 @@ void main() {
         (await OfflineStore.loadMutations(userId)).map((m) => m.toMap()),
         before.take(3).map((m) => m.toMap()),
       );
-      expect(requests, ['/rest/v1/products', '/rest/v1/inventory']);
+      expect(requests, ['/rest/v1/rpc/upsert_inventory_product_v2']);
     },
   );
 
   test(
-    'partial product upload remains queued until stock also succeeds',
+    'secure product RPC denial retains queued work without direct-write fallback',
     () async {
       await enqueue('upsert_product', 'partial');
       await enqueue('upsert_product', 'later');
       final before = await OfflineStore.loadMutations(userId);
-      respond =
-          (request) => finish(
-            request,
-            status: request.uri.path.endsWith('/inventory') ? 403 : 201,
-          );
+      respond = (request) => finish(request, status: 403);
 
       await engine.syncNow();
 
@@ -259,6 +298,7 @@ void main() {
         (await OfflineStore.loadMutations(userId)).map((m) => m.toMap()),
         before.map((m) => m.toMap()),
       );
+      expect(requests, ['/rest/v1/rpc/upsert_inventory_product_v2']);
       respond = (request) => finish(request);
       await engine.syncNow();
       expect(await OfflineStore.loadMutations(userId), isEmpty);
@@ -278,9 +318,10 @@ void main() {
 
     await engine.syncNow();
 
-    expect(bodies[0]['cost_price'], 123.45);
-    expect(bodies[0]['sale_price'], 456.78);
-    expect(bodies[1]['quantity'], 7);
+    final productPayload = bodies.single['p_product'] as Map<String, dynamic>;
+    expect(productPayload['cost_price'], 123.45);
+    expect(productPayload['sale_price'], 456.78);
+    expect(productPayload['stock'], 7);
     expect(await OfflineStore.loadMutations(userId), isEmpty);
   });
 
@@ -305,7 +346,8 @@ void main() {
         await release.future;
       }
       await finish(request);
-      if (request.uri.path.endsWith('/inventory') && ++inventoryUploads == 2) {
+      if (request.uri.path.endsWith('/rpc/upsert_inventory_product_v2') &&
+          ++inventoryUploads == 2) {
         secondUploaded.complete();
       }
     };

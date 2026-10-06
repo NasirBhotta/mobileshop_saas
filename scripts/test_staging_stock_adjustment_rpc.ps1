@@ -89,7 +89,7 @@ try {
       -Body (@{ p_adjustment = $failedAdjustment } | ConvertTo-Json -Depth 8) | Out-Null
   }
   catch {
-    $errorText = $_ | Out-String
+    $errorText = Get-HttpErrorDetail $_
     if ($errorText -notmatch '23514|below zero|Below zero') { throw "Unexpected stock-out failure: $errorText" }
     $wasRejected = $true
   }

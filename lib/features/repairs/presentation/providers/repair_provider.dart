@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
@@ -200,6 +202,8 @@ class RepairTicketController
     DateTime? estimatedCompletionAt,
     String? estimateNote,
     List<String> photoPaths = const [],
+    Map<String, Uint8List> webPhotoBytesByPath = const {},
+    Map<String, String> webPhotoFileNamesByPath = const {},
   }) async {
     state = const AsyncLoading();
 
@@ -234,6 +238,8 @@ class RepairTicketController
         estimatedCompletionAt: estimatedCompletionAt,
         estimateNote: estimateNote,
         photoPaths: photoPaths,
+        webPhotoBytesByPath: webPhotoBytesByPath,
+        webPhotoFileNamesByPath: webPhotoFileNamesByPath,
       );
 
       state = AsyncData(ticket);

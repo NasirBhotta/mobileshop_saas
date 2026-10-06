@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/gestures.dart' show PointerScrollEvent;
@@ -578,9 +580,9 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                 const SizedBox(height: 12),
                 Text(
                   AppStrings.repairDevicePhotos,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
@@ -591,40 +593,55 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                     separatorBuilder: (_, _) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
                       final path = ticket.photoPaths[index];
-                      final isLocal = File(path).existsSync();
+                      final isLocal = !kIsWeb && File(path).existsSync();
                       return GestureDetector(
                         onTap: () {
                           showDialog<void>(
                             context: context,
-                            builder: (dialogCtx) => Dialog(
-                              backgroundColor: Colors.transparent,
-                              insetPadding: const EdgeInsets.all(16),
-                              child: Stack(
-                                alignment: Alignment.topRight,
-                                children: [
-                                  InteractiveViewer(
-                                    clipBehavior: Clip.none,
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: isLocal
-                                          ? Image.file(File(path), fit: BoxFit.contain)
-                                          : Image.network(path, fit: BoxFit.contain),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    onPressed: () => Navigator.of(dialogCtx).pop(),
-                                    icon: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withAlpha(180),
-                                        shape: BoxShape.circle,
+                            builder:
+                                (dialogCtx) => Dialog(
+                                  backgroundColor: Colors.transparent,
+                                  insetPadding: const EdgeInsets.all(16),
+                                  child: Stack(
+                                    alignment: Alignment.topRight,
+                                    children: [
+                                      InteractiveViewer(
+                                        clipBehavior: Clip.none,
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          child:
+                                              isLocal
+                                                  ? Image.file(
+                                                    File(path),
+                                                    fit: BoxFit.contain,
+                                                  )
+                                                  : Image.network(
+                                                    path,
+                                                    fit: BoxFit.contain,
+                                                  ),
+                                        ),
                                       ),
-                                      child: const Icon(Icons.close, color: Colors.white, size: 20),
-                                    ),
+                                      IconButton(
+                                        onPressed:
+                                            () => Navigator.of(dialogCtx).pop(),
+                                        icon: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withAlpha(180),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.close,
+                                            color: Colors.white,
+                                            size: 20,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            ),
+                                ),
                           );
                         },
                         child: ClipRRect(
@@ -637,15 +654,20 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                                 color: Theme.of(context).dividerColor,
                               ),
                             ),
-                            child: isLocal
-                                ? Image.file(File(path), fit: BoxFit.cover)
-                                : Image.network(
-                                    path,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, _, _) => const Center(
-                                      child: Icon(Icons.broken_image_outlined, size: 20),
+                            child:
+                                isLocal
+                                    ? Image.file(File(path), fit: BoxFit.cover)
+                                    : Image.network(
+                                      path,
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (_, _, _) => const Center(
+                                            child: Icon(
+                                              Icons.broken_image_outlined,
+                                              size: 20,
+                                            ),
+                                          ),
                                     ),
-                                  ),
                           ),
                         ),
                       );
@@ -661,7 +683,9 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                       onPressed: () async {
                         ReceiptConfigurationModel? config;
                         try {
-                          config = await ref.read(receiptConfigurationProvider.future);
+                          config = await ref.read(
+                            receiptConfigurationProvider.future,
+                          );
                         } catch (_) {
                           config = ReceiptConfigurationModel.defaultConfig();
                         }
@@ -683,7 +707,9 @@ class _RepairTicketDetailsState extends ConsumerState<_RepairTicketDetails> {
                     onPressed: () async {
                       ReceiptConfigurationModel? config;
                       try {
-                        config = await ref.read(receiptConfigurationProvider.future);
+                        config = await ref.read(
+                          receiptConfigurationProvider.future,
+                        );
                       } catch (_) {
                         config = ReceiptConfigurationModel.defaultConfig();
                       }
@@ -1370,9 +1396,7 @@ class _RepairTicketCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: theme.dividerColor.withValues(alpha: 0.6),
-        ),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.6)),
       ),
       child: InkWell(
         onTap: onTap,
@@ -1452,15 +1476,14 @@ class _RepairTicketCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   if (hasPhotos)
-                    _CardPhotoPreview(
-                      photoPaths: ticket.photoPaths,
-                    )
+                    _CardPhotoPreview(photoPaths: ticket.photoPaths)
                   else
                     Container(
                       width: 68,
                       height: 68,
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.35),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
                           color: theme.dividerColor.withValues(alpha: 0.3),
@@ -1470,7 +1493,9 @@ class _RepairTicketCard extends StatelessWidget {
                         child: Icon(
                           Icons.phone_android_rounded,
                           size: 26,
-                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.45),
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.45,
+                          ),
                         ),
                       ),
                     ),
@@ -1485,10 +1510,7 @@ class _RepairTicketCard extends StatelessWidget {
                     color: theme.textTheme.bodySmall?.color,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    createdDate,
-                    style: theme.textTheme.bodySmall,
-                  ),
+                  Text(createdDate, style: theme.textTheme.bodySmall),
                   if (estimate != null) ...[
                     const Spacer(),
                     Text(
@@ -1523,7 +1545,7 @@ class _CardPhotoPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     if (photoPaths.isEmpty) return const SizedBox.shrink();
     final firstPath = photoPaths.first;
-    final isLocal = File(firstPath).existsSync();
+    final isLocal = !kIsWeb && File(firstPath).existsSync();
     final extraCount = photoPaths.length - 1;
 
     return GestureDetector(
@@ -1536,7 +1558,9 @@ class _CardPhotoPreview extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.45),
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.45),
               width: 1.5,
             ),
             boxShadow: [
@@ -1554,25 +1578,30 @@ class _CardPhotoPreview extends StatelessWidget {
               children: [
                 isLocal
                     ? Image.file(
-                        File(firstPath),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const Center(
-                          child: Icon(Icons.broken_image_outlined, size: 20),
-                        ),
-                      )
+                      File(firstPath),
+                      fit: BoxFit.cover,
+                      errorBuilder:
+                          (_, _, _) => const Center(
+                            child: Icon(Icons.broken_image_outlined, size: 20),
+                          ),
+                    )
                     : Image.network(
-                        firstPath,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const Center(
-                          child: Icon(Icons.broken_image_outlined, size: 20),
-                        ),
-                      ),
+                      firstPath,
+                      fit: BoxFit.cover,
+                      errorBuilder:
+                          (_, _, _) => const Center(
+                            child: Icon(Icons.broken_image_outlined, size: 20),
+                          ),
+                    ),
                 if (extraCount > 0)
                   Positioned(
                     bottom: 3,
                     right: 3,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.75),
                         borderRadius: BorderRadius.circular(6),
@@ -1596,38 +1625,44 @@ class _CardPhotoPreview extends StatelessWidget {
   }
 
   void _openZoomDialog(BuildContext context, String path) {
-    final isLocal = File(path).existsSync();
+    final isLocal = !kIsWeb && File(path).existsSync();
     showDialog<void>(
       context: context,
-      builder: (dialogCtx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(16),
-        child: Stack(
-          alignment: Alignment.topRight,
-          children: [
-            InteractiveViewer(
-              clipBehavior: Clip.none,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: isLocal
-                    ? Image.file(File(path), fit: BoxFit.contain)
-                    : Image.network(path, fit: BoxFit.contain),
-              ),
-            ),
-            IconButton(
-              onPressed: () => Navigator.of(dialogCtx).pop(),
-              icon: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.7),
-                  shape: BoxShape.circle,
+      builder:
+          (dialogCtx) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(16),
+            child: Stack(
+              alignment: Alignment.topRight,
+              children: [
+                InteractiveViewer(
+                  clipBehavior: Clip.none,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child:
+                        isLocal
+                            ? Image.file(File(path), fit: BoxFit.contain)
+                            : Image.network(path, fit: BoxFit.contain),
+                  ),
                 ),
-                child: const Icon(Icons.close, color: Colors.white, size: 20),
-              ),
+                IconButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(),
+                  icon: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 }

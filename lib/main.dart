@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -46,6 +47,15 @@ Future<void> _initializeApp() async {
     Supabase.initialize(
       url: SupabaseConfig.url,
       publishableKey: SupabaseConfig.anonKey,
+      authOptions: FlutterAuthClientOptions(
+        autoRefreshToken: true,
+        // Use the same project-scoped persistent key Supabase Flutter uses by
+        // default. Web stores this in browser localStorage across restarts.
+        localStorage: SharedPreferencesLocalStorage(
+          persistSessionKey:
+              'sb-${Uri.parse(SupabaseConfig.url).host.split('.').first}-auth-token',
+        ),
+      ),
     ),
     SharedPreferences.getInstance(),
   ]);
@@ -99,6 +109,13 @@ class _MobileShopAppState extends ConsumerState<MobileShopApp> {
     if (_handoffStarted) return;
     _handoffStarted = true;
 
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) FlutterNativeSplash.remove();
+      });
+      return;
+    }
+
     Future<void>.delayed(const Duration(seconds: 6), () {
       if (!mounted) return;
       FlutterNativeSplash.remove();
@@ -107,10 +124,15 @@ class _MobileShopAppState extends ConsumerState<MobileShopApp> {
 
   @override
   Widget build(BuildContext context) {
+    // Web refresh can remain at the router's '/' loading route while auth and
+    // setup redirects resolve. Remove the splash after the first rendered frame
+    // so a slow redirect never leaves the browser looking permanently blank.
+    if (kIsWeb) _startSplashHandoff();
+
     ref.watch(authListenerProvider);
     ref.watch(permissionRealtimeRefreshProvider);
     ref.watch(entitlementRealtimeRefreshProvider);
-    // Temporarily disabled: this schedules a permission refresh 30 seconds
+    // Temporarily disabled: this schedules a permission refresh 30 secohttp://172.31.240.1:8080/nds
     // after startup/resume and can make the current screen appear to reload.
     // ref.watch(permissionSafetyRefreshProvider);
     ref.watch(tenantAccessRealtimeProvider);
@@ -125,7 +147,7 @@ class _MobileShopAppState extends ConsumerState<MobileShopApp> {
       debugShowCheckedModeBanner: false,
       builder: (context, child) {
         final path = router.routerDelegate.currentConfiguration.uri.path;
-        if (path != '/') _startSplashHandoff();
+        if (!kIsWeb && path != '/') _startSplashHandoff();
 
         return Stack(
           fit: StackFit.expand,

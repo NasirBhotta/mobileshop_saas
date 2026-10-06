@@ -6,6 +6,7 @@ import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/local/local_store.dart';
 import 'package:mobileshop_saas/core/utils/adjustment_extention.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
+import 'package:mobileshop_saas/core/utils/secure_rpc_compatibility.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/category_model.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/inventory_supplier_option.dart';
 import 'package:mobileshop_saas/features/inventory/data/models/csv_import_model.dart';
@@ -2314,11 +2315,11 @@ class InventoryRepository {
   }
 
   bool _isMissingSecureStockAdjustmentRpc(PostgrestException error) {
-    final message = error.message.toLowerCase();
-    return error.code == 'PGRST202' ||
-        (message.contains('adjust_inventory_stock_v2') &&
-            (message.contains('could not find') ||
-                message.contains('does not exist')));
+    return isMissingSecureRpc(
+      error,
+      'adjust_inventory_stock_v2',
+      argumentName: 'p_adjustment',
+    );
   }
 
   Future<void> _cacheProductWithStock({

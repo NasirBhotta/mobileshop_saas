@@ -216,6 +216,7 @@ class RepairRepository {
       if (localPath.startsWith('http://') || localPath.startsWith('https://')) {
         return localPath;
       }
+      if (kIsWeb) return null;
       final file = File(localPath);
       if (!file.existsSync()) return null;
 
@@ -225,13 +226,18 @@ class RepairRepository {
       final storagePath = '$tenantId/$ticketId/$fileName';
 
       final bytes = await file.readAsBytes();
-      await _client.storage.from('repair-photos').uploadBinary(
-        storagePath,
-        bytes,
-        fileOptions: const FileOptions(upsert: true),
-      ).timeout(const Duration(seconds: 10));
+      await _client.storage
+          .from('repair-photos')
+          .uploadBinary(
+            storagePath,
+            bytes,
+            fileOptions: const FileOptions(upsert: true),
+          )
+          .timeout(const Duration(seconds: 10));
 
-      final publicUrl = _client.storage.from('repair-photos').getPublicUrl(storagePath);
+      final publicUrl = _client.storage
+          .from('repair-photos')
+          .getPublicUrl(storagePath);
       return publicUrl;
     } catch (e) {
       debugPrint('Repair photo upload failed: $e');
@@ -254,6 +260,8 @@ class RepairRepository {
     DateTime? estimatedCompletionAt,
     String? estimateNote,
     List<String> photoPaths = const [],
+    Map<String, Uint8List> webPhotoBytesByPath = const {},
+    Map<String, String> webPhotoFileNamesByPath = const {},
   }) async {
     await _gate.require('repairs.tickets');
     if (imei?.trim().isNotEmpty == true) {
@@ -273,6 +281,67 @@ class RepairRepository {
     // Supabase trigger bhi fallback generate kar sakta hai,
     // lekin offline mode mein user ko ticket number immediately chahiye.
     final ticketNo = _generateTicketNo(ticketId, now);
+
+    // Browser-picked files have bytes, not filesystem paths. Upload them before
+    // caching the ticket so a failed upload never leaves a dead blob URL in the
+    // offline queue. Native local-file handling remains unchanged below.
+    final ticketPhotoPaths = List<String>.of(photoPaths);
+    final attemptedStoragePaths = <String>[];
+    if (webPhotoBytesByPath.isNotEmpty) {
+      try {
+        for (var index = 0; index < ticketPhotoPaths.length; index++) {
+          final key = ticketPhotoPaths[index];
+          final bytes = webPhotoBytesByPath[key];
+          if (bytes == null) continue;
+          final sourceName = webPhotoFileNamesByPath[key] ?? 'repair.jpg';
+          final extension = p.extension(sourceName).toLowerCase();
+          final safeExtension = switch (extension) {
+            '.png' => '.png',
+            '.webp' => '.webp',
+            '.heic' => '.heic',
+            '.heif' => '.heif',
+            _ => '.jpg',
+          };
+          final storagePath =
+              '$tenantId/$ticketId/${const Uuid().v4()}$safeExtension';
+          attemptedStoragePaths.add(storagePath);
+          final contentType = switch (safeExtension) {
+            '.png' => 'image/png',
+            '.webp' => 'image/webp',
+            '.heic' => 'image/heic',
+            '.heif' => 'image/heif',
+            _ => 'image/jpeg',
+          };
+          await _client.storage
+              .from('repair-photos')
+              .uploadBinary(
+                storagePath,
+                bytes,
+                fileOptions: FileOptions(
+                  upsert: true,
+                  contentType: contentType,
+                ),
+              )
+              .timeout(const Duration(seconds: 20));
+          ticketPhotoPaths[index] = _client.storage
+              .from('repair-photos')
+              .getPublicUrl(storagePath);
+        }
+      } catch (error) {
+        if (attemptedStoragePaths.isNotEmpty) {
+          try {
+            await _client.storage
+                .from('repair-photos')
+                .remove(attemptedStoragePaths);
+          } catch (_) {
+            // Cleanup is best-effort; keep the upload error visible to the user.
+          }
+        }
+        throw StateError(
+          'Repair photos upload nahi huin. Internet check karke dobara try karein. ($error)',
+        );
+      }
+    }
 
     // Main repair ticket object.
     final ticket = RepairTicketModel(
@@ -298,7 +367,7 @@ class RepairRepository {
       estimatedCompletionAt: estimatedCompletionAt,
       estimateNote:
           estimateNote?.trim().isEmpty == true ? null : estimateNote?.trim(),
-      photoPaths: photoPaths,
+      photoPaths: ticketPhotoPaths,
       createdBy: userId,
       createdAt: now,
       updatedAt: now,
@@ -356,9 +425,10 @@ class RepairRepository {
         }
       }
 
-      final ticketToCommit = uploadedPhotos.isNotEmpty
-          ? ticket.copyWith(photoPaths: uploadedPhotos)
-          : ticket;
+      final ticketToCommit =
+          uploadedPhotos.isNotEmpty
+              ? ticket.copyWith(photoPaths: uploadedPhotos)
+              : ticket;
 
       final data = await _client
           .from('repair_tickets')
@@ -1394,9 +1464,22 @@ class RepairRepository {
 
     final tenantId = ticketMap['tenant_id'] as String? ?? '';
     final ticketId = ticketMap['id'] as String? ?? '';
-    final rawPhotos = (ticketMap['photo_paths'] as List?)?.map((e) => e.toString()).toList() ?? [];
+    final rawPhotos =
+        (ticketMap['photo_paths'] as List?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        [];
 
     if (rawPhotos.isNotEmpty && tenantId.isNotEmpty && ticketId.isNotEmpty) {
+      if (kIsWeb &&
+          rawPhotos.any(
+            (path) =>
+                !path.startsWith('http://') && !path.startsWith('https://'),
+          )) {
+        throw StateError(
+          'A pending repair photo is a local file. Re-add it in the web app before syncing this ticket.',
+        );
+      }
       final syncedPhotos = <String>[];
       for (final path in rawPhotos) {
         if (path.startsWith('http://') || path.startsWith('https://')) {

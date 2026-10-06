@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/local/local_store.dart';
 import '../../../../core/offline/offline_store.dart';
 import '../../../../core/utils/offline_error_classifier.dart';
+import '../../../../core/utils/secure_rpc_compatibility.dart';
 import '../models/price_history_model.dart';
 import '../../../repairs/data/models/inventory_unit_model.dart';
 
@@ -350,6 +351,15 @@ class InventorySyncEngine {
 
   Future<void> _syncUpsertProduct(Map<String, dynamic> payload) async {
     final product = Map<String, dynamic>.from(payload['product'] as Map);
+    // Older queued snapshots can contain empty strings even though the normal
+    // product insert map stores optional identifiers as NULL. Sending an empty
+    // SKU hits the branch/SKU unique index; NULL correctly means "no SKU".
+    for (final field in const ['sku', 'barcode']) {
+      final value = product[field];
+      if (value is String && value.trim().isEmpty) {
+        product[field] = null;
+      }
+    }
     final stock = product.remove('stock') as int? ?? 0;
     product.remove('category_name');
     product.remove('categories');
@@ -431,19 +441,19 @@ class InventorySyncEngine {
   }
 
   bool _isMissingSecureStockAdjustmentRpc(PostgrestException error) {
-    final message = error.message.toLowerCase();
-    return error.code == 'PGRST202' ||
-        (message.contains('adjust_inventory_stock_v2') &&
-            (message.contains('could not find') ||
-                message.contains('does not exist')));
+    return isMissingSecureRpc(
+      error,
+      'adjust_inventory_stock_v2',
+      argumentName: 'p_adjustment',
+    );
   }
 
   bool _isMissingSecureProductRpc(PostgrestException error) {
-    final message = error.message.toLowerCase();
-    return error.code == 'PGRST202' ||
-        (message.contains('upsert_inventory_product_v2') &&
-            (message.contains('could not find') ||
-                message.contains('does not exist')));
+    return isMissingSecureRpc(
+      error,
+      'upsert_inventory_product_v2',
+      argumentName: 'p_product',
+    );
   }
 
   // ════════════════════════════════════════

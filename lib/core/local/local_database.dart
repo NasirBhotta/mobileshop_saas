@@ -1,9 +1,6 @@
-import 'dart:io';
-
 import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
-import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
+
+import 'local_database_executor.dart';
 
 class LocalDatabase {
   LocalDatabase._();
@@ -112,11 +109,8 @@ class LocalDatabase {
     'users',
   ];
 
-  static final QueryExecutor _executor = LazyDatabase(() async {
-    final directory = await getApplicationSupportDirectory();
-    final file = File(path.join(directory.path, 'mobileshop_saas.sqlite'));
-    return NativeDatabase.createInBackground(file);
-  });
+  static final QueryExecutor _executor =
+      LazyDatabase(openLocalDatabaseExecutor);
   static final GeneratedDatabase _db = _RawLocalDatabase(_executor);
   static Future<void>? _initialization;
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -188,7 +189,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
         final prefs = await SharedPreferences.getInstance();
 
-        final seenIntro = prefs.getBool('intro_seen') ?? false;
+        // The web app goes straight to login/dashboard; the intro is reserved
+        // for native mobile and desktop onboarding.
+        final seenIntro = kIsWeb || (prefs.getBool('intro_seen') ?? false);
 
         // final seenIntro = false;
 
@@ -197,7 +200,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         }
 
         if (location == '/intro') {
-          return '/';
+          return kIsWeb && session == null ? '/login' : '/';
         }
 
         final isAuthRoute =

@@ -49,8 +49,8 @@ void main() {
 
   test('activation and renewal deadlines are calculated by the database', () {
     expect(
-      migration,
-      contains("if action = 'activate' then\n    calculated_until"),
+      migration.replaceAll(RegExp(r'\s+'), ' '),
+      contains("if action = 'activate' then calculated_until :="),
     );
     expect(migration, contains("when 'annual' then interval '1 year'"));
     expect(migration, contains("else interval '1 month'"));

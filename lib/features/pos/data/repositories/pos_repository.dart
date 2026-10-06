@@ -6,6 +6,7 @@ import 'package:mobileshop_saas/core/local/local_store.dart';
 import 'package:mobileshop_saas/core/offline/offline_store.dart';
 import 'package:mobileshop_saas/core/utils/network.dart';
 import 'package:mobileshop_saas/core/utils/offline_error_classifier.dart';
+import 'package:mobileshop_saas/core/utils/secure_rpc_compatibility.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -1527,7 +1528,7 @@ class PosRepository {
       for (final saleReturn in returns) {
         await _saveReturnLocally(saleReturn, synced: true);
       }
-      return returns;
+      return _attachQueuedReturnReviewState(returns);
     } catch (_) {}
 
     final rows = await LocalDatabase.select(
@@ -1546,7 +1547,30 @@ class PosRepository {
       );
       returns.add(SaleReturnModel.fromMap({...row, 'items': items}));
     }
-    return returns;
+    return _attachQueuedReturnReviewState(returns);
+  }
+
+  Future<List<SaleReturnModel>> _attachQueuedReturnReviewState(
+    List<SaleReturnModel> returns,
+  ) async {
+    if (returns.isEmpty) return returns;
+    final reviewCodes = <String, String>{};
+    for (final mutation in await OfflineStore.loadMutations(_currentUser.id)) {
+      if (mutation.type != 'sale_return' &&
+          mutation.type != 'sale_return_approval') {
+        continue;
+      }
+      if (mutation.payload['_sync_state'] != 'needs_review') continue;
+      final returnId = mutation.payload['id'] as String?;
+      if (returnId == null) continue;
+      reviewCodes[returnId] =
+          mutation.payload['_sync_error_code'] as String? ?? 'terminal';
+    }
+    if (reviewCodes.isEmpty) return returns;
+    return [
+      for (final saleReturn in returns)
+        saleReturn.copyWith(syncErrorCode: reviewCodes[saleReturn.id]),
+    ];
   }
 
   Future<List<SaleReturnModel>> fetchApprovedReturns({int limit = 100}) async {
@@ -3205,6 +3229,12 @@ class PosRepository {
       var inventoryPrerequisitePending = false;
 
       for (final mutation in mutations) {
+        if ((mutation.type == 'sale_return' ||
+                mutation.type == 'sale_return_approval') &&
+            mutation.payload['_sync_state'] == 'needs_review') {
+          remaining.add(mutation);
+          continue;
+        }
         // Procurement and inventory repositories own these mutations. When
         // they precede an offline sale, the server stock may not include the
         // locally received/adjusted quantity yet. Defer the sale until its
@@ -3473,6 +3503,19 @@ class PosRepository {
           }
           if (_isMissingDeferredSchema(e)) {
             remaining.add(mutation);
+            continue;
+          }
+          if ((mutation.type == 'sale_return' ||
+                  mutation.type == 'sale_return_approval') &&
+              _isPermanentSecureReturnRejection(e)) {
+            mutation.payload['_sync_state'] = 'needs_review';
+            mutation.payload['_sync_error_code'] =
+                e is PostgrestException ? e.code ?? 'terminal' : 'terminal';
+            remaining.add(mutation);
+            debugPrint(
+              'POS return ${mutation.payload['id']} needs review; '
+              'automatic retries paused.',
+            );
             continue;
           }
           debugPrint('Failed to sync mutation: ${mutation.type}, error: $e');
@@ -3856,18 +3899,29 @@ class PosRepository {
   }
 
   bool _isMissingSaleRestoreRpc(PostgrestException error) {
-    final message = error.message.toLowerCase();
-    return error.code == 'PGRST202' ||
-        (message.contains('restore_pos_sale_for_return') &&
-            (message.contains('could not find') ||
-                message.contains('does not exist')));
+    return isMissingSecureRpc(
+      error,
+      'restore_pos_sale_for_return',
+      argumentName: 'p_sale',
+    );
   }
 
   bool _isMissingSecureReturnRpc(PostgrestException error) {
-    final message = error.message.toLowerCase();
-    return error.code == 'PGRST202' ||
-        (message.contains('commit_pos_return_v2') &&
-            (message.contains('could not find') ||
-                message.contains('does not exist')));
+    return isMissingSecureRpc(
+      error,
+      'commit_pos_return_v2',
+      argumentName: 'p_return',
+    );
+  }
+
+  bool _isPermanentSecureReturnRejection(Object error) {
+    if (error is AuthException) return true;
+    if (error is! PostgrestException) return false;
+
+    final code = error.code ?? '';
+    return code == '42501' ||
+        code == 'P0001' ||
+        code.startsWith('22') ||
+        code.startsWith('23');
   }
 }

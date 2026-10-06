@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -42,6 +43,8 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
 
   // Device Photos
   final List<String> _photoPaths = [];
+  final Map<String, Uint8List> _webPhotoBytes = {};
+  final Map<String, String> _webPhotoFileNames = {};
   bool _isPickingPhoto = false;
 
   // Estimate fields
@@ -283,6 +286,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                                       child: Container(
                                         width: 100,
                                         height: 100,
+                                        clipBehavior: Clip.antiAlias,
                                         decoration: BoxDecoration(
                                           borderRadius: BorderRadius.circular(
                                             10,
@@ -291,10 +295,10 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                                             color:
                                                 Theme.of(context).dividerColor,
                                           ),
-                                          image: DecorationImage(
-                                            image: FileImage(File(path)),
-                                            fit: BoxFit.cover,
-                                          ),
+                                        ),
+                                        child: _buildPhotoImage(
+                                          path,
+                                          fit: BoxFit.cover,
                                         ),
                                       ),
                                     ),
@@ -414,6 +418,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
   }
 
   Future<void> _saveLocalImageFiles(List<String> paths) async {
+    if (kIsWeb) return;
     final appDir = await getApplicationDocumentsDirectory();
     final photosDir = Directory(p.join(appDir.path, 'repairs', 'photos'));
     if (!photosDir.existsSync()) {
@@ -435,7 +440,8 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
   Future<void> _pickFromCamera() async {
     setState(() => _isPickingPhoto = true);
     try {
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      if (!kIsWeb &&
+          (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -456,15 +462,17 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
         maxHeight: 1280,
       );
       if (picked != null) {
-        await _saveLocalImageFiles([picked.path]);
+        if (kIsWeb) {
+          await _addWebPhoto(picked);
+        } else {
+          await _saveLocalImageFiles([picked.path]);
+        }
       }
     } catch (e) {
       debugPrint('Camera pick error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Camera error: ${e.toString()}'),
-          ),
+          SnackBar(content: Text('Camera error: ${e.toString()}')),
         );
       }
     } finally {
@@ -475,7 +483,16 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
   Future<void> _pickFromGallery() async {
     setState(() => _isPickingPhoto = true);
     try {
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      if (kIsWeb) {
+        final picked = await ImagePicker().pickMultiImage(
+          imageQuality: 75,
+          maxWidth: 1280,
+          maxHeight: 1280,
+        );
+        for (final file in picked) {
+          await _addWebPhoto(file);
+        }
+      } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
         final result = await FilePicker.pickFiles(
           type: FileType.image,
           allowMultiple: true,
@@ -515,9 +532,53 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
     }
   }
 
+  Future<void> _addWebPhoto(XFile file) async {
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) return;
+    final key = 'web-photo:${const Uuid().v4()}';
+    if (!mounted) return;
+    setState(() {
+      _photoPaths.add(key);
+      _webPhotoBytes[key] = bytes;
+      _webPhotoFileNames[key] = file.name;
+    });
+  }
+
+  Widget _buildPhotoImage(String path, {required BoxFit fit}) {
+    final webBytes = _webPhotoBytes[path];
+    if (webBytes != null) {
+      return Image.memory(
+        webBytes,
+        fit: fit,
+        errorBuilder:
+            (_, _, _) => const Center(child: Icon(Icons.broken_image_outlined)),
+      );
+    }
+    if (!kIsWeb) {
+      final file = File(path);
+      if (file.existsSync()) {
+        return Image.file(
+          file,
+          fit: fit,
+          errorBuilder:
+              (_, _, _) =>
+                  const Center(child: Icon(Icons.broken_image_outlined)),
+        );
+      }
+    }
+    return Image.network(
+      path,
+      fit: fit,
+      errorBuilder:
+          (_, _, _) => const Center(child: Icon(Icons.broken_image_outlined)),
+    );
+  }
+
   void _removePhoto(int index) {
     setState(() {
-      _photoPaths.removeAt(index);
+      final removed = _photoPaths.removeAt(index);
+      _webPhotoBytes.remove(removed);
+      _webPhotoFileNames.remove(removed);
     });
   }
 
@@ -535,10 +596,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                   clipBehavior: Clip.none,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child:
-                        File(path).existsSync()
-                            ? Image.file(File(path), fit: BoxFit.contain)
-                            : Image.network(path, fit: BoxFit.contain),
+                    child: _buildPhotoImage(path, fit: BoxFit.contain),
                   ),
                 ),
                 IconButton(
@@ -605,6 +663,8 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
       estimatedCompletionAt: _estimatedCompletionAt,
       estimateNote: _estimateNoteController.text,
       photoPaths: _photoPaths,
+      webPhotoBytesByPath: _webPhotoBytes,
+      webPhotoFileNamesByPath: _webPhotoFileNames,
     );
 
     if (!mounted) return;

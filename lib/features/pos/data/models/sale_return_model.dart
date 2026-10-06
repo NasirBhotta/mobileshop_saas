@@ -188,6 +188,7 @@ class SaleReturnModel {
   final DateTime createdAt;
   final List<SaleReturnItemModel> items;
   final List<SaleReturnRefundLegModel> refundLegs;
+  final String? syncErrorCode;
 
   const SaleReturnModel({
     required this.id,
@@ -204,6 +205,7 @@ class SaleReturnModel {
     required this.createdAt,
     required this.items,
     this.refundLegs = const [],
+    this.syncErrorCode,
   });
 
   factory SaleReturnModel.fromMap(Map<String, dynamic> map) {
@@ -241,6 +243,7 @@ class SaleReturnModel {
                 ),
               )
               .toList(),
+      syncErrorCode: map['_sync_error_code'] as String?,
     );
   }
 
@@ -268,6 +271,7 @@ class SaleReturnModel {
     String? approvedBy,
     List<SaleReturnRefundLegModel>? refundLegs,
     String? refundPaymentId,
+    String? syncErrorCode,
   }) {
     return SaleReturnModel(
       id: id,
@@ -285,6 +289,7 @@ class SaleReturnModel {
       createdAt: createdAt,
       items: items,
       refundLegs: refundLegs ?? this.refundLegs,
+      syncErrorCode: syncErrorCode ?? this.syncErrorCode,
     );
   }
 }
