@@ -13,7 +13,7 @@ class BarcodeCameraScanner extends StatefulWidget {
   @override
   State<BarcodeCameraScanner> createState() => _BarcodeCameraScannerState();
 }
-
+// comment added
 class _BarcodeCameraScannerState extends State<BarcodeCameraScanner> {
   bool _handled = false;
 
