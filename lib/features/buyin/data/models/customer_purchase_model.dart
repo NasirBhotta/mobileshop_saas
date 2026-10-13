@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+// updated
 class CustomerPurchaseModel {
   final String id;
   final String tenantId;
