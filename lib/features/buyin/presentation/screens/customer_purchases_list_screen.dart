@@ -17,7 +17,8 @@ class CustomerPurchasesListScreen extends ConsumerStatefulWidget {
   @override
   ConsumerState<CustomerPurchasesListScreen> createState() => _CustomerPurchasesListScreenState();
 }
-
+// hello i have added comments
+class Comments {}
 class _CustomerPurchasesListScreenState extends ConsumerState<CustomerPurchasesListScreen> {
   final _searchController = TextEditingController();
   String _selectedStatusFilter = 'all';
