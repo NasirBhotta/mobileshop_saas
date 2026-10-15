@@ -22,7 +22,7 @@ class NavigationLoadingController extends StateNotifier<bool> {
     _timer?.cancel();
     state = false;
   }
-
+  void newFunc(){}
   @override
   void dispose() {
     _timer?.cancel();
