@@ -8,7 +8,7 @@ import 'package:mobileshop_saas/features/auth/presentation/providers/auth_provid
 import 'package:mobileshop_saas/features/mobile_services/presentation/providers/mobile_services_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+// splitted
 import 'config/router/app_router.dart';
 import 'config/supabase/supabase_config.dart';
 import 'config/theme/app_theme.dart';
