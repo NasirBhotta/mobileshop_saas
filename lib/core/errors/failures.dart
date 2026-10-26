@@ -3,7 +3,7 @@ abstract class Failure {
 
   final String message;
 }
-
+// added a comment
 class ServerFailure extends Failure {
   const ServerFailure(super.message);
 }
