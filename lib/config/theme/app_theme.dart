@@ -3,7 +3,7 @@ import '../../core/constants/app_colors.dart';
 
 class AppTheme {
   const AppTheme._();
-
+// comment added
   static ThemeData get light {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: AppColors.primary,
