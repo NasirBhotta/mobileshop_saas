@@ -1,5 +1,5 @@
 import '../../../core/entitlements/entitlement_evaluator.dart';
-
+// updated
 class ReportEntitlementGate {
   final EntitlementEvaluator _evaluator;
   const ReportEntitlementGate(this._evaluator);
