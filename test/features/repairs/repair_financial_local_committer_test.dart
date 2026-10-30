@@ -8,6 +8,7 @@ import 'package:mobileshop_saas/core/local/local_database.dart';
 import 'package:mobileshop_saas/features/repairs/data/local/repair_financial_local_committer.dart';
 import 'package:mobileshop_saas/features/repairs/data/models/repair_ticket_model.dart';
 import 'package:mobileshop_saas/features/reports/data/local/business_report_local_store.dart';
+import 'package:mobileshop_saas/features/reports/data/models/business_report_models.dart';
 
 const _pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
 
@@ -290,6 +291,55 @@ void main() {
       RepairTicketStatus.received,
     );
   });
+
+  test(
+    'repair breakdowns recognize revenue on delivery, while completion counts remain intact',
+    () async {
+      await RepairFinancialLocalCommitter.prepare(
+        ticket: ticket,
+        eventId: 'prepare-report',
+        userId: 'owner',
+        customerCharge: 100,
+      );
+      final today = DateTime.now();
+      Future<Map<String, dynamic>> report() =>
+          BusinessReportLocalStore.buildLocalReport(
+            reportType: BusinessReportType.repairs,
+            tenantId: ticket.tenantId,
+            branchId: ticket.branchId,
+            dateFrom: today.subtract(const Duration(days: 1)),
+            dateTo: today.add(const Duration(days: 1)),
+          );
+      final completed = await report();
+      expect((completed['summary'] as Map)['completed_repairs'], 1);
+      expect((completed['summary'] as Map)['repair_revenue'], 0);
+      expect(
+        ((completed['status_breakdown'] as List).single as Map)['revenue'],
+        0,
+      );
+      expect(
+        ((completed['technician_breakdown'] as List).single as Map)['revenue'],
+        0,
+      );
+      await RepairFinancialLocalCommitter.complete(
+        ticket: ticket,
+        eventId: 'delivery-report',
+        userId: 'owner',
+        customerCharge: 100,
+        atDelivery: true,
+      );
+      final delivered = await report();
+      expect((delivered['summary'] as Map)['repair_revenue'], 100);
+      expect(
+        ((delivered['status_breakdown'] as List).single as Map)['revenue'],
+        100,
+      );
+      expect(
+        ((delivered['technician_breakdown'] as List).single as Map)['revenue'],
+        100,
+      );
+    },
+  );
 
   test('completion retry consumes stock and snapshots profit once', () async {
     await _part(

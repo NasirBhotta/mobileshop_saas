@@ -55,7 +55,7 @@ void main() {
     final repository =
         File(
           'lib/features/settings/data/repositories/role_management_repository.dart',
-        ).readAsStringSync();
+        ).readAsStringSync().replaceAll('\r\n', '\n');
     final ui =
         File(
           'lib/features/settings/presentation/widgets/roles_permissions_section.dart',

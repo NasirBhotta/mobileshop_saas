@@ -646,7 +646,10 @@ class BusinessReportLocalStore {
         status,
         technician_id,
         COUNT(*) AS repairs,
-        COALESCE(SUM(total_cost), 0) AS revenue
+        COALESCE(SUM(CASE
+          WHEN delivery_accounting = 1 AND finalized_at IS NULL THEN 0
+          ELSE total_cost
+        END), 0) AS revenue
       FROM repair_tickets
       WHERE tenant_id = ?
         $branchSql
