@@ -1,3 +1,6 @@
+import 'package:mobileshop_saas/core/local/local_store.dart';
+import 'package:mobileshop_saas/features/pos/data/models/customer_model.dart';
+import 'package:mobileshop_saas/features/pos/data/repositories/sale_customer_resolver.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -271,6 +274,13 @@ class RepairRepository {
     final branchId = await _currentBranchId(tenantId);
     final userId = _currentUser.id;
 
+    if (customerId != null) {
+      customerId = await LocalStore.resolveCustomerId(customerId);
+      final customer = await OfflineStore.loadCustomerById(customerId);
+      if (customer == null || customer.tenantId != tenantId) {
+        throw StateError('Selected customer is not available in this shop.');
+      }
+    }
     final ticketId = const Uuid().v4();
     final now = DateTime.now();
 
@@ -430,9 +440,11 @@ class RepairRepository {
               ? ticket.copyWith(photoPaths: uploadedPhotos)
               : ticket;
 
+      final remoteMap = _remoteTicketMap(ticketToCommit);
+      await _resolveRepairCustomer(remoteMap);
       final data = await _client
           .from('repair_tickets')
-          .insert(_remoteTicketMap(ticketToCommit))
+          .insert(remoteMap)
           .select()
           .single()
           .timeout(const Duration(seconds: 8));
@@ -559,7 +571,20 @@ class RepairRepository {
     final tickets =
         (data as List).map((row) => RepairTicketModel.fromMap(row)).toList();
 
+    final pending = await OfflineStore.loadMutations(_currentUser.id);
+    final pendingIds =
+        pending
+            .map(
+              (m) =>
+                  m.payload['ticket_id'] ??
+                  (m.payload['ticket'] is Map
+                      ? (m.payload['ticket'] as Map)['id']
+                      : null),
+            )
+            .whereType<String>()
+            .toSet();
     for (final ticket in tickets) {
+      if (pendingIds.contains(ticket.id)) continue;
       await OfflineStore.saveRepairTicket(ticket);
     }
     await _refreshRepairFinancialEventsCache(
@@ -748,6 +773,9 @@ class RepairRepository {
       throw StateError('Use the financial completion/cancellation workflow.');
     }
     if (ticket.status == status) return ticket;
+    if (status == RepairTicketStatus.delivered) {
+      return _deliverRepair(ticket);
+    }
 
     if (!ticket.status.canMoveTo(status)) {
       throw Exception(
@@ -843,6 +871,9 @@ class RepairRepository {
 
   Future<List<RepairPartModel>> fetchRepairParts(String ticketId) async {
     await _gate.require('repairs.tickets');
+    if (await _hasPendingTicketWork(ticketId)) {
+      return _loadLocalRepairParts(ticketId);
+    }
     try {
       final rows = await _client
           .from('repair_parts')
@@ -870,6 +901,9 @@ class RepairRepository {
       createdByOverride: _currentUser.id,
     );
     try {
+      if (await _hasPendingTicketWork(ticket.id)) {
+        throw TimeoutException('Repair parent operations are awaiting sync.');
+      }
       await _client
           .rpc(
             'save_repair_parts_v2',
@@ -902,74 +936,174 @@ class RepairRepository {
   }) async {
     await _gate.require('repairs.tickets');
     final eventId = const Uuid().v4();
-    var localCommitted = false;
-    try {
-      await _client
-          .rpc(
-            'complete_repair_ticket_v2',
-            params: {
-              'p_ticket_id': ticket.id,
-              'p_event_id': eventId,
-              'p_customer_charge': customerCharge,
-              'p_service_charge': serviceCharge,
-              'p_discount': discount,
-              'p_commission': commission,
-              'p_other_direct_cost': otherDirectCost,
-            },
-          )
-          .timeout(_networkTimeout);
-    } catch (error) {
-      OfflineErrorClassifier.rethrowIfTerminal(error);
-      await RepairFinancialLocalCommitter.complete(
-        ticket: ticket,
-        eventId: eventId,
-        userId: _currentUser.id,
-        customerCharge: customerCharge,
-        serviceCharge: serviceCharge,
-        discount: discount,
-        commission: commission,
-        otherDirectCost: otherDirectCost,
-      );
-      localCommitted = true;
-      await OfflineStore.enqueueMutation(
-        userId: _currentUser.id,
-        type: 'complete_repair_ticket_v2',
-        payload: {
-          'ticket_id': ticket.id,
-          'event_id': eventId,
-          'customer_charge': customerCharge,
-          'service_charge': serviceCharge,
-          'discount': discount,
-          'commission': commission,
-          'other_direct_cost': otherDirectCost,
-        },
-      );
-    }
-    // Reports and dashboard read the local immutable financial snapshot.
-    // Mirror a successful remote commit locally as well; the event key makes
-    // this safe if the same completion is replayed.
-    if (!localCommitted) {
-      await RepairFinancialLocalCommitter.complete(
-        ticket: ticket,
-        eventId: eventId,
-        userId: _currentUser.id,
-        customerCharge: customerCharge,
-        serviceCharge: serviceCharge,
-        discount: discount,
-        commission: commission,
-        otherDirectCost: otherDirectCost,
-      );
-    }
-    final updated = ticket.copyWith(
-      status: RepairTicketStatus.completed,
-      totalCost: customerCharge,
-      partsCost: await _localPartCost(ticket.id),
-      laborCost: commission,
-      completedAt: DateTime.now(),
-      updatedAt: DateTime.now(),
+    final payload = <String, dynamic>{
+      'ticket_id': ticket.id,
+      'event_id': eventId,
+      'customer_charge': customerCharge,
+      'service_charge': serviceCharge,
+      'discount': discount,
+      'commission': commission,
+      'other_direct_cost': otherDirectCost,
+    };
+    Future<void> local() => RepairFinancialLocalCommitter.prepare(
+      ticket: ticket,
+      eventId: eventId,
+      userId: _currentUser.id,
+      customerCharge: customerCharge,
+      serviceCharge: serviceCharge,
+      discount: discount,
+      commission: commission,
+      otherDirectCost: otherDirectCost,
     );
+    await _commitDeferredRepair('prepare_repair_ticket_v3', payload, local);
+    final updated = await LocalStore.loadRepairTicketById(ticket.id);
+    if (updated == null) throw StateError('Repair ticket not found.');
     await OfflineStore.saveRepairTicket(updated);
     return updated;
+  }
+
+  Future<RepairTicketModel> _deliverRepair(RepairTicketModel ticket) async {
+    if (ticket.status != RepairTicketStatus.completed) {
+      throw StateError('Only completed tickets may be delivered.');
+    }
+    final eventId = const Uuid().v4();
+    final payload = <String, dynamic>{
+      'ticket_id': ticket.id,
+      'event_id': eventId,
+    };
+    Future<void> local() => RepairFinancialLocalCommitter.complete(
+      ticket: ticket,
+      eventId: eventId,
+      userId: _currentUser.id,
+      customerCharge: ticket.customerCharge ?? ticket.totalCost ?? 0,
+      serviceCharge: ticket.serviceCharge,
+      discount: ticket.discountAmount,
+      commission: ticket.perJobCommission,
+      otherDirectCost: ticket.otherDirectCost,
+      atDelivery: true,
+    );
+    await _commitDeferredRepair('deliver_repair_ticket_v3', payload, local);
+    final updated = await LocalStore.loadRepairTicketById(ticket.id);
+    if (updated == null) throw StateError('Repair ticket not found.');
+    await OfflineStore.saveRepairTicket(updated);
+    return updated;
+  }
+
+  Future<bool> _hasPendingTicketWork(String ticketId) async =>
+      (await OfflineStore.loadMutations(_currentUser.id)).any(
+        (m) =>
+            m.payload['ticket_id'] == ticketId ||
+            (m.payload['ticket'] is Map &&
+                (m.payload['ticket'] as Map)['id'] == ticketId),
+      );
+
+  Future<void> _commitDeferredRepair(
+    String type,
+    Map<String, dynamic> payload,
+    Future<void> Function() local,
+  ) async {
+    // Do not let an online command overtake this ticket's queued parents/parts.
+    final pending = await OfflineStore.loadMutations(_currentUser.id);
+    final hasPendingParent = pending.any(
+      (m) =>
+          m.payload['ticket_id'] == payload['ticket_id'] ||
+          (m.payload['ticket'] is Map &&
+              (m.payload['ticket'] as Map)['id'] == payload['ticket_id']),
+    );
+    if (!hasPendingParent) {
+      try {
+        await _syncDeferredRepair(type, payload).timeout(_networkTimeout);
+      } catch (error) {
+        OfflineErrorClassifier.rethrowIfTerminal(error);
+        await _saveDeferredOffline(type, payload, local);
+        return;
+      }
+      try {
+        await local();
+      } catch (_) {
+        // The server already committed: retain its command identity so a local
+        // cache failure can be reconciled by the normal retry path.
+        await OfflineStore.enqueueMutation(
+          userId: _currentUser.id, type: type, payload: payload,
+        );
+        rethrow;
+      }
+      return;
+    }
+    await _saveDeferredOffline(type, payload, local);
+  }
+
+  Future<void> _saveDeferredOffline(
+    String type,
+    Map<String, dynamic> payload,
+    Future<void> Function() local,
+  ) => LocalDatabase.runInTransaction(() async {
+    await local();
+    // Persist the queue before committing SQLite. A crash between these stores
+    // leaves a replayable command, rather than an unqueued financial change.
+    await OfflineStore.enqueueMutation(
+      userId: _currentUser.id,
+      type: type,
+      payload: payload,
+    );
+  });
+
+  Future<void> _replayDeferredLocal(
+    String type,
+    Map<String, dynamic> payload,
+  ) async {
+    final ticket = await LocalStore.loadRepairTicketById(
+      payload['ticket_id'] as String,
+    );
+    if (ticket == null) throw StateError('Repair ticket is missing locally.');
+    // A later queued operation may already have committed locally.
+    if (ticket.status == RepairTicketStatus.cancelled ||
+        ticket.status == RepairTicketStatus.delivered) {
+      return;
+    }
+    if (type == 'prepare_repair_ticket_v3') {
+      await RepairFinancialLocalCommitter.prepare(
+        ticket: ticket,
+        eventId: payload['event_id'] as String,
+        userId: _currentUser.id,
+        customerCharge: (payload['customer_charge'] as num).toDouble(),
+        serviceCharge: (payload['service_charge'] as num).toDouble(),
+        discount: (payload['discount'] as num).toDouble(),
+        commission: (payload['commission'] as num).toDouble(),
+        otherDirectCost: (payload['other_direct_cost'] as num).toDouble(),
+      );
+    } else {
+      await RepairFinancialLocalCommitter.complete(
+        ticket: ticket,
+        eventId: payload['event_id'] as String,
+        userId: _currentUser.id,
+        customerCharge: ticket.customerCharge ?? ticket.totalCost ?? 0,
+        atDelivery: true,
+      );
+    }
+  }
+
+  Future<void> _syncDeferredRepair(
+    String type,
+    Map<String, dynamic> payload,
+  ) async {
+    await _client.rpc(
+      type,
+      params: {
+        for (final key in [
+          'ticket_id',
+          'event_id',
+          if (type == 'prepare_repair_ticket_v3') ...[
+            'customer_charge',
+            'service_charge',
+            'discount',
+            'commission',
+            'other_direct_cost',
+          ],
+        ])
+          'p_$key': payload[key],
+      },
+    );
   }
 
   Future<RepairTicketModel> cancelRepair(
@@ -982,6 +1116,9 @@ class RepairRepository {
     final refundLedgerTransactionId = const Uuid().v4();
     var localCommitted = false;
     try {
+      if (await _hasPendingTicketWork(ticket.id)) {
+        throw TimeoutException('Repair parent operations are awaiting sync.');
+      }
       await _client
           .rpc(
             'cancel_repair_ticket_v3',
@@ -1171,15 +1308,10 @@ class RepairRepository {
 
     for (final mutation in mutations) {
       final financialTicketId =
-          const {
-                'save_repair_parts_v2',
-                'complete_repair_ticket_v2',
-                'cancel_repair_ticket_v2',
-                'cancel_repair_ticket_v3',
-                'archive_repair_ticket_v2',
-              }.contains(mutation.type)
-              ? mutation.payload['ticket_id'] as String?
-              : null;
+          mutation.payload['ticket_id'] as String? ??
+          (mutation.payload['ticket'] is Map
+              ? (mutation.payload['ticket'] as Map)['id'] as String?
+              : null);
       if (financialTicketId != null &&
           mutation.payload['_sync_state'] == 'needs_review') {
         failedFinancialTicketIds.add(financialTicketId);
@@ -1223,6 +1355,11 @@ class RepairRepository {
                 '${mutation.payload['ticket_id']}.',
               );
             }
+            break;
+          case 'prepare_repair_ticket_v3':
+          case 'deliver_repair_ticket_v3':
+            await _syncDeferredRepair(mutation.type, mutation.payload);
+            await _replayDeferredLocal(mutation.type, mutation.payload);
             break;
           case 'complete_repair_ticket_v2':
             try {
@@ -1297,6 +1434,14 @@ class RepairRepository {
             remaining.add(mutation);
         }
       } catch (e) {
+        if (const {
+              'prepare_repair_ticket_v3',
+              'deliver_repair_ticket_v3',
+            }.contains(mutation.type) &&
+            !OfflineErrorClassifier.isRetryable(e)) {
+          mutation.payload['_sync_state'] = 'needs_review';
+          mutation.payload['_sync_error'] = e.toString();
+        }
         debugPrint('Repair mutation sync failed: $e');
         if (financialTicketId != null) {
           failedFinancialTicketIds.add(financialTicketId);
@@ -1454,6 +1599,74 @@ class RepairRepository {
     ].join('|');
   }
 
+  Future<void> _resolveRepairCustomer(Map<String, dynamic> ticket) async {
+    final id = ticket['customer_id'] as String?;
+    if (id == null) return;
+    final tenantId = ticket['tenant_id'] as String;
+    Future<CustomerModel?> find(String column, String value) async {
+      final row =
+          await _client
+              .from('customers')
+              .select()
+              .eq('tenant_id', tenantId)
+              .eq(column, value)
+              .maybeSingle();
+      return row == null ? null : CustomerModel.fromMap(row);
+    }
+
+    final customer = await SaleCustomerResolver(
+      resolveId: LocalStore.resolveCustomerId,
+      findRemote: (id) => find('id', id),
+      loadLocal: (id) async {
+        final c = await OfflineStore.loadCustomerById(id);
+        return c?.tenantId == tenantId ? c : null;
+      },
+      findByPhone: (phone) => find('phone', phone),
+      pendingCreation: (id) async {
+        for (final m in await OfflineStore.loadMutations(_currentUser.id)) {
+          if (m.type == 'add_customer' &&
+              m.payload['id'] == id &&
+              m.payload['tenant_id'] == tenantId) {
+            return Map<String, dynamic>.from(m.payload);
+          }
+        }
+        return null;
+      },
+      createIfMissing: (payload) async {
+        await _client
+            .from('customers')
+            .upsert(
+              {
+                for (final key in [
+                  'id',
+                  'tenant_id',
+                  'branch_id',
+                  'full_name',
+                  'phone',
+                  'email',
+                  'notes',
+                  'credit_limit',
+                  'created_at',
+                ])
+                  key: payload[key],
+                'outstanding_balance': 0,
+              },
+              onConflict: 'id',
+              ignoreDuplicates: true,
+            );
+      },
+      rememberAlias:
+          (local, remote) => LocalStore.reassignCustomerId(
+            localCustomerId: local,
+            remoteCustomerId: remote,
+          ),
+    ).resolve(id);
+    if (customer.tenantId != tenantId) {
+      throw StateError('Customer shop mismatch.');
+    }
+    ticket['customer_id'] = customer.id;
+  }
+
   Future<void> _syncUpsertRepairTicket(Map<String, dynamic> payload) async {
     final ticketMap = Map<String, dynamic>.from(payload['ticket'] as Map);
 
@@ -1461,6 +1674,7 @@ class RepairRepository {
     // Isliye remote insert ke waqt inventory_unit_id remove kar dete hain.
     // Supabase trigger IMEI + product_id se unit find/create kar lega.
     ticketMap.remove('inventory_unit_id');
+    await _resolveRepairCustomer(ticketMap);
 
     final tenantId = ticketMap['tenant_id'] as String? ?? '';
     final ticketId = ticketMap['id'] as String? ?? '';
@@ -1496,15 +1710,26 @@ class RepairRepository {
       ticketMap['photo_paths'] = syncedPhotos;
     }
 
+    await _client
+        .from('repair_tickets')
+        .upsert(ticketMap, onConflict: 'id', ignoreDuplicates: true);
     final data =
         await _client
             .from('repair_tickets')
-            .upsert(ticketMap, onConflict: 'id')
             .select()
+            .eq('id', ticketMap['id'])
+            .eq('tenant_id', tenantId)
             .single();
 
     final savedTicket = RepairTicketModel.fromMap(data);
-    await OfflineStore.saveRepairTicket(savedTicket);
+    final local = await LocalStore.loadRepairTicketById(savedTicket.id);
+    if (local == null) {
+      await OfflineStore.saveRepairTicket(savedTicket);
+    } else {
+      await OfflineStore.saveRepairTicket(
+        local.copyWith(inventoryUnitId: savedTicket.inventoryUnitId),
+      );
+    }
 
     // Initial log usually Supabase trigger create karega.
     // Agar ticket already existed ho aur trigger na chale,
@@ -1529,7 +1754,11 @@ class RepairRepository {
             .select()
             .single();
 
-    await OfflineStore.saveRepairTicket(RepairTicketModel.fromMap(data));
+    final remote = RepairTicketModel.fromMap(data);
+    final local = await LocalStore.loadRepairTicketById(remote.id);
+    if (local == null || !local.deliveryAccounting) {
+      await OfflineStore.saveRepairTicket(remote);
+    }
 
     await _client
         .from('repair_status_logs')
@@ -1612,14 +1841,6 @@ class RepairRepository {
       [ticketId],
     );
     return rows.map(RepairPartModel.fromMap).toList();
-  }
-
-  Future<double> _localPartCost(String ticketId) async {
-    final rows = await LocalDatabase.select(
-      'SELECT COALESCE(SUM(quantity * unit_cost_snapshot), 0) AS cost FROM repair_parts WHERE ticket_id = ?',
-      [ticketId],
-    );
-    return (rows.single['cost'] as num).toDouble();
   }
 
   Future<List<RepairPaymentModel>> _loadRepairPayments(String ticketId) async {

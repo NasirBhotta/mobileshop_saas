@@ -1360,6 +1360,10 @@ class LocalStore {
       'UPDATE customer_ledger_entries SET customer_id = ? WHERE customer_id = ?',
       [remoteCustomerId, localCustomerId],
     );
+    await LocalDatabase.execute(
+      'UPDATE repair_tickets SET customer_id = ? WHERE customer_id = ?',
+      [remoteCustomerId, localCustomerId],
+    );
     await LocalDatabase.execute('DELETE FROM customers WHERE id = ?', [
       localCustomerId,
     ]);
@@ -1586,9 +1590,10 @@ class LocalStore {
         updated_at,
         archived_at,
         archived_by,
-        photo_paths
+        photo_paths, delivery_accounting, customer_charge, service_charge,
+        discount_amount, per_job_commission, other_direct_cost, finalized_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
       [
         ticket.id,
@@ -1624,6 +1629,13 @@ class LocalStore {
         ticket.archivedAt?.toIso8601String(),
         ticket.archivedBy,
         jsonEncode(ticket.photoPaths),
+        ticket.deliveryAccounting ? 1 : 0,
+        ticket.customerCharge,
+        ticket.serviceCharge,
+        ticket.discountAmount,
+        ticket.perJobCommission,
+        ticket.otherDirectCost,
+        ticket.finalizedAt?.toIso8601String(),
       ],
     );
   }

@@ -860,6 +860,7 @@ class LocalDatabase {
       )
     ''');
     for (final column in const <(String, String)>[
+      ('delivery_accounting', 'INTEGER NOT NULL DEFAULT 0'),
       ('customer_charge', 'REAL'),
       ('service_charge', 'REAL NOT NULL DEFAULT 0'),
       ('discount_amount', 'REAL NOT NULL DEFAULT 0'),

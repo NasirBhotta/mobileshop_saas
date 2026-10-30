@@ -3,6 +3,31 @@ import 'package:mobileshop_saas/core/extensions/repair_ticket_ext.dart';
 import 'package:mobileshop_saas/features/repairs/domain/repair_accounting_contract.dart';
 
 void main() {
+  test(
+    'delivery accounting defers the legacy completion effects to handover',
+    () {
+      final effects = RepairAccountingContract.effectsFor(
+        deliveryAccounting: true,
+      );
+      expect(
+        effects[RepairFinancialEvent.ticketCompleted]!.inventoryDirection,
+        0,
+      );
+      expect(
+        effects[RepairFinancialEvent.ticketCompleted]!.revenueDirection,
+        0,
+      );
+      expect(
+        effects[RepairFinancialEvent.ticketDelivered]!.inventoryDirection,
+        -1,
+      );
+      expect(
+        effects[RepairFinancialEvent.ticketDelivered]!.revenueDirection,
+        1,
+      );
+      expect(effects[RepairFinancialEvent.ticketDelivered]!.moneyDirection, 0);
+    },
+  );
   test('completion recognizes economics but never moves money', () {
     final effect =
         RepairAccountingContract.effects[RepairFinancialEvent.ticketCompleted]!;

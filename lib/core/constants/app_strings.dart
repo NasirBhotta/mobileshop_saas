@@ -483,7 +483,7 @@ class AppStrings {
 
   static const String repairCompleteTitle = 'Complete Repair';
   static const String repairCompletionInfo =
-      'Parts are consumed and profit is finalized only after confirmation.';
+      'Completion records the repair charges. Stock and final profit are posted when the device is Delivered.';
   static const String repairAddPart = 'Add Part';
   static const String repairFinalBill = 'Final bill total (including parts)';
   static const String repairFinalBillHelper =
@@ -620,7 +620,7 @@ class AppStrings {
   static String repairPartsCost(double amount) =>
       'Parts cost: Rs ${amount.toStringAsFixed(0)}';
   static String repairGrossProfit(double amount) =>
-      'Gross profit: Rs ${amount.toStringAsFixed(0)}';
+      'Expected gross profit: Rs ${amount.toStringAsFixed(0)}';
   static String repairInventorySummary(int stock, double cost, String? sku) =>
       'Stock $stock • Cost Rs ${cost.toStringAsFixed(0)}'
       '${sku?.isNotEmpty == true ? ' • SKU $sku' : ''}';

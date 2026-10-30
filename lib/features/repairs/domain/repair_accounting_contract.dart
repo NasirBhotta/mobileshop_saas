@@ -11,6 +11,7 @@ enum RepairFinancialEvent {
   completedCancellation,
   ticketArchived,
 }
+
 // updated
 class RepairAccountingEffect {
   final int inventoryDirection;
@@ -29,6 +30,7 @@ class RepairAccountingEffect {
 }
 
 abstract final class RepairAccountingContract {
+  // Legacy contracts remain available for persisted v2 commands and records.
   static const effects = <RepairFinancialEvent, RepairAccountingEffect>{
     RepairFinancialEvent.ticketCreated: RepairAccountingEffect(
       inventoryDirection: 0,
@@ -80,6 +82,19 @@ abstract final class RepairAccountingContract {
       moneyDirection: 0,
     ),
   };
+
+  static Map<RepairFinancialEvent, RepairAccountingEffect> effectsFor({
+    required bool deliveryAccounting,
+  }) =>
+      deliveryAccounting
+          ? {
+            ...effects,
+            RepairFinancialEvent.ticketCompleted:
+                effects[RepairFinancialEvent.ticketCreated]!,
+            RepairFinancialEvent.ticketDelivered:
+                effects[RepairFinancialEvent.ticketCompleted]!,
+          }
+          : effects;
 
   static bool isFinanciallyFinalized(RepairTicketStatus status) =>
       status == RepairTicketStatus.completed ||

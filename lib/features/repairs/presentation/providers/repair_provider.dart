@@ -282,6 +282,9 @@ class RepairTicketController
       );
 
       state = AsyncData(updatedTicket);
+      if (status == RepairTicketStatus.delivered) {
+        _invalidateFinancialRepair(ticket.id);
+      }
 
       _ref.invalidate(repairTicketsProvider);
       _ref.invalidate(allRepairTicketsProvider);

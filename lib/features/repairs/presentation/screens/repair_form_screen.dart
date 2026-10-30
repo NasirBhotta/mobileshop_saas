@@ -1,3 +1,5 @@
+import 'package:mobileshop_saas/features/pos/data/models/customer_model.dart';
+import 'package:mobileshop_saas/features/pos/presentation/widgets/customer_attach_sheet.dart';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -27,6 +29,29 @@ class RepairFormScreen extends ConsumerStatefulWidget {
 
 class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
   final _formKey = GlobalKey<FormState>();
+
+  CustomerModel? _selectedCustomer;
+
+  void _chooseCustomer({bool create = false}) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder:
+          (_) => SingleChildScrollView(
+            child: CustomerAttachSheet(
+              ref: ref,
+              startWithAdd: create,
+              onSelected: (customer) {
+                setState(() {
+                  _selectedCustomer = customer;
+                  _customerNameController.text = customer.fullName;
+                  _customerPhoneController.text = customer.phone ?? '';
+                });
+              },
+            ),
+          ),
+    );
+  }
 
   // Customer fields
   final _customerNameController = TextEditingController();
@@ -108,6 +133,36 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
                     subtitle: AppStrings.repairCustomerDetailsSubtitle,
                     child: _ResponsiveFormWrap(
                       children: [
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            OutlinedButton(
+                              onPressed:
+                                  isSaving ? null : () => _chooseCustomer(),
+                              child: const Text('Select Existing Customer'),
+                            ),
+                            OutlinedButton(
+                              onPressed:
+                                  isSaving
+                                      ? null
+                                      : () => _chooseCustomer(create: true),
+                              child: const Text('Add New Customer'),
+                            ),
+                            TextButton(
+                              onPressed:
+                                  isSaving
+                                      ? null
+                                      : () => setState(
+                                        () => _selectedCustomer = null,
+                                      ),
+                              child: const Text('Manual / Guest'),
+                            ),
+                          ],
+                        ),
+                        if (_selectedCustomer != null)
+                          Text(
+                            'Linked customer: ${_selectedCustomer!.fullName}',
+                          ),
                         _AppTextField(
                           controller: _customerNameController,
                           label: AppStrings.repairCustomerName,
@@ -651,6 +706,7 @@ class _RepairFormScreenState extends ConsumerState<RepairFormScreen> {
     final controller = ref.read(repairTicketControllerProvider.notifier);
 
     final ticket = await controller.createTicket(
+      customerId: _selectedCustomer?.id,
       customerName: _customerNameController.text,
       customerPhone: _customerPhoneController.text,
       productId: productId,

@@ -11,6 +11,7 @@ class RepairFinancialLocalCommitter {
     double discount = 0,
     double commission = 0,
     double otherDirectCost = 0,
+    bool atDelivery = false,
   }) {
     return LocalDatabase.runInTransaction(() async {
       final sourceKey = 'repair:completion:$eventId';
@@ -29,13 +30,47 @@ class RepairFinancialLocalCommitter {
       if (ticketRows.isEmpty) throw StateError('Repair ticket not found.');
       final current = ticketRows.single;
       if (current['tenant_id'] != ticket.tenantId ||
-          current['branch_id'] != ticket.branchId ||
-          const {
-            'completed',
-            'delivered',
-            'cancelled',
-          }.contains(current['status'])) {
+          current['branch_id'] != ticket.branchId) {
+        throw StateError('Repair scope mismatch.');
+      }
+      if (atDelivery) {
+        if (current['status'] == 'delivered') return;
+        if (current['status'] != 'completed') {
+          throw StateError('Only completed tickets may be delivered.');
+        }
+        final posted = await LocalDatabase.select(
+          "SELECT 1 FROM repair_financial_events WHERE ticket_id = ? AND event_type = 'completion' LIMIT 1",
+          [ticket.id],
+        );
+        if (posted.isNotEmpty ||
+            current['finalized_at'] != null ||
+            current['delivery_accounting'] != 1) {
+          await LocalDatabase.execute(
+            "UPDATE repair_tickets SET status = 'delivered', delivered_at = ?, updated_at = ? WHERE id = ?",
+            [_now(), _now(), ticket.id],
+          );
+          await _insertStatusLog(
+            id: '$eventId-status',
+            ticket: ticket,
+            userId: userId,
+            oldStatus: 'completed',
+            newStatus: 'delivered',
+          );
+          return;
+        }
+      } else if (const {
+        'completed',
+        'delivered',
+        'cancelled',
+      }.contains(current['status'])) {
         throw StateError('Ticket cannot be completed.');
+      }
+      if (atDelivery) {
+        customerCharge = (current['customer_charge'] as num).toDouble();
+        serviceCharge = (current['service_charge'] as num).toDouble();
+        discount = (current['discount_amount'] as num).toDouble();
+        commission = (current['per_job_commission'] as num).toDouble();
+        otherDirectCost = (current['other_direct_cost'] as num).toDouble();
       }
       final paidRows = await LocalDatabase.select(
         'SELECT COALESCE(SUM(amount), 0) AS paid FROM repair_payments WHERE ticket_id = ?',
@@ -122,14 +157,16 @@ class RepairFinancialLocalCommitter {
       );
       await LocalDatabase.execute(
         '''
-        UPDATE repair_tickets SET status = 'completed',
+        UPDATE repair_tickets SET status = ?,
           customer_charge = ?, total_cost = ?, service_charge = ?,
           discount_amount = ?, parts_cost = ?, labor_cost = ?,
           per_job_commission = ?, other_direct_cost = ?,
-          completed_at = ?, finalized_at = ?, updated_at = ?
+          completed_at = COALESCE(completed_at, ?), finalized_at = ?, updated_at = ?,
+          delivered_at = CASE WHEN ? THEN ? ELSE delivered_at END
         WHERE id = ?
         ''',
         [
+          atDelivery ? 'delivered' : 'completed',
           customerCharge,
           customerCharge,
           serviceCharge,
@@ -141,6 +178,8 @@ class RepairFinancialLocalCommitter {
           _now(),
           _now(),
           _now(),
+          atDelivery ? 1 : 0,
+          _now(),
           ticket.id,
         ],
       );
@@ -149,10 +188,89 @@ class RepairFinancialLocalCommitter {
         ticket: ticket,
         userId: userId,
         oldStatus: current['status'] as String,
-        newStatus: 'completed',
+        newStatus: atDelivery ? 'delivered' : 'completed',
       );
     });
   }
+
+  static Future<void> prepare({
+    required RepairTicketModel ticket,
+    required String eventId,
+    required String userId,
+    required double customerCharge,
+    double serviceCharge = 0,
+    double discount = 0,
+    double commission = 0,
+    double otherDirectCost = 0,
+  }) => LocalDatabase.runInTransaction(() async {
+    final rows = await LocalDatabase.select(
+      'SELECT * FROM repair_tickets WHERE id = ?',
+      [ticket.id],
+    );
+    if (rows.isEmpty ||
+        rows.single['tenant_id'] != ticket.tenantId ||
+        rows.single['branch_id'] != ticket.branchId) {
+      throw StateError('Repair scope mismatch.');
+    }
+    final row = rows.single;
+    if (row['status'] == 'completed' &&
+        row['delivery_accounting'] == 1 &&
+        row['customer_charge'] == customerCharge &&
+        row['service_charge'] == serviceCharge &&
+        row['discount_amount'] == discount &&
+        row['per_job_commission'] == commission &&
+        row['other_direct_cost'] == otherDirectCost) {
+      return;
+    }
+    if (const {'completed', 'delivered', 'cancelled'}.contains(row['status'])) {
+      throw StateError('Ticket cannot be completed from its current status.');
+    }
+    for (final value in [
+      customerCharge,
+      serviceCharge,
+      discount,
+      commission,
+      otherDirectCost,
+    ]) {
+      if (!value.isFinite || value < 0) {
+        throw StateError('Invalid repair amount.');
+      }
+    }
+    final paid = await LocalDatabase.select(
+      'SELECT COALESCE(SUM(amount),0) AS paid FROM repair_payments WHERE ticket_id = ?',
+      [ticket.id],
+    );
+    if ((paid.single['paid'] as num) > customerCharge + 0.01) {
+      throw StateError('Customer charge cannot be below payments received.');
+    }
+    await LocalDatabase.execute(
+      """
+      UPDATE repair_tickets SET status = 'completed', delivery_accounting = 1,
+        customer_charge = ?, total_cost = ?, service_charge = ?, discount_amount = ?,
+        per_job_commission = ?, labor_cost = ?, other_direct_cost = ?, completed_at = ?, updated_at = ?
+      WHERE id = ?
+    """,
+      [
+        customerCharge,
+        customerCharge,
+        serviceCharge,
+        discount,
+        commission,
+        commission,
+        otherDirectCost,
+        _now(),
+        _now(),
+        ticket.id,
+      ],
+    );
+    await _insertStatusLog(
+      id: '$eventId-status',
+      ticket: ticket,
+      userId: userId,
+      oldStatus: row['status'] as String,
+      newStatus: 'completed',
+    );
+  });
 
   static Future<void> cancel({
     required RepairTicketModel ticket,
@@ -171,6 +289,10 @@ class RepairFinancialLocalCommitter {
       );
       if (ticketRows.isEmpty) throw StateError('Repair ticket not found.');
       final current = ticketRows.single;
+      if (current['tenant_id'] != ticket.tenantId ||
+          current['branch_id'] != ticket.branchId) {
+        throw StateError('Repair scope mismatch.');
+      }
       if (current['status'] == 'cancelled') return;
       final paid = await LocalDatabase.select(
         'SELECT COALESCE(SUM(amount), 0) AS paid FROM repair_payments WHERE ticket_id = ?',
@@ -253,8 +375,14 @@ class RepairFinancialLocalCommitter {
           ],
         );
       }
-      if (current['status'] == 'completed' ||
-          current['status'] == 'delivered') {
+      if ((current['status'] == 'completed' ||
+              current['status'] == 'delivered') &&
+          (current['delivery_accounting'] != 1 ||
+              current['finalized_at'] != null ||
+              (await LocalDatabase.select(
+                "SELECT 1 FROM repair_financial_events WHERE ticket_id = ? AND event_type = 'completion' LIMIT 1",
+                [ticket.id],
+              )).isNotEmpty)) {
         final sourceKey = 'repair:reversal:$eventId';
         if (await _eventExists(sourceKey)) return;
         final completion = await LocalDatabase.select(

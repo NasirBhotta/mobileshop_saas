@@ -47,6 +47,13 @@ class RepairTicketModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final DateTime? archivedAt;
+  final bool deliveryAccounting;
+  final double? customerCharge;
+  final double serviceCharge;
+  final double discountAmount;
+  final double perJobCommission;
+  final double otherDirectCost;
+  final DateTime? finalizedAt;
   final String? archivedBy;
 
   const RepairTicketModel({
@@ -82,6 +89,13 @@ class RepairTicketModel {
     this.createdAt,
     this.updatedAt,
     this.archivedAt,
+    this.deliveryAccounting = false,
+    this.customerCharge,
+    this.serviceCharge = 0,
+    this.discountAmount = 0,
+    this.perJobCommission = 0,
+    this.otherDirectCost = 0,
+    this.finalizedAt,
     this.archivedBy,
   });
 
@@ -138,6 +152,13 @@ class RepairTicketModel {
       createdAt: _date(map['created_at']),
       updatedAt: _date(map['updated_at']),
       archivedAt: _date(map['archived_at']),
+      deliveryAccounting: _bool(map['delivery_accounting']),
+      customerCharge: (map['customer_charge'] as num?)?.toDouble(),
+      serviceCharge: (map['service_charge'] as num?)?.toDouble() ?? 0,
+      discountAmount: (map['discount_amount'] as num?)?.toDouble() ?? 0,
+      perJobCommission: (map['per_job_commission'] as num?)?.toDouble() ?? 0,
+      otherDirectCost: (map['other_direct_cost'] as num?)?.toDouble() ?? 0,
+      finalizedAt: _date(map['finalized_at']),
       archivedBy: map['archived_by'] as String?,
     );
   }
@@ -176,6 +197,13 @@ class RepairTicketModel {
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
       'archived_at': archivedAt?.toIso8601String(),
+      'delivery_accounting': deliveryAccounting,
+      'customer_charge': customerCharge,
+      'service_charge': serviceCharge,
+      'discount_amount': discountAmount,
+      'per_job_commission': perJobCommission,
+      'other_direct_cost': otherDirectCost,
+      'finalized_at': finalizedAt?.toIso8601String(),
       'archived_by': archivedBy,
     };
   }
@@ -215,6 +243,13 @@ class RepairTicketModel {
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? archivedAt,
+    bool? deliveryAccounting,
+    double? customerCharge,
+    double? serviceCharge,
+    double? discountAmount,
+    double? perJobCommission,
+    double? otherDirectCost,
+    DateTime? finalizedAt,
     String? archivedBy,
   }) {
     return RepairTicketModel(
@@ -251,6 +286,13 @@ class RepairTicketModel {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       archivedAt: archivedAt ?? this.archivedAt,
+      deliveryAccounting: deliveryAccounting ?? this.deliveryAccounting,
+      customerCharge: customerCharge ?? this.customerCharge,
+      serviceCharge: serviceCharge ?? this.serviceCharge,
+      discountAmount: discountAmount ?? this.discountAmount,
+      perJobCommission: perJobCommission ?? this.perJobCommission,
+      otherDirectCost: otherDirectCost ?? this.otherDirectCost,
+      finalizedAt: finalizedAt ?? this.finalizedAt,
       archivedBy: archivedBy ?? this.archivedBy,
     );
   }

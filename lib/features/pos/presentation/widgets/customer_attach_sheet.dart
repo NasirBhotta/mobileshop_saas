@@ -1,3 +1,4 @@
+import '../../data/models/customer_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -19,8 +20,15 @@ void showCustomerSheet(BuildContext context, WidgetRef ref) {
 
 class CustomerAttachSheet extends ConsumerStatefulWidget {
   final WidgetRef ref;
+  final ValueChanged<CustomerModel>? onSelected;
+  final bool startWithAdd;
 
-  const CustomerAttachSheet({super.key, required this.ref});
+  const CustomerAttachSheet({
+    super.key,
+    required this.ref,
+    this.onSelected,
+    this.startWithAdd = false,
+  });
 
   @override
   ConsumerState<CustomerAttachSheet> createState() =>
@@ -31,6 +39,21 @@ class _CustomerAttachSheetState extends ConsumerState<CustomerAttachSheet> {
   final _searchCtrl = TextEditingController();
   String _query = '';
   bool _showAddForm = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _showAddForm = widget.startWithAdd;
+  }
+
+  void _select(CustomerModel customer) {
+    if (widget.onSelected != null) {
+      widget.onSelected!(customer);
+    } else {
+      ref.read(cartProvider.notifier).attachCustomer(customer);
+    }
+    Navigator.pop(context);
+  }
 
   // Add form controllers
   final _nameCtrl = TextEditingController();
@@ -84,7 +107,8 @@ class _CustomerAttachSheetState extends ConsumerState<CustomerAttachSheet> {
               ),
               const Spacer(),
               // Remove customer button
-              if (ref.read(cartProvider).customer != null)
+              if (widget.onSelected == null &&
+                  ref.read(cartProvider).customer != null)
                 TextButton(
                   onPressed: () {
                     ref.read(cartProvider.notifier).detachCustomer();
@@ -116,8 +140,7 @@ class _CustomerAttachSheetState extends ConsumerState<CustomerAttachSheet> {
               _CustomerSearchResults(
                 query: _query,
                 onSelected: (customer) {
-                  ref.read(cartProvider.notifier).attachCustomer(customer);
-                  Navigator.pop(context);
+                  _select(customer);
                 },
               ),
 
@@ -223,15 +246,14 @@ class _CustomerAttachSheetState extends ConsumerState<CustomerAttachSheet> {
       return;
     }
 
-    ref.read(cartProvider.notifier).attachCustomer(customer);
-    Navigator.pop(context);
+    _select(customer);
   }
 }
 
 // Search Results Widget
 class _CustomerSearchResults extends ConsumerWidget {
   final String query;
-  final ValueChanged<dynamic> onSelected;
+  final ValueChanged<CustomerModel> onSelected;
 
   const _CustomerSearchResults({required this.query, required this.onSelected});
 
